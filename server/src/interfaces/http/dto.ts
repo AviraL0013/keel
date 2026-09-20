@@ -4,13 +4,15 @@ export type AuthResponse = { address: string; chainId: number; connectedAt: stri
 export type BookDto = Omit<Book, 'userId'>
 export type PositionDto = {
   bookId: string; side: string; size: number | null; entryPrice: number | null; markPrice: number | null
-  liquidationPrice: number | null; leverage: number | null; unrealizedPnl: number | null; margin: number | null
+  liquidationPrice: number | null; liquidationEstimated: boolean; leverage: number | null; unrealizedPnl: number | null; margin: number | null
   status: string | null; observedAt: string | null
 }
+export type TelemetryFreshnessPointDto = { status: 'FRESH' | 'STALE' | 'UNKNOWN'; updatedAt: string | null; ageMs: number | null; thresholdMs: number }
+export type TelemetryFreshnessDto = { market: TelemetryFreshnessPointDto; position: TelemetryFreshnessPointDto; funding: TelemetryFreshnessPointDto; orderbook: TelemetryFreshnessPointDto; thresholdsMs: { marketMs: number; positionMs: number; fundingMs: number; orderbookMs: number } }
 export type BookTelemetryDto = {
   mark: number | null; oracle: number | null; bid: number | null; ask: number | null; mid: number | null
   spreadBps: number | null; fundingRate: number | null; depthNotional: number | null; volatility: number | null
-  block: number | null; timestamp: string | null; source: string | null; freshnessMs: number | null
+  block: number | null; timestamp: string | null; source: string | null; freshnessMs: number | null; freshness: TelemetryFreshnessDto | null
 }
 export type CapitalSnapshotDto = CapitalSnapshot
 export type ExecutionDto = {

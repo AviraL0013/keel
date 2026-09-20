@@ -30,12 +30,13 @@ export class PerplStateStore {
   private lastHeartbeatAt = 0
   reset() { this.accounts.clear(); this.positions.clear(); this.orders.clear(); this.fills.clear(); this.snapshots.clear(); this.wallet=undefined; this.heartbeatSequence=undefined; this.connected=false; this.lastHeartbeatAt=0 }
   disconnect() { this.connected=false }
-  ready(now=Date.now(), maximumAge=10000) { return this.connected && [19,23,26].every(type=>this.snapshots.has(type)) && now-this.lastHeartbeatAt<=maximumAge }
+  snapshotsReady() { return [19,23,26].every(type=>this.snapshots.has(type)) }
+  ready(now=Date.now(), maximumAge=10000) { return this.connected && this.lastHeartbeatAt > 0 && [19,23,26].every(type=>this.snapshots.has(type)) && now-this.lastHeartbeatAt<=maximumAge }
   apply(input: unknown, receivedAt=Date.now()) {
     const {payload: message}=decodeTradingMessage(input)
     if(message.mt===19) {
       if(typeof message.addr!=='string' || !Array.isArray(message.as) || !integer(message.sn)) throw new Error('PERPL_WALLET_SNAPSHOT_INVALID')
-      this.reset(); this.wallet={addr:message.addr,as:[]}; this.heartbeatSequence=message.sn; this.connected=true; this.lastHeartbeatAt=receivedAt
+      this.reset(); this.wallet={addr:message.addr,as:[]}; this.heartbeatSequence=message.sn; this.connected=true; this.lastHeartbeatAt=0
       for(const account of message.as) this.account(account)
       this.snapshots.add(19)
     } else if(message.mt===21) this.account(message)

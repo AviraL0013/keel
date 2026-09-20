@@ -5,29 +5,40 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/domain/auth_state.dart';
+
 void main() => runApp(const ProviderScope(child: KeelApp()));
-class KeelApp extends ConsumerStatefulWidget { const KeelApp({super.key}); @override ConsumerState<KeelApp> createState() => _KeelAppState(); }
+
+class KeelApp extends ConsumerStatefulWidget {
+  const KeelApp({super.key});
+  @override
+  ConsumerState<KeelApp> createState() => _KeelAppState();
+}
+
 class _KeelAppState extends ConsumerState<KeelApp> {
   @override
-  void initState() { super.initState(); Future.microtask(() => ref.read(authProvider.notifier).restore()); }
+  void initState() {
+    super.initState();
+    Future.microtask(() => ref.read(authProvider.notifier).restore());
+  }
+
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'KEEL', debugShowCheckedModeBanner: false,
-    theme: KeelTheme.light, darkTheme: KeelTheme.dark,
-    themeMode: ref.watch(themeModeProvider),
-    builder: (context, child) => ColoredBox(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 620), child: child)),
-    ),
-    home: _Gate(state: ref.watch(authProvider)),
-  );
+        title: 'KEEL',
+        debugShowCheckedModeBanner: false,
+        theme: KeelTheme.light,
+        darkTheme: KeelTheme.dark,
+        themeMode: ref.watch(themeModeProvider),
+        home: _Gate(state: ref.watch(authProvider)),
+      );
 }
+
 class _Gate extends StatelessWidget {
   const _Gate({required this.state});
   final AuthState state;
   @override
   Widget build(BuildContext context) {
-    if (state.restoring) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (state.restoring)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     return KeelRouter(authenticated: state.authenticated);
   }
 }

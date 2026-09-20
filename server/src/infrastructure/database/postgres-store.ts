@@ -1,5 +1,5 @@
 import pg from 'pg'
-import type { Book, BookPositionSeed, BookTelemetrySeed } from '../../../../packages/domain/src/index.js'
+import { defaultFreshnessThresholds, type Book, type BookPositionSeed, type BookTelemetrySeed } from '../../../../packages/domain/src/index.js'
 import { validateBookControls } from '../../bookControls.js'
 export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & { reserveAvailable?: number; initialPosition?: BookPositionSeed; initialTelemetry?: BookTelemetrySeed }
 export type StoredSession = { userId: string; walletAddress: string; expiresAt: number }
@@ -28,7 +28,7 @@ export class PostgresStore implements Store {
         await client.query('INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())', [book.id,p.size,p.entryPrice,p.markPrice,p.liquidationPrice,p.leverage,p.unrealizedPnl,p.margin,p.status])
         if (input.initialTelemetry) {
           const t = input.initialTelemetry
-          await client.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid) VALUES($1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)', [book.id,t.block,t.timestamp,t.mark,t.oracle,p.liquidationPrice,t.fundingRate,t.spreadBps,t.depthNotional,t.volatility,reserveAvailable,t.freshnessMs ?? 0,t.source ?? 'replay',t.bid,t.ask,t.mid])
+          await client.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid) VALUES($1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)', [book.id,t.block,t.marketTimestamp ?? t.timestamp,t.mark,t.oracle,p.liquidationPrice,t.fundingRate,t.spreadBps,t.depthNotional,t.volatility,reserveAvailable,t.freshnessMs ?? 0,t.source ?? 'replay',t.bid,t.ask,t.mid])
         }
       }
       await client.query("INSERT INTO reserve_ledger_entries(book_id,type,amount,external_reference) VALUES($1,'RESERVE_CREATED',$2,'book-creation')", [book.id, reserveAvailable])
@@ -53,8 +53,8 @@ export class PostgresStore implements Store {
       if (enabling) {
         const bound = await client.query(`SELECT p.book_id FROM positions p JOIN reserves r ON r.book_id=p.book_id
           JOIN LATERAL (SELECT timestamp FROM risk_snapshots WHERE book_id=p.book_id ORDER BY timestamp DESC LIMIT 1) rs ON true
-          WHERE p.book_id=$1 AND p.status='OPEN' AND p.observed_at>now()-interval '10 seconds'
-          AND rs.timestamp<=now() AND rs.timestamp>now()-interval '10 seconds'`, [bookId])
+          WHERE p.book_id=$1 AND p.status='OPEN' AND p.observed_at>now()-($2 * interval '1 millisecond')
+          AND rs.timestamp<=now() AND rs.timestamp>now()-($2 * interval '1 millisecond')`, [bookId, defaultFreshnessThresholds.marketMs])
         if (!current.marketId || !current.venueAccountId || !current.venuePositionId || !bound.rows.length) throw new Error('BOOK_NOT_ARMABLE')
       }
       const paused = patch.automationEnabled === false || patch.status === 'PAUSED'

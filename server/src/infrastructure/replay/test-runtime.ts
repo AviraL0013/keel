@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Action, Book, BookPositionSeed, BookTelemetrySeed, Decision } from '../../../../packages/domain/src/index.js'
+import { buildTelemetryFreshness, type Action, type Book, type BookPositionSeed, type BookTelemetrySeed, type Decision } from '../../../../packages/domain/src/index.js'
 import { evaluate } from '../../../../packages/risk-engine/src/index.js'
 import type { RuntimeVenue } from '../../runtime.js'
 import type { ExecutionRepository } from '../../workers/execution-worker.js'
@@ -16,21 +16,22 @@ export class DeterministicTestVenue implements RuntimeVenue {
   private currentPosition = { ...this.position }
   private currentTelemetry = { ...this.telemetry, source: 'replay' as const, freshnessMs: 1 }
   constructor(private readonly store: MemoryStore) {}
+  private telemetrySnapshot() { const now = Date.now(); const updatedAt = this.currentTelemetry.timestamp; return { ...this.currentTelemetry, freshness: buildTelemetryFreshness({ marketUpdatedAt: updatedAt, positionUpdatedAt: this.currentPosition.timestamp ?? now, fundingUpdatedAt: updatedAt, orderbookUpdatedAt: updatedAt }, now) } }
   ready() { return true }
   async start() {}
   async close() {}
   async validate() { return 'VALID' as const }
-  async listPositions() { return [{ marketId: MARKET_ID, market: 'BTC-PERP', accountId: ACCOUNT_ID, positionId: POSITION_ID, position: { ...this.currentPosition }, telemetry: { ...this.currentTelemetry } }] }
+  async listPositions() { return [{ marketId: MARKET_ID, market: 'BTC-PERP', accountId: ACCOUNT_ID, positionId: POSITION_ID, position: { ...this.currentPosition }, telemetry: this.telemetrySnapshot() }] }
   async loadBookSetup(marketId: number, accountId: number, positionId: number) {
     if (marketId !== MARKET_ID || accountId !== ACCOUNT_ID || positionId !== POSITION_ID) throw new Error('TEST_POSITION_NOT_FOUND')
-    return { market: 'BTC-PERP', position: { ...this.currentPosition }, telemetry: { ...this.currentTelemetry }, reserveAvailable: 600 }
+    return { market: 'BTC-PERP', position: { ...this.currentPosition }, telemetry: this.telemetrySnapshot(), reserveAvailable: 600 }
   }
   async capital() { return { status: 'VALID' as const, accountId: ACCOUNT_ID, ausdBalance: '1000.00', perplAvailable: '600.00', perplLocked: '100.00', bookReserved: null, bookDeployed: null, bookRemaining: null, unreservedCapital: '500.00' } }
   async refresh(book: Book) {
     const current = { ...this.currentPosition, markPrice: this.currentTelemetry.mark, unrealizedPnl: (this.currentTelemetry.mark - this.position.entryPrice) * this.position.size, timestamp: Date.now() }
     this.currentPosition = current
     this.store.setPosition(book.id, { ...current, bookId: book.id })
-    this.store.setTelemetry(book.id, { ...this.currentTelemetry, timestamp: Date.now(), freshnessMs: 1 })
+    this.store.setTelemetry(book.id, { ...this.telemetrySnapshot(), timestamp: Date.now(), freshnessMs: 1 })
   }
   async submit(action: Action) { return { venueReference: `test-order-${action.id}`, status: 'CONFIRMED' as const } }
   async reconcile(action: Action) { return { ...action, status: 'CONFIRMED' as const, confirmedAt: new Date().toISOString() } }

@@ -41,28 +41,84 @@ abstract final class KeelRadii {
 }
 
 abstract final class KeelTypography {
-  static const display = TextStyle(fontSize: 34, height: 1.0, fontWeight: FontWeight.w800, letterSpacing: -1.4);
-  static const title = TextStyle(fontSize: 22, height: 1.1, fontWeight: FontWeight.w800, letterSpacing: -.4);
-  static const section = TextStyle(fontSize: 16, height: 1.2, fontWeight: FontWeight.w800);
-  static const body = TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w500);
-  static const label = TextStyle(fontSize: 11, height: 1.1, fontWeight: FontWeight.w800, letterSpacing: 1.1);
-  static const metric = TextStyle(fontSize: 20, height: 1.1, fontWeight: FontWeight.w800, letterSpacing: -.3);
+  static const display = TextStyle(
+      fontSize: 34,
+      height: 1.0,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -1.4);
+  static const title = TextStyle(
+      fontSize: 22,
+      height: 1.1,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -.4);
+  static const section =
+      TextStyle(fontSize: 16, height: 1.2, fontWeight: FontWeight.w800);
+  static const body =
+      TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w500);
+  static const label = TextStyle(
+      fontSize: 11,
+      height: 1.1,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 1.1);
+  static const metric = TextStyle(
+      fontSize: 20,
+      height: 1.1,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -.3);
 }
 
 class KeelRiskVisual {
-  const KeelRiskVisual({required this.label, required this.description, required this.color, required this.foreground, required this.icon});
+  const KeelRiskVisual(
+      {required this.label,
+      required this.description,
+      required this.color,
+      required this.foreground,
+      required this.icon});
   final String label;
   final String description;
   final Color color;
   final Color foreground;
   final IconData icon;
   static KeelRiskVisual forState(String? state) => switch (state) {
-        'HOLD' => const KeelRiskVisual(label: 'HOLD', description: 'No action requested by the current backend decision.', color: KeelColors.hold, foreground: Colors.black, icon: Icons.check_circle_outline),
-        'DEFEND' => const KeelRiskVisual(label: 'DEFEND', description: 'Margin protection selected. Check execution for the outcome.', color: KeelColors.defend, foreground: Colors.black, icon: Icons.shield_outlined),
-        'REDUCE' => const KeelRiskVisual(label: 'REDUCE', description: 'The policy calls for less exposure.', color: KeelColors.reduce, foreground: Colors.black, icon: Icons.trending_down),
-        'EXIT' => const KeelRiskVisual(label: 'EXIT', description: 'The policy calls for closing exposure. Execution is tracked separately.', color: KeelColors.exit, foreground: Colors.black, icon: Icons.logout),
-        'SAFE_MODE' => const KeelRiskVisual(label: 'SAFE_MODE', description: 'Paused for safety. Review the reason before recovering automation.', color: KeelColors.safeMode, foreground: Colors.black, icon: Icons.pause_circle_outline),
-        _ => const KeelRiskVisual(label: 'UNKNOWN', description: 'Waiting for an authoritative risk decision.', color: KeelColors.darkMuted, foreground: Colors.black, icon: Icons.help_outline),
+        'HOLD' => const KeelRiskVisual(
+            label: 'HOLD',
+            description: 'No action requested by the current backend decision.',
+            color: KeelColors.hold,
+            foreground: Colors.black,
+            icon: Icons.check_circle_outline),
+        'DEFEND' => const KeelRiskVisual(
+            label: 'DEFEND',
+            description:
+                'Margin protection selected. Check execution for the outcome.',
+            color: KeelColors.defend,
+            foreground: Colors.black,
+            icon: Icons.shield_outlined),
+        'REDUCE' => const KeelRiskVisual(
+            label: 'REDUCE',
+            description: 'The policy calls for less exposure.',
+            color: KeelColors.reduce,
+            foreground: Colors.black,
+            icon: Icons.trending_down),
+        'EXIT' => const KeelRiskVisual(
+            label: 'EXIT',
+            description:
+                'The policy calls for closing exposure. Execution is tracked separately.',
+            color: KeelColors.exit,
+            foreground: Colors.black,
+            icon: Icons.logout),
+        'SAFE_MODE' => const KeelRiskVisual(
+            label: 'SAFE_MODE',
+            description:
+                'Paused for safety. Review the reason before recovering automation.',
+            color: KeelColors.safeMode,
+            foreground: Colors.black,
+            icon: Icons.pause_circle_outline),
+        _ => const KeelRiskVisual(
+            label: 'UNKNOWN',
+            description: 'Waiting for an authoritative risk decision.',
+            color: KeelColors.darkMuted,
+            foreground: Colors.black,
+            icon: Icons.help_outline),
       };
 }
 
@@ -72,26 +128,85 @@ class KeelTheme {
   static ThemeData get light => _build(Brightness.light);
   static ThemeData _build(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    final background = isDark ? KeelColors.darkBackground : KeelColors.lightBackground;
+    final background =
+        isDark ? KeelColors.darkBackground : KeelColors.lightBackground;
     final surface = isDark ? KeelColors.darkSurface : KeelColors.lightSurface;
-    final elevated = isDark ? KeelColors.darkElevated : KeelColors.lightElevated;
+    final elevated =
+        isDark ? KeelColors.darkElevated : KeelColors.lightElevated;
     final text = isDark ? KeelColors.darkText : KeelColors.lightText;
     final muted = isDark ? KeelColors.darkMuted : KeelColors.lightMuted;
     final border = isDark ? KeelColors.darkBorder : KeelColors.lightBorder;
-    final scheme = ColorScheme.fromSeed(seedColor: KeelColors.accent, brightness: brightness).copyWith(primary: KeelColors.accent, secondary: KeelColors.defend, surface: surface, error: KeelColors.exit, onSurface: text, onPrimary: Colors.black, onSecondary: Colors.black);
-    final inputBorder = OutlineInputBorder(borderRadius: BorderRadius.circular(KeelRadii.button), borderSide: BorderSide(color: border));
+    final scheme = ColorScheme.fromSeed(
+            seedColor: KeelColors.accent, brightness: brightness)
+        .copyWith(
+            primary: KeelColors.accent,
+            secondary: KeelColors.defend,
+            surface: surface,
+            error: KeelColors.exit,
+            onSurface: text,
+            onPrimary: Colors.black,
+            onSecondary: Colors.black);
+    final inputBorder = OutlineInputBorder(
+        borderRadius: BorderRadius.circular(KeelRadii.button),
+        borderSide: BorderSide(color: border));
     return ThemeData(
       brightness: brightness,
       colorScheme: scheme,
       scaffoldBackgroundColor: background,
-      cardTheme: CardThemeData(color: surface, margin: EdgeInsets.zero, elevation: isDark ? 0 : 1, shadowColor: Colors.black26, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(KeelRadii.card)))),
-      appBarTheme: AppBarTheme(backgroundColor: Colors.transparent, foregroundColor: text, elevation: 0, centerTitle: false, titleTextStyle: KeelTypography.title.copyWith(color: text)),
-      inputDecorationTheme: InputDecorationTheme(filled: true, fillColor: surface, border: inputBorder, enabledBorder: inputBorder, focusedBorder: inputBorder.copyWith(borderSide: const BorderSide(color: KeelColors.accent, width: 2)), labelStyle: KeelTypography.body.copyWith(color: muted)),
-      filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(backgroundColor: KeelColors.accent, foregroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(KeelRadii.button)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16), textStyle: KeelTypography.label.copyWith(letterSpacing: .4))),
-      outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(foregroundColor: text, side: BorderSide(color: border), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(KeelRadii.button)), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14), textStyle: KeelTypography.label.copyWith(color: text))),
-      navigationBarTheme: NavigationBarThemeData(backgroundColor: surface, indicatorColor: elevated, elevation: 8, labelTextStyle: WidgetStatePropertyAll(KeelTypography.label.copyWith(fontSize: 10, letterSpacing: .2, color: text))),
+      cardTheme: CardThemeData(
+          color: surface,
+          margin: EdgeInsets.zero,
+          elevation: isDark ? 0 : 1,
+          shadowColor: Colors.black26,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(KeelRadii.card)))),
+      appBarTheme: AppBarTheme(
+          backgroundColor: Colors.transparent,
+          foregroundColor: text,
+          elevation: 0,
+          centerTitle: false,
+          titleTextStyle: KeelTypography.title.copyWith(color: text)),
+      inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: surface,
+          border: inputBorder,
+          enabledBorder: inputBorder,
+          focusedBorder: inputBorder.copyWith(
+              borderSide: const BorderSide(color: KeelColors.accent, width: 2)),
+          labelStyle: KeelTypography.body.copyWith(color: muted)),
+      filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+              backgroundColor: KeelColors.accent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(KeelRadii.button)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              textStyle: KeelTypography.label.copyWith(letterSpacing: .4))),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+              foregroundColor: text,
+              side: BorderSide(color: border),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(KeelRadii.button)),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              textStyle: KeelTypography.label.copyWith(color: text))),
+      navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: surface,
+          indicatorColor: elevated,
+          elevation: 8,
+          labelTextStyle: WidgetStatePropertyAll(KeelTypography.label
+              .copyWith(fontSize: 10, letterSpacing: .2, color: text))),
       dividerTheme: DividerThemeData(color: border, space: 1),
-      textTheme: TextTheme(displayLarge: KeelTypography.display.copyWith(color: text), displayMedium: KeelTypography.display.copyWith(color: text), headlineSmall: KeelTypography.title.copyWith(color: text), titleLarge: KeelTypography.section.copyWith(color: text), titleMedium: KeelTypography.section.copyWith(color: text), bodyLarge: KeelTypography.body.copyWith(color: text), bodyMedium: KeelTypography.body.copyWith(color: muted), labelLarge: KeelTypography.label.copyWith(color: text), labelSmall: KeelTypography.label.copyWith(color: muted)),
+      textTheme: TextTheme(
+          displayLarge: KeelTypography.display.copyWith(color: text),
+          displayMedium: KeelTypography.display.copyWith(color: text),
+          headlineSmall: KeelTypography.title.copyWith(color: text),
+          titleLarge: KeelTypography.section.copyWith(color: text),
+          titleMedium: KeelTypography.section.copyWith(color: text),
+          bodyLarge: KeelTypography.body.copyWith(color: text),
+          bodyMedium: KeelTypography.body.copyWith(color: muted),
+          labelLarge: KeelTypography.label.copyWith(color: text),
+          labelSmall: KeelTypography.label.copyWith(color: muted)),
     );
   }
 }

@@ -9,6 +9,7 @@ import { ExecutionWorker } from './workers/execution-worker.js'
 import { MonitorScheduler } from './lifecycle.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
+  accountId?: number
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
   loadBookSetup?(marketId: number, accountId: number, positionId: number): Promise<{ market: string; position: BookPositionSeed; telemetry: BookTelemetrySeed; reserveAvailable: number }>
   listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: BookPositionSeed; telemetry?: BookTelemetrySeed }>>

@@ -3,12 +3,23 @@ class KeelException implements Exception {
   final String message;
   final int? statusCode;
   String get userMessage {
-    if (statusCode == 401) return 'Your KEEL session expired. Connect your wallet again.';
-    if (statusCode != null && statusCode! >= 500) return 'KEEL server unavailable. Check the backend and retry.';
-    if (message.contains('SocketException') || message.contains('ClientException') || message.contains('Failed to fetch')) return 'KEEL server unavailable. Check the backend and retry.';
-    if (message.startsWith('{')) return 'KEEL request failed. Review the current state and retry.';
+    if (statusCode == 401)
+      return 'Your KEEL session expired. Connect your wallet again.';
+    if (statusCode != null && statusCode! >= 500)
+      return 'KEEL server unavailable. Check the backend and retry.';
+    if (message.contains('SocketException') ||
+        message.contains('ClientException') ||
+        message.contains('Failed to fetch'))
+      return 'KEEL server unavailable. Check the backend and retry.';
+    if (message.startsWith('{'))
+      return 'KEEL request failed. Review the current state and retry.';
     return message;
   }
-  @override String toString() => message;
+
+  @override
+  String toString() => message;
 }
-String friendlyError(Object error) => error is KeelException ? error.userMessage : 'KEEL server unavailable. Check the backend and retry.';
+
+String friendlyError(Object error) => error is KeelException
+    ? error.userMessage
+    : 'KEEL server unavailable. Check the backend and retry.';

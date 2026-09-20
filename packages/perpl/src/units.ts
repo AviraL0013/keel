@@ -17,6 +17,13 @@ export const decodeSize = decodeScaled
 export const encodePrice = encodeScaled
 export const encodeSize = encodeScaled
 
+/** Perpl timestamps are milliseconds; normalize seconds defensively at the wire boundary. */
+export function decodeTimestamp(value: unknown): number | undefined {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined
+  return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+}
+
 /** Protocol Amount is an integer base-unit decimal string. Keep exact decimal text at boundaries. */
 export function decodeAmount(raw: string, decimals: number): string {
   if (!/^\d+$/.test(raw) || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 18) throw new Error('INVALID_AMOUNT')

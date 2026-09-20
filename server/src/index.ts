@@ -49,6 +49,7 @@ export async function startServer() {
   const config = loadConfig(process.env)
   const app = createServer()
   await app.listen({ port: config.port, host: '0.0.0.0' })
+  logger.info({ port: config.port, environment: config.environment }, 'KEEL API listening')
   return app
 }
 

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+﻿import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { isAddress } from 'viem'
 import type { Config } from '../../config/index.js'
 import { logger } from '../../config/index.js'
@@ -84,7 +84,23 @@ export function registerRoutes(context: HttpContext) {
 
   app.post('/connections/revoke', async request => { await persistence.revokeConnection((await requireSession(request)).userId); return { ok: true } })
   app.get('/connections', async request => { const current = await requireSession(request); if (!(persistence instanceof PostgresStore)) return context.venue ? [{ id: 'test-venue', environment: 'testnet', scope: 'read,trade', status: 'VALID', walletAddress: current.walletAddress }] : []; const result = await persistence.pool.query('SELECT id,environment,scope,status,created_at,revoked_at FROM perpl_connections WHERE user_id=$1 ORDER BY created_at DESC', [current.userId]); return result.rows })
-  app.post('/connections/perpl/validate', async request => { const current = await requireSession(request); if (!(persistence instanceof PostgresStore)) return context.venue?.validate ? { status: await context.venue.validate(), connections: [{ id: 'test-venue', environment: 'testnet', scope: 'read,trade', status: 'VALID', walletAddress: current.walletAddress }] } : { status: 'UNAVAILABLE', connections: [] }; const connection = await persistence.pool.query('SELECT id,environment,status FROM perpl_connections WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1', [current.userId]); if (!connection.rows.length) return { status: 'NOT_CONNECTED', connections: [] }; const expected = config.environment === 'mainnet' ? 'mainnet' : 'testnet'; const outcome = connection.rows[0].environment !== expected ? 'INVALID' : context.venue?.validate ? await context.venue.validate() : 'UNAVAILABLE'; const result = await persistence.pool.query('UPDATE perpl_connections SET status=$2 WHERE id=$1 RETURNING id,status', [connection.rows[0].id, outcome]); return { status: result.rows[0]?.status ?? outcome, connections: result.rows } })
+  app.post('/connections/perpl/validate', async request => {
+    const current = await requireSession(request)
+    if (!(persistence instanceof PostgresStore)) {
+      if (!context.venue?.validate) return { status: 'UNAVAILABLE', connections: [] }
+      return { status: await context.venue.validate(), connections: [{ id: 'test-venue', environment: 'testnet', scope: 'read,trade', status: 'VALID', walletAddress: current.walletAddress }] }
+    }
+    const connection = await persistence.pool.query('SELECT id,environment,status FROM perpl_connections WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1', [current.userId])
+    const expected = config.environment === 'mainnet' ? 'mainnet' : 'testnet'
+    if (!connection.rows.length && context.venue?.validate) {
+      const outcome = await context.venue.validate()
+      return { status: outcome, connections: [{ id: 'server-perpl', environment: expected, scope: 'read', status: outcome, accountId: context.venue.accountId }] }
+    }
+    if (!connection.rows.length) return { status: 'NOT_CONNECTED', connections: [] }
+    const outcome = connection.rows[0].environment !== expected ? 'INVALID' : context.venue?.validate ? await context.venue.validate() : 'UNAVAILABLE'
+    const result = await persistence.pool.query('UPDATE perpl_connections SET status=$2 WHERE id=$1 RETURNING id,status', [connection.rows[0].id, outcome])
+    return { status: result.rows[0]?.status ?? outcome, connections: result.rows }
+  })
   app.get('/connections/perpl/positions', async request => { await requireSession(request); if (!context.venue?.listPositions) return { status: 'UNAVAILABLE', positions: [] }; return { status: 'VALID', positions: await context.venue.listPositions() } })
   app.get('/capital', async request => { await requireSession(request); if (!context.venue?.capital) return { status: 'UNAVAILABLE' as const, ausdBalance: null, perplAvailable: null, perplLocked: null, bookReserved: null, bookDeployed: null, bookRemaining: null, unreservedCapital: null }; return context.venue.capital() })
   app.post('/devices', async request => { const current = await requireSession(request); const body = request.body as { pushToken?: string; platform?: string }; if (!body.pushToken || !['ios', 'android', 'web'].includes(body.platform ?? '')) throw new ValidationError('INVALID_DEVICE'); await persistence.registerDevice(current.userId, body.pushToken, body.platform!); return { ok: true } })
