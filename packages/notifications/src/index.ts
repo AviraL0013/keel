@@ -1,0 +1,5 @@
+﻿export type NotificationKind = 'DEFEND' | 'REDUCE' | 'EXIT' | 'SAFE_MODE' | 'ACTION_CONFIRMED' | 'ACTION_FAILED' | 'RECONCILIATION_FAILURE'
+export type NotificationMessage = { userId: string; kind: NotificationKind; title: string; body: string; dedupeKey: string }
+export interface PushProvider { send(message: NotificationMessage, pushToken: string): Promise<{ delivered: boolean; providerId?: string }> }
+export class NoopPushProvider implements PushProvider { async send() { return { delivered: false } } }
+export class WebhookPushProvider implements PushProvider { constructor(private readonly endpoint: string, private readonly apiKey: string) {} async send(message: NotificationMessage, pushToken: string) { const response = await fetch(this.endpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` }, body: JSON.stringify({ ...message, pushToken }) }); if (!response.ok) throw new Error(`PUSH_HTTP_${response.status}`); return { delivered: true, providerId: response.headers.get('x-request-id') ?? undefined } } }

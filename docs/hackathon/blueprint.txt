@@ -1,0 +1,735 @@
+P0: KEEL
+P1: Programmable risk operations for leveraged onchain positions
+P2: Company & Product Blueprint
+P3: Version 1.0  |  September 18, 2026
+P8: Source basis
+P9: This document consolidates the user-provided September 2026 Perpl × Agora research memo and validates current API/network details against official Perpl and Agora documentation. Claims that are assumptions, estimates, or future product directions are explicitly labeled.
+P10: Current official references: Perpl API documentation on GitHub; Agora Public API and AUSD developer documentation. See Appendix 27 for URLs.
+P12: Table of Contents
+P13: 1.  Executive Summary
+P14: 2.  Company Definition
+P15: 3.  Problem
+P16: 4.  Product Model: The Book
+P17: 5.  Decision Engine
+P18: 6.  Risk Model & Decision Logic
+P19: 7.  Mobile Product Experience
+P20: 8.  Perpl Integration
+P21: 9.  Agora / AUSD Integration
+P22: 10.  Monad Role
+P23: 11.  System Architecture
+P24: 12.  Data Model
+P25: 13.  Security & Trust Model
+P26: 14.  Failure Modes & Safety Controls
+P27: 15.  Hackathon MVP
+P28: 16.  Six-Week Build Plan
+P29: 17.  Demo Specification
+P30: 18.  Business Model
+P31: 19.  Go-To-Market
+P32: 20.  Metrics & Experimentation
+P33: 21.  Competitive Strategy
+P34: 22.  Moat & Long-Term Defensibility
+P35: 23.  Company Expansion Roadmap
+P36: 24.  Sponsor / Hackathon Alignment
+P37: 25.  Investor & Judge Narrative
+P38: 26.  Open Questions & Kill Criteria
+P39: 27.  Appendix: API Reference Map
+P40: 28.  Appendix: Terminology & Glossary
+P42: 1. Executive Summary
+P43: Keel exists because leveraged trading products stop at execution while the hardest operational problem begins immediately after entry: the position has to be monitored, funded, constrained, and sometimes killed. This is particularly acute in isolated-margin systems where each position has a separate margin boundary and collateral can be manually added to the position.
+P44: Perpl gives a third-party builder unusually relevant primitives: live market state, order book, trades, funding, positions, fills, account statistics, authenticated order placement, and an explicit IncreasePositionCollateral action. Perpl’s API keys can be scoped to read/trade and cannot withdraw or transfer funds out, which makes a risk-management layer materially safer to design than a general custody bot. [Sources: Perpl API repository; Perpl integrations documentation.]
+P45: Agora matters because AUSD is not merely an adjacent stablecoin in the current architecture: the user-provided research identifies AUSD as Perpl mainnet collateral. Agora’s current API also exposes real-time supply metrics plus authenticated accounts, routes, and transaction history. The retail MVP should not depend on privileged mint/redeem access; it should use AUSD already onchain and reserve Agora’s institutional routes for the company-scale funding layer. The official API confirms that Metrics is public while Accounts, Routes, and Transactions are authenticated. [Sources: Agora Public API; Transactions overview; Authentication.]
+P47: What Keel is not
+P48: Not another mobile version of a desktop CLOB terminal.
+P49: Not a generic AI trading chatbot or prediction engine.
+P50: Not a policy-language/SDK project for the six-week build.
+P51: Not a custodial wallet that can withdraw user funds.
+P52: Not a dashboard-only analytics product that can observe risk but cannot act on it.
+P53: One-sentence company definition
+P54: Keel is the operating layer that manages leveraged onchain positions after the trade is placed, beginning with mobile isolated-margin Books on Perpl.
+P55: 2. Company Definition
+P56: Category
+P57: Programmable risk operations for leveraged markets.
+P58: Beachhead
+P59: Mobile isolated-margin management for serious retail perp traders using Perpl on Monad.
+P60: Core abstraction: the Book
+P61: BOOK = POSITION + AUSD RESERVE + RISK CONSTRAINTS + LIVE TELEMETRY + BOUNDED ACTIONS
+P62: Company mission
+P63: Make leveraged positions operationally manageable rather than manually babysat.
+P64: Long-term vision
+P65: Become the default risk-control layer between a leveraged position and the venues, wallets, and capital rails that support it.
+P66: Strategic sequence
+P68: 3. Problem
+P69: The market problem
+P70: Most trading interfaces optimize the moment of entry: choose a market, set size and leverage, submit an order. Once the position exists, the trader becomes the monitoring system.
+P72: Why isolated margin creates a specific product opportunity
+P73: The supplied research shows the core Perpl behavior: isolated positions, funding effects, and a first-class collateral-add action. The important implication is not “auto-top-up.” It is that Perpl exposes enough state and actuation for a third party to build a real control loop around the position itself. [Source: user-provided Perpl × Agora research memo, §1.]
+P74: The problem statement
+P76: 4. Product Model: The Book
+P77: Book anatomy
+P79: User configuration: three controls, not a policy language
+P80: Cadence / Stance: Defend, Harvest, or Kill.
+P81: Floor: minimum liquidation-distance threshold.
+P82: Cap: maximum AUSD reserve allowed to deploy.
+P83: Time: maximum duration before forced exit/flatten.
+P84: The six-week product should hide complex policy logic. Advanced JSON policy objects, a policy compiler, and a public SDK are explicitly deferred until after user behavior proves the core loop.
+P85: Stances
+P87: The four operational states
+P89: 5. Decision Engine
+P90: Design principle
+P91: The engine is deterministic for the MVP. It consumes fresh Perpl state and user constraints, assigns a state, chooses one bounded action, and records the reason. No LLM is in the critical execution path.
+P92: LIVE STATE → NORMALIZE → DERIVE RISK FEATURES → CLASSIFY STATE → APPLY USER LIMITS → EXECUTE / HOLD → VERIFY → LOG
+P93: Inputs
+P94: Position state: side, size, entry, collateral, leverage, liquidation information.
+P95: Market state: mark/oracle/last/mid/bid/ask/open interest/volume.
+P96: Order book: best levels, depth, spread, estimated exit/rescue impact.
+P97: Funding: current funding event and recent funding history.
+P98: Volatility: realized volatility from recent candles.
+P99: Reserve: available AUSD budget and remaining defense allowance.
+P100: Book constraints: floor, cap, time limit, stance, action cooldowns.
+P101: Execution health: WebSocket freshness, block height, heartbeat status.
+P102: Derived risk features
+P104: Decision matrix
+P106: Defense should be conditional
+P107: Keel must never implement “if liq distance < X then add Y” as its complete logic. Before DEFEND it must answer four questions: (1) Is the position still within the user’s intended risk profile? (2) Is the market liquid enough to make the action useful? (3) Is the reserve sufficient after this action? (4) Did previous defense actually improve the Book? If any answer is no, the system transitions toward REDUCE or EXIT.
+P108: Example decision
+P109: BTC BOOK
+P110: Position: long 4,820 USDC-equivalent notional
+P111: Reserve: 300 AUSD
+P112: Floor: 6%
+P113: Cap: 100 AUSD
+P114: Time limit: 8h
+P116: Input state:
+P117: liq distance = 3.1%
+P118: funding = rising
+P119: realized vol = elevated
+P120: book depth = sufficient
+P121: reserve remaining = 100 AUSD
+P122: prior defense = none
+P124: Decision:
+P125: DEFEND → add 63 AUSD
+P126: Reason: floor breached; depth sufficient; reserve within cap; no prior defense failure
+P127: Refusal example
+P128: Next state:
+P129: liq distance = 3.4%
+P130: funding = sharply rising
+P131: book depth = deteriorating
+P132: prior defense improved distance only 0.3% for 63 AUSD
+P134: Decision:
+P135: EXIT
+P136: Reason: defense efficiency poor + liquidity deteriorated; spending more reserve violates Book intent
+P137: 6. Risk Model & Decision Logic
+P138: Important scope boundary
+P139: The MVP should compute robust relative risk features rather than pretend to build a perfect liquidation predictor. Venue-specific formulas and exact liquidation behavior must be taken from Perpl’s current protocol configuration rather than re-derived from assumptions. Perpl’s public type reference exposes initial margin, maintenance margin, fee and market-state/funding fields that should be consumed from live configuration. [Source: Perpl API types reference.]
+P140: Core metrics
+P142: MVP scoring philosophy
+P143: Avoid one opaque 0–100 score as the only output. The app may show a compact “Survival Score” for comprehension, but the underlying engine should preserve the atomic reasons: liquidation distance, funding, depth, reserve, volatility, and time. The judge demo should show both the state and its explanation.
+P144: Hard safety constraints
+P145: Never spend more than the Book cap.
+P146: Never rescue if the required action would violate the user’s configured stance.
+P147: Never execute from stale market state beyond a configured freshness window.
+P148: Never allow a recovery loop to repeatedly add collateral without checking defense efficiency.
+P149: Never use an API key to perform withdrawals or transfers out; Perpl documents that those actions are not permitted via API keys. [Source: Perpl integrations documentation.]
+P150: Fail closed for new risk when the risk engine loses required telemetry.
+P151: 7. Mobile Product Experience
+P152: Design goal
+P153: The mobile app is not a miniature trading terminal. It is the control surface for risk.
+P154: Primary home: Book card
+P155: ┌──────────────────────────────────────────────┐
+P156: │ BTC SWING                         DEFEND      │
+P157: │                                              │
+P158: │ 6.2x   •   LONG                              │
+P159: │ Liq distance         4.7%                    │
+P160: │ AUSD reserve         300                     │
+P161: │ Risk state            DEFEND                 │
+P162: │                                              │
+P163: │ Why: distance below floor; depth healthy     │
+P164: │ Action: 63 AUSD rescue within budget         │
+P165: │                                              │
+P166: │ [ DEFEND $63 ] [ REDUCE ] [ EXIT ]           │
+P167: └──────────────────────────────────────────────┘
+P168: Required screens
+P170: Notification examples
+P171: DEFEND
+P172: BTC Book entered DEFEND state.
+P173: 3.1% liq distance • 63 AUSD • reserve cap OK
+P174: [ Review ]
+P175: EXIT
+P176: Keel refused further rescue.
+P177: Reason: book depth deteriorated + prior defense was inefficient.
+P178: [ Review ]
+P179: SAFE MODE
+P180: Live risk data is stale.
+P181: No new automated exposure will be opened.
+P182: [ Open app ]
+P183: Mobile trust principles
+P184: Every automated action has a human-readable reason.
+P185: Every Book has an obvious kill switch.
+P186: Reserve consumption is always visible before and after action.
+P187: Permissions are explicit; the app cannot withdraw user funds through the Perpl API key.
+P188: Automation status is persistent and cannot be confused with a recommendation.
+P189: 8. Perpl Integration
+P190: Current builder surface
+P191: Perpl’s official API repository states that mainnet and testnet are both supported, with configurable API/WS URLs and distinct chain IDs and collateral tokens. The current public configuration lists mainnet chain ID 143 with AUSD collateral and testnet chain ID 10143 with a USD token. [Source: Perpl API repository.]
+P193: API key model
+P194: Perpl’s current integration documentation describes Ed25519 API keys, one-time wallet-authorized enrollment, and read/trade scopes. Trade implies read. Withdrawals and transfers-out are not permitted through API keys, and origin whitelisting is part of the enrollment flow. This is a critical part of Keel’s trust model. [Source: Perpl integrations documentation.]
+P195: Integration architecture
+P196: Mobile app
+P197: │
+P198: ├── wallet authorization
+P199: └── Keel backend
+P200: │
+P201: ├── Perpl WS multiplexer
+P202: ├── risk engine
+P203: ├── action executor
+P204: └── audit log
+P205: │
+P206: └── Perpl signed trade API
+P207: Testnet-first plan
+P208: The MVP should target Perpl testnet and Monad testnet for the actual trading loop. Perpl’s repository documents explicit testnet endpoints and a different collateral token; the implementation must treat network configuration as environment-specific rather than hard-coding mainnet assumptions. [Source: Perpl API repository.]
+P209: 9. Agora / AUSD Integration
+P210: Strategic role
+P212: What the MVP uses
+P213: AUSD token on Monad for the displayed reserve / funding flow.
+P214: AUSD deposit path into the trading account where supported by the Perpl environment.
+P215: Visible reserve-vs-margin accounting using the same AUSD denomination.
+P216: Optional public Agora supply metrics as a transparency layer, without pretending it is the core product.
+P217: What is deliberately deferred
+P218: Direct retail mint/redeem workflows that require permissions or institutional onboarding.
+P219: Building the MVP around authenticated Agora Routes/Accounts APIs.
+P220: Full cross-border fiat funding product.
+P221: Institutional treasury workflows.
+P222: Agora’s current API has a public Metrics surface and authenticated Accounts, Routes, and Transactions endpoints; authentication uses a long-lived API key exchanged for a short-lived session JWT. The Accounts/Routes/Transactions surfaces are currently documented as beta and should therefore be treated as integration points subject to change.
+P223: Company-scale Agora expansion
+P225: Current contract note
+P226: Agora’s official deployment page currently lists an AUSD token deployment on Monad mainnet at 0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a and a separate testnet token address. The implementation should load addresses by environment rather than assuming mainnet and testnet share one address. [Source: Agora contract deployments.]
+P227: 10. Monad Role
+P228: Why Monad matters
+P229: Keel is a control loop. The value of a control loop depends on state freshness, action latency, and transaction cost. The user-provided research frames Monad’s fast block cadence and inexpensive activity as material to making a block-by-block risk policy actionable. This is a product hypothesis to be demonstrated rather than a claim that every market event can be neutralized.
+P230: Monad is used for
+P231: Onchain AUSD balances and transfers.
+P232: Perpl execution and state settlement.
+P233: Fast confirmation for rescue/reduction/exit actions.
+P234: Transaction evidence in the Book autopsy.
+P235: Potential future onchain attestations of policy configuration and decision records.
+P236: Monad is not used for
+P237: An offchain matching engine — Perpl provides the venue.
+P238: An AI inference layer.
+P239: Artificially invented “onchain scores” that do not affect execution.
+P240: 11. System Architecture
+P241: ┌────────────────────── MOBILE APP ──────────────────────┐
+P242: │ Books • Reserve • Risk State • Decision • Kill Switch │
+P243: └─────────────────────────┬──────────────────────────────┘
+P244: │ HTTPS / WS
+P245: ┌─────────────────────────▼──────────────────────────────┐
+P246: │                     KEEL BACKEND                       │
+P247: │ API Gateway                                            │
+P248: │   ├─ Auth / user / device                               │
+P249: │   ├─ Book service                                      │
+P250: │   ├─ Perpl WS multiplexer                              │
+P251: │   ├─ Risk engine                                       │
+P252: │   ├─ Decision state machine                            │
+P253: │   ├─ Action executor                                   │
+P254: │   ├─ Notification service                              │
+P255: │   └─ Audit / autopsy store                             │
+P256: └───────────────┬───────────────────────┬────────────────┘
+P257: │                       │
+P258: ┌───────▼────────┐      ┌──────▼──────────┐
+P259: │     PERPL      │      │  MONAD / AUSD   │
+P260: │ WS + REST      │      │ balances / txs  │
+P261: └────────────────┘      └─────────────────┘
+P262: Backend components
+P264: Deployment principle
+P265: For the hackathon, keep the backend boring: one service or a small number of clearly separated modules. Do not create microservices for optics. The complexity should be in correctness and risk state, not infrastructure diagrams.
+P266: 12. Data Model
+P267: Core entities
+P268: User
+P269: id
+P270: wallet_address
+P271: created_at
+P273: Device
+P274: id
+P275: user_id
+P276: push_token
+P277: status
+P279: PerplConnection
+P280: user_id
+P281: key_id
+P282: scope
+P283: environment
+P284: origin
+P286: Book
+P287: id
+P288: user_id
+P289: market
+P290: side
+P291: position_id
+P292: stance
+P293: liquidation_floor
+P294: rescue_cap
+P295: time_limit
+P296: status
+P298: RiskSnapshot
+P299: book_id
+P300: block
+P301: timestamp
+P302: mark
+P303: funding
+P304: liq_distance
+P305: volatility
+P306: depth
+P307: reserve
+P308: state
+P310: Decision
+P311: id
+P312: book_id
+P313: state_before
+P314: decision
+P315: reason_codes[]
+P316: action
+P317: requested_amount
+P318: tx_hash
+P319: result
+P321: AutopsyEvent
+P322: book_id
+P323: timestamp
+P324: event_type
+P325: data
+P326: Reason codes
+P328: 13. Security & Trust Model
+P329: Threat model
+P331: Key custody model
+P332: Keel should not possess the ability to transfer funds out of the user’s Perpl account through the trading API. Perpl’s current integration documentation explicitly states that API keys cannot perform withdrawals or transfers-out. This materially limits the blast radius of an execution-key compromise. [Source: Perpl integrations documentation.]
+P333: Human control
+P334: Automation is opt-in per Book.
+P335: Kill switch disables future automated actions.
+P336: Each action is limited by Book-specific budgets.
+P337: Mobile shows automation status before and after execution.
+P338: All decisions are auditable in the autopsy timeline.
+P339: 14. Failure Modes & Safety Controls
+P341: Golden rule
+P343: 15. Hackathon MVP
+P344: MVP definition
+P345: A user can create one live Book on Perpl testnet, fund it with testnet collateral, open a controlled isolated position, define a stance/floor/cap/time limit, watch the live state, and allow Keel to make at least one real DEFEND action and one real REDUCE/EXIT decision, each with a visible explanation and audit trail.
+P346: Must ship
+P347: Mobile Book home.
+P348: Perpl public market-state, funding, order-book and private position streams.
+P349: Perpl authenticated trade connection.
+P350: Open isolated position + attached exit backstop.
+P351: AUSD/testnet reserve accounting by environment.
+P352: Risk feature calculation.
+P353: Four-state decision engine.
+P354: At least one working IncreasePositionCollateral path.
+P355: At least one working partial/full close path.
+P356: Push or in-app decision alerts.
+P357: Autopsy timeline.
+P358: Kill switch and action caps.
+P359: Explicitly do not ship
+P360: Generic AI trading assistant.
+P361: Public policy programming language.
+P362: Copy trading.
+P363: 12+ markets.
+P364: Full desktop terminal parity.
+P365: Institutional Agora mint/redeem workflows.
+P366: Multi-venue abstraction.
+P367: Complex smart-contract policy vault.
+P368: Predictive trading strategy generation.
+P369: 16. Six-Week Build Plan
+P371: Engineering priorities
+P372: 1.  Correctness of live state.
+P373: 2.  Safe execution and reconciliation.
+P374: 3.  Clear decision explanations.
+P375: 4.  Mobile UX polish.
+P376: 5.  Demo reliability.
+P377: 17. Demo Specification
+P378: Goal
+P379: Demonstrate that Keel is an active risk operator, not a prettier perp terminal.
+P380: Three-minute flow
+P381: 1.  Open with one Book: BTC long, leverage visible, AUSD reserve visible, risk state HOLD.
+P382: 2.  Show the user setting only stance, liquidation floor, rescue cap, and time limit.
+P383: 3.  Open the position via Perpl testnet and attach a hard exit backstop.
+P384: 4.  Run a controlled shock via testnet conditions, your own flow, or a recorded/replayed market-state sequence. The demo must be honest about whether the price move is live or replayed.
+P385: 5.  Keel changes state to DEFEND and displays one-sentence reason.
+P386: 6.  Execute real IncreasePositionCollateral and show the reserve and position state reconcile.
+P387: 7.  Apply a second deterioration where depth/funding/defense-efficiency makes further rescue irrational.
+P388: 8.  Keel transitions to REDUCE or EXIT, executes the close, and shows that it refused to spend more reserve.
+P389: 9.  Open the Autopsy and replay the decision timeline: inputs → decision → action → result.
+P390: 10.  Finish with the sponsor map: Perpl is the actuator; AUSD is the money rail; Monad is the settlement/control substrate; mobile is the operating surface.
+P391: The line that should stick
+P393: 18. Business Model
+P394: Initial monetization
+P396: Pricing hypothesis — clearly an assumption
+P397: Illustrative only: a low-basis-point fee on routed trading activity plus a $20–$50/month Pro tier for power users. These are hypotheses to test, not market facts.
+P398: Why users could pay
+P399: The economic proposition is loss avoidance and reduced monitoring burden, not “better predictions.” Users pay when Keel prevents unnecessary reserve consumption, reduces avoidable liquidation risk, or eliminates repeated manual monitoring.
+P400: Unit economics framework
+P401: Revenue / user = routed notional × effective fee + subscription
+P403: Gross margin = revenue - execution/API/infrastructure/notification costs
+P405: Key unknowns to validate:
+P406: - monthly routed notional per active user
+P407: - willingness to pay for risk automation
+P408: - retention after one month
+P409: - average reserve defended vs lost
+P410: - action acceptance rate
+P411: - false-positive exit rate
+P412: 19. Go-To-Market
+P413: Initial customer
+P414: Serious retail perp traders who already understand leverage and have experienced the operational pain of monitoring isolated positions. Do not target first-time speculators as the initial user.
+P415: Wedge distribution
+P416: Perpl ecosystem distribution and builder-code incentives where applicable.
+P417: “Liquidation autopsy” content: show what happened and what a risk operator could have done.
+P418: Shared Book templates: conservative, active, harvest, kill.
+P419: Mobile-first referrals: invite a trader to follow a public risk philosophy, not a copy-trading account.
+P420: Communities where traders already discuss funding, leverage, and risk.
+P421: Activation event
+P422: The first value moment should happen before a catastrophic event: the user creates a Book, sees the reserve/floor relationship, and experiences a real state transition. Do not make liquidation the only proof of value.
+P423: 20. Metrics & Experimentation
+P424: North-star candidate
+P426: Product metrics
+P428: The most important experiment
+P429: Compare outcomes of Keel-assisted Books against users’ normal manual management, with the same stated risk constraints. The objective is not higher speculative return. It is fewer uncontrolled risk events, less unnecessary reserve deployment, and fewer bad decisions made under time pressure.
+P430: 21. Competitive Strategy
+P432: Competitive answer to “Why can’t Perpl copy this?”
+P433: Perpl can and likely should improve native risk controls. Keel must therefore become more than a single toggle. Its strategic differentiation is the combination of a reusable Book object, multi-factor risk decisions, explicit reserve accounting, decision/outcome history, and eventually multi-venue portability. The company should assume that basic auto-margin functionality will be copied.
+P434: 22. Moat & Long-Term Defensibility
+P435: Moat candidates
+P437: Not a moat
+P438: A policy DSL by itself.
+P439: A 0–100 risk score by itself.
+P440: A prettier trading ticket.
+P441: Generic AI commentary.
+P442: A sponsor-specific dashboard.
+P443: 23. Company Expansion Roadmap
+P445: What changes at each step
+P446: The product expands from “protect my position” to “operate my leveraged capital.” The common abstraction remains the same: capital + constraints + telemetry + bounded actions.
+P447: 24. Sponsor / Hackathon Alignment
+P448: Track 01 — Onchain Finance & Trading
+P449: Keel qualifies as an onchain finance product because the core object is a leveraged financial position and the system uses onchain venue state and actions. The user-provided Metropolis brief explicitly positions Track 01 around trading, lending, and market infrastructure.
+P450: Perpl — Best Use of API
+P451: The product’s central execution and telemetry loop depends on Perpl API/WS functionality. The official Perpl integration repository explicitly frames these APIs for third-party trading terminals, bots, and portfolio trackers. [Source: Perpl integrations documentation.]
+P452: Perpl — Best Analytics / Risk Tool
+P453: Keel goes beyond observation: its analytics are connected directly to action. The product computes risk features, classifies the Book, executes bounded actions, and records outcomes. The risk engine is therefore an actuator-backed analytics product rather than a spectator dashboard.
+P454: Agora — Best Mobile Trading App
+P455: The mobile product should make AUSD visible as the same unit moving between reserve and margin. The current Agora documentation confirms that AUSD has a Monad deployment and that the public API includes supply metrics and a broader authenticated operational API.
+P456: Sponsor truth rule
+P458: 25. Investor & Judge Narrative
+P459: 30-second pitch
+P460: Keel is a mobile risk operator for leveraged onchain positions. Every trade becomes a Book: an isolated position, an AUSD reserve, and a few simple risk limits. Keel watches live market state, funding, liquidity, and liquidation distance and decides whether to hold, defend, reduce, or exit. Perpl provides the execution primitives. AUSD is the money rail. Monad provides the settlement environment. The point is not to keep every trade alive — it is to stop users from making the wrong decision under pressure.
+P461: 2-minute pitch
+P462: Trading products are optimized for opening positions. The hard part starts afterward. In isolated margin, every position carries its own risk boundary; funding can worsen that boundary while the trader is away from the screen, and additional collateral can either save a defensible position or simply throw good money after bad. Keel turns the position into a Book with three user-facing controls — stance, minimum liquidation distance, and reserve cap — plus a time limit. Under the hood, a deterministic risk engine watches live mark, funding, order-book depth, volatility, reserve, and previous defense outcomes. It can call Perpl to add collateral, reduce exposure, or exit. AUSD is the capital rail, not a sponsor badge. The mobile phone becomes the control surface for a position that is otherwise easy to neglect. Over time, the same risk model can expand from one venue to many.
+P463: Investor narrative
+P464: The initial company is not “an app with auto-margin.” It is a wedge into margin operations. Start with Perpl’s isolated books, prove that users trust deterministic defense/refuse/exit decisions, accumulate decision/outcome data, then expand to multi-book and multi-venue risk operations. The platform narrative is earned by usage rather than assumed at launch.
+P465: 26. Open Questions & Kill Criteria
+P466: Questions that must be answered during the build
+P468: Hard stop conditions
+P469: Keel cannot safely reconcile actions with actual Perpl position state.
+P470: Rescue decisions repeatedly destroy reserve without measurable benefit.
+P471: The product only works if market moves cooperate for the demo.
+P472: The mobile layer offers no distinct advantage over the existing web experience.
+P473: Agora integration becomes decorative instead of economically meaningful.
+P474: 27. Appendix: API Reference Map
+P475: Perpl — current official references
+P477: Perpl’s public repository currently documents mainnet and testnet endpoints, chain IDs, exchange addresses, and environment-specific collateral tokens. [Source: Perpl API repository.]
+P478: Agora — current official references
+P480: The current Agora Public API states that monetary values are returned as decimal strings and that every response carries a Request-Id header; engineering should preserve decimal precision and log request IDs.
+P481: Useful current Perpl details to preserve in implementation
+P482: Public context includes protocol and market configuration.
+P483: MarketState includes oracle, mark, last, mid, bid, ask, open interest and volume fields. [Source: Perpl API types reference.]
+P484: FundingEvent includes funding rate and payment-related fields. [Source: Perpl API types reference.]
+P485: Perpl SDK also provides a CLI for state snapshots and event tracing, useful for building the autopsy/debugging toolchain. [Sources: Perpl SDK repository; Perpl CLI documentation.]
+P486: 28. Appendix: Terminology & Glossary
+P489: Final Operating Doctrine
+P491: 1.  Do not build a prettier trading screen.
+P492: 2.  Do not build generic AI trading.
+P493: 3.  Do not build a policy compiler.
+P494: 4.  Do not make Agora decorative.
+P495: 5.  Do not depend on a lucky live market move for the demo.
+P496: 6.  Do not rescue a position merely because rescue is possible.
+P497: 7.  Build trust through bounded actions, visible reasons, and an auditable autopsy.
+P498: The company thesis is simple: venues sell leverage; Keel operates the risk that comes after leverage is turned on.
+
+TABLE 0
+THE THESIS / Keel is a mobile risk operator for isolated perpetual positions. It treats each position as a Book containing capital, constraints, live telemetry, and bounded actions. Its core job is not to keep every trade alive. Its core job is to decide, deterministically, whether to HOLD, DEFEND, REDUCE, or EXIT — and execute the chosen action within the user’s limits.
+
+TABLE 1
+Layer | Keel primitive
+User object | Book — one leveraged position plus reserve + policy
+Decision engine | Deterministic risk state machine
+Actuators | Perpl open / close / amend / add collateral / triggers
+Money rail | AUSD on Monad; same dollar for reserve and margin
+Primary interface | Mobile-first control surface
+Company expansion | From Perpl wedge → multi-book risk → multi-venue infrastructure
+
+TABLE 2
+CORE PRODUCT RULE / Keel must be able to refuse rescue. A system that only adds margin is a liquidation-delay machine. Keel’s differentiated behavior is the decision among HOLD, DEFEND, REDUCE, and EXIT.
+
+TABLE 3
+Stage | Focus | Proof required
+1 | Perpl mobile wedge | Users repeatedly create Books and trust decisions
+2 | Multi-book risk | Keel protects portfolios, not only single positions
+3 | Multi-venue | Same risk primitives work beyond one venue
+4 | B2B / API | Trading products embed Keel decisions and controls
+5 | Capital operations | Reserve allocation, treasury, and institutional risk workflows
+
+TABLE 4
+Failure mode | Why it matters | Current workaround | Keel response
+Liquidation distance shrinks | The position crosses from acceptable to dangerous quickly | Watch charts / alerts | Continuous state evaluation
+Funding accumulates | Holding cost changes the survival profile | Funding table / intuition | Funding-adjusted risk
+Liquidity deteriorates | The exit or rescue may consume the book | Manual order-book inspection | Depth-aware action gate
+Reserve is finite | Defending one trade can starve other capital | Spreadsheet / mental accounting | Explicit reserve budget
+Phone is away from desk | Risk changes while user is elsewhere | Push alert, if any | Mobile decision + pre-armed policy
+Bad thesis persists | More margin can delay rather than solve | Manual averaging down | REFUSE rescue / reduce / exit
+
+TABLE 5
+THE PROBLEM / A leveraged position is a live financial object, but current trading products mostly treat it as a static row on a dashboard. Keel turns that row into an object with a reserve, constraints, state transitions, and bounded actions.
+
+TABLE 6
+Component | Definition | Example
+Position | Live isolated long/short on Perpl | BTC long, 6.2x
+Reserve | AUSD held as deployable defense capital | 300 AUSD
+Stance | User intent about how Keel should manage risk | Defend
+Floor | Minimum tolerated liquidation distance | 6%
+Cap | Maximum reserve Keel may spend | 100 AUSD
+Time limit | When the Book must be flat | 8 hours
+Telemetry | Live state used to evaluate risk | mark, funding, depth, vol
+State | Current decision class | DEFEND
+Action log | Every decision, reason, and result | ballast @ block N
+
+TABLE 7
+Stance | Intent | Typical behavior
+Defend | Preserve the position while risk remains economically defensible | HOLD → DEFEND → REDUCE → EXIT
+Harvest | Accept tighter risk to realize or lock gains | Tighten exits; avoid rescue; protect gains
+Kill | Do not spend reserve defending the position | REDUCE / EXIT as soon as predefined danger is reached
+
+TABLE 8
+State | Decision principle | Example trigger
+HOLD | Noise; no action required | Liq distance above floor, funding acceptable, depth healthy
+DEFEND | Position still meets economic criteria; spend limited reserve | Liq distance below floor but liquidity and funding remain acceptable
+REDUCE | Risk is increasing; preserve some exposure without spending reserve aggressively | Funding high, depth weakening, or defense budget degraded
+EXIT | Keeping the position violates the Book’s risk constraints | Repeated failed defense, poor depth, time limit, severe risk
+
+TABLE 9
+Feature | Purpose | MVP treatment
+Liquidation distance | Primary danger boundary | Direct threshold
+Funding burn rate | Measures holding-cost pressure | Estimate AUSD / hour or equivalent
+Reserve ratio | Measures ability to defend | Remaining reserve / original cap
+Depth coverage | Tests whether the book can absorb intended action | Estimated slippage vs cap
+Volatility regime | Detects unstable conditions | Rolling realized volatility
+Time remaining | Prevents indefinite positions | Book age / time limit
+Defense efficiency | Measures whether prior rescue improved risk materially | Change in liq distance per AUSD
+Decision freshness | Prevents stale automation | Last state timestamp / block age
+
+TABLE 10
+Condition | Primary result | Allowed action
+Healthy + within constraints | HOLD | None / maintain attached exits
+Floor breached + healthy depth + reserve available + thesis not invalidated | DEFEND | Add collateral within cap
+Floor breached + reserve constrained or funding/depth deteriorating | REDUCE | Partial close / tighten exit
+Depth unsafe OR defense efficiency poor OR time limit reached OR kill stance | EXIT | Flatten / close
+State stale / feed unhealthy | SAFE MODE | No new entry; fail closed; user alert
+
+TABLE 11
+Metric | Definition / approach | Used for
+Liq distance | Relative distance between mark and liquidation threshold | Floor
+Spread | Ask - bid relative to mid | Liquidity gate
+Depth at price | Cumulative book notional within slippage bands | Execution gate
+Funding pressure | Recent funding rate × position exposure × time | Holding-cost pressure
+Volatility | Rolling realized vol from candle returns | Shock detection
+Reserve headroom | Remaining AUSD cap after potential action | Budget gate
+Defense efficiency | Risk-distance improvement / AUSD deployed | Refuse-rescue signal
+Time-to-limit | Time until forced flatten | Stale-position prevention
+
+TABLE 12
+Screen | Purpose | Must show
+Home / Books | Portfolio at a glance | Book status, reserve, liq distance, state
+Create Book | Configure intent | Market, side, size, stance, floor, cap, time
+Position detail | Explain current state | Risk drivers + live telemetry + actions
+Decision detail | Trust / audit | Why Keel chose action; source data; block/time
+Reserve | Capital accounting | AUSD available, reserved, deployed, remaining
+History / Autopsy | Learn from outcomes | Decision timeline, funding, actions, outcome
+Safety / Kill switch | Immediate user control | Disable automation; flatten option
+Settings | Permissions | API key scope, device, notifications, session
+
+TABLE 13
+Perpl capability | Keel use | Priority
+Public context | Load chain, token, market, IM/MM, fees, decimals | P0
+Market state WS | Live mark/oracle/bid/ask/OI/volume | P0
+L2 book WS | Depth / spread / action quality | P0
+Trades WS | Recent tape / shock context | P1
+Funding WS + history | Funding pressure / holding cost | P0
+Positions WS | Authoritative live position state | P0
+Wallet / account WS | Reserve and account state | P0
+Orders / fills WS | Action verification | P0
+Open / close / amend | Entry and risk reduction | P0
+IncreasePositionCollateral | Core DEFEND actuator | P0
+TP/SL trigger fields | Venue-side backstop | P0
+Account history | Funding / liquidation / collateral autopsy | P1
+Builder code | Monetize routed flow | P1
+
+TABLE 14
+AUSD IS THE CAPITAL RAIL / The strongest sponsor story is not an Agora metrics widget. It is that AUSD is the dollar the Book allocates between reserve and margin, while Perpl is the execution venue. The money object and the trading object share one unit of account.
+
+TABLE 15
+Phase | Agora capability | Keel value
+Funding | Routes / settlement | Connect external stable/fiat funding to AUSD reserve
+Cross-chain | AUSD bridging / chain movement | Move reserve closer to the trading venue
+Institutional | Accounts / transaction history | Treasury reconciliation and reporting
+Capital optimization | Rewards / idle-capital workflows | Give reserve capital a productive idle state
+
+TABLE 16
+Component | Responsibility | Reliability requirement
+API gateway | User/session/book operations | Stateless, authenticated
+WS multiplexer | Fan-in public + private Perpl streams | Reconnect + replay-safe
+State cache | Latest authoritative state | Timestamped by block / event
+Risk engine | Derive risk features | Deterministic, unit-tested
+Policy evaluator | Map features → state | Pure function preferred
+Action executor | Submit bounded Perpl action | Idempotent / deduplicated
+Verifier | Confirm resulting state | Never trust submit response alone
+Audit store | Decision and outcome history | Append-only semantics
+Notification router | Push alerts / in-app events | At-least-once acceptable
+
+TABLE 17
+Code | Meaning
+LIQ_FLOOR | Liquidation distance crossed configured floor
+FUNDING_PRESSURE | Funding materially worsened expected holding cost
+DEPTH_OK | Order-book liquidity passed execution gate
+DEPTH_BAD | Order-book liquidity failed execution gate
+RESERVE_OK | Action fits reserve cap
+RESERVE_LOW | Reserve too small for further defense
+DEFENSE_INEFFICIENT | Prior defense delivered inadequate risk improvement
+VOL_SPIKE | Volatility exceeded configured risk regime
+TIME_LIMIT | Book reached its configured time limit
+STALE_STATE | Required live state is stale
+USER_KILL | User disabled automation or requested exit
+
+TABLE 18
+Threat | Impact | Control
+Compromised API key | Unauthorized trades | Scoped trade key; no withdrawal authority; rotation
+Backend compromise | Unwanted position changes | Per-book caps; kill switch; server-side limits
+Stale WS data | Bad action | Freshness gate + safe mode
+Duplicate event | Double action | Idempotency key / action state
+Partial fill | Wrong position assumption | Post-action position verification
+Thin liquidity | Excessive slippage | Depth + slippage gate
+Position liquidated during action | Conflicting action | Re-read position before submit; reconcile after
+Push spoofing | User confusion | Signed / server-generated notifications; app deep link validation
+
+TABLE 19
+Failure | What can go wrong | Required behavior
+Market data disconnect | Risk state freezes | No new automated risk; monitor reconnect
+Stale position state | Action based on old position | Reconcile before submit
+Repeated defend loop | Reserve slowly drained | Defense cooldown + efficiency test
+Price gap | One-step decision too late | Pre-attached TP/SL + hard risk caps
+Thin book | Rescue/exit causes high slippage | Depth gate; prefer reduce over impossible rescue
+Funding shock | Holding cost destroys thesis | Funding threshold contributes to REDUCE/EXIT
+Backend outage | Automation unavailable | Venue-side triggers remain backstop; alert user
+Policy bug | Wrong action | Paper replay + kill switch + caps + canary users
+User misunderstanding | User thinks Keel guarantees survival | Clear product language: risk management, not liquidation insurance
+
+TABLE 20
+FAIL SAFE, NOT FAIL ACTIVE / When Keel cannot confidently establish the current state, it should stop initiating additional exposure. A trading-risk system must prefer inaction to uncertain automation.
+
+TABLE 21
+Week | Goal | Deliverables | Exit criterion
+1 | Protocol + data foundation | Perpl testnet connectivity, WS cache, wallet, Book schema | Live position state renders correctly
+2 | Trading loop | Open/close/amend + collateral add + verification | Real testnet actions succeed and reconcile
+3 | Risk engine | Features, thresholds, four-state machine, audit events | Deterministic unit tests pass
+4 | Mobile product | Book UI, reserve, decision detail, notifications, kill switch | End-to-end mobile flow works
+5 | Hardening | Failure injection, replay, slippage/depth gates, autopsy | System handles adverse scenarios safely
+6 | Demo + polish | Scripted shock, observability, sponsor proof, pitch | 3-minute demo can run without market luck
+
+TABLE 22
+JUDGE MOMENT / “The interesting action is not that Keel added collateral. The interesting action is that the second time, it refused — because defending the position no longer made economic sense under the user’s rules.”
+
+TABLE 23
+Revenue stream | Mechanism | Role
+Builder / routed trading fee | Fee on routed Perpl flow where supported | Primary usage revenue
+Pro subscription | Advanced Books, history, alerts, larger automation controls | Recurring revenue
+Later B2B | Policy / risk infrastructure for trading apps | Expansion revenue
+Later capital operations | Treasury / reserve workflows | Enterprise layer
+
+TABLE 24
+NORTH STAR / Protected trading capital under user-defined constraints — measured as the notional/position value managed while staying inside the Book’s stated risk envelope.
+
+TABLE 25
+Metric | What it tells us
+Books created / activated | Initial adoption
+Books with automation armed | Trust in automation
+Decision acceptance rate | Whether users agree with Keel
+DEFEND success rate | Does rescue materially improve the Book?
+REDUCE/EXIT precision | Does Keel cut trades users should no longer defend?
+Defense efficiency | Risk improvement per AUSD deployed
+Reserve waste rate | How much capital is spent on failed defense
+Monthly managed notional | Usage / monetization base
+30-day retention | Whether risk operations become habitual
+Manual intervention rate | How often users override Keel
+
+TABLE 26
+Alternative | Strength | Gap Keel targets
+Perp frontends | Fast execution / market access | Post-entry risk operations
+CEX mobile apps | Strong UX and deep liquidity | Policy-driven risk for isolated onchain books
+Analytics dashboards | Excellent visibility | Usually no actuator / no authority to act
+Liquidation heatmaps | Market-wide context | Not individualized, not user-constrained
+AI trading copilots | Natural-language interface | Weak determinism and generic advice
+Bots | Automation | Often strategy-focused, not risk-object-focused
+
+TABLE 27
+Moat | How it compounds | Time horizon
+Decision/outcome dataset | Each Book creates a labeled record: state → action → outcome | Months → years
+Defense efficiency models | Learn when rescue works and when it is wasteful | Months → years
+Behavioral risk profiles | Personalized constraints and risk tolerance from usage | Months
+Mobile habit | Notifications + Books create recurring operating behavior | Months
+Venue-specific execution intelligence | Depth/slippage/action outcomes by market | Months
+Distribution | Perpl/Monad ecosystem + trader communities | Months
+Multi-venue policy layer | Lets risk logic travel across venues | Long-term
+
+TABLE 28
+Phase | Product | Business milestone
+0 | Keel Mobile / Perpl Books | Prove willingness to use automation
+1 | Multi-book risk dashboard | Increase capital managed per user
+2 | Multi-venue adapters | Reduce dependence on one venue
+3 | Keel Risk API | Enable third-party trading apps
+4 | Institutional risk desk | Funds, treasuries, professional traders
+5 | Capital orchestration | Reserve allocation, stablecoin funding, treasury operations
+
+TABLE 29
+DO NOT FORCE INTEGRATIONS / Never add a sponsor API just to place a logo on the demo. If a capability does not affect the core product, keep it out of the MVP and label it as future infrastructure.
+
+TABLE 30
+Question | Evidence needed | Kill / pivot signal
+Do users trust automated risk decisions? | Armed Books + low override friction | Users refuse automation even after successful tests
+Does DEFEND save meaningful value? | Outcome replay / AUSD efficiency | Rescue rarely improves outcomes
+Does REFUSE create user value? | Autopsy + avoided reserve burn | Users prefer endless averaging down
+Is the mobile experience materially better? | Time-to-action + repeat use | Users return to desktop for every decision
+Can Perpl support the needed volume? | API stability / liquidity / limits | System cannot operate reliably at target usage
+Is one venue enough for the wedge? | Retention and managed notional | Venue liquidity prevents viable user value
+Will users pay? | Subscription / fee conversion tests | High usage but zero willingness to pay
+
+TABLE 31
+Area | Official reference | Why it matters
+API overview | github.com/PerplFoundation/api-docs | Current API and network configuration
+Integrations | github.com/PerplFoundation/api-docs/blob/main/integrations.md | Third-party keys, scopes, builder codes
+Types | github.com/PerplFoundation/api-docs/blob/main/types.md | Market/config/state/funding structures
+SDK | github.com/PerplFoundation/dex-sdk | Rust SDK + CLI for exchange state and events
+
+TABLE 32
+Area | Official reference | Why it matters
+Public API | docs.agora.finance/api | Metrics, Accounts, Routes, Transactions
+Authentication | docs.agora.finance/api/authentication | API key → short-lived JWT
+Transactions | docs.agora.finance/api/endpoints/transactions/overview | Mint / redeem / bridge / rewards / return history
+AUSD deployment | docs.agora.finance/developer/contract-deployments | Environment-specific token addresses
+Contract overview | docs.agora.finance/contract-overview | ERC-20 and additional ERC capabilities
+
+TABLE 33
+Term | Definition
+Book | Keel’s core user object: position + reserve + constraints + telemetry + actions.
+Reserve | AUSD capital the Book is allowed to deploy for defense, subject to the cap.
+Stance | User intent: Defend, Harvest, or Kill.
+Floor | Minimum liquidation distance the Book is configured to tolerate.
+Cap | Maximum AUSD Keel may deploy for defense.
+Defense efficiency | Measured improvement in risk per unit of AUSD deployed.
+Autopsy | A chronological explanation of the Book’s state, decisions, transactions, and outcomes.
+Actuator | A real action Keel can trigger at the venue: add collateral, reduce, close, amend, or trigger.
+Safe mode | The fail-closed state entered when required telemetry or reconciliation is unreliable.
+Builder code | Perpl mechanism for attributing routed flow and potentially collecting a builder fee.
+AUSD | Agora’s stablecoin used as Perpl mainnet collateral according to the supplied research and current deployment docs.
+
+TABLE 34
+BUILD THIS / Ship the smallest system that can look at a live isolated Book and correctly choose HOLD, DEFEND, REDUCE, or EXIT — then explain that choice in one sentence on a phone.

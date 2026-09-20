@@ -1,0 +1,531 @@
+# Perpl API Documentation
+
+API documentation for the Perpl perpetual futures exchange on Monad.
+
+## Overview
+
+The Perpl API provides two communication channels:
+
+| Channel | Protocol | Purpose | Auth Required |
+|---------|----------|---------|---------------|
+| REST API | HTTPS | History queries, authentication, profile | Varies |
+| WebSocket | WSS | Real-time data, trading | Varies |
+
+**Base URL**: Configured via environment (see [Configuration](#configuration))
+
+Code examples for JavaScript, Rust, Python and TypeScript can be found in examples/
+
+## Quick Start
+
+### 1. Get Market Data (No Auth)
+
+```typescript
+const API_URL = process.env.PERPL_API_URL || 'https://app.perpl.xyz/api';
+
+// Fetch context (markets, tokens, chain config)
+const context = await fetch(`${API_URL}/v1/pub/context`)
+  .then(r => r.json());
+
+console.log(context.markets); // Available markets
+console.log(context.chain);   // Chain configuration
+```
+
+### 2. Connect to Market Data WebSocket
+
+```typescript
+const WS_URL = process.env.PERPL_WS_URL || 'wss://app.perpl.xyz';
+
+const ws = new WebSocket(`${WS_URL}/ws/v1/market-data`);
+
+ws.onopen = () => {
+  // Subscribe to BTC order book (market_id=1 on mainnet)
+  ws.send(JSON.stringify({
+    mt: 5, // MsgTypeSubscriptionRequest
+    subs: [{ stream: 'order-book@1', subscribe: true }]
+  }));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  console.log('Message type:', msg.mt);
+};
+```
+
+### 3. Authenticate (Required for Trading)
+
+Programmatic clients authenticate with **API keys** (an Ed25519 key pair). You
+enroll the public key once — authorized by a one-time wallet signature — and
+then sign every request with the private key. There is no session cookie or
+bearer token.
+
+Create a key from the web UI (**mainnet** [app.perpl.xyz/apikeys](https://app.perpl.xyz/apikeys),
+**testnet** [testnet.perpl.xyz/apikeys](https://testnet.perpl.xyz/apikeys)).
+Third-party integrations can enroll keys programmatically — see
+**[Integrations](./integrations.md)**. For how to sign each request with a key,
+see **[Authentication](./authentication.md)**.
+
+```typescript
+import * as ed from '@noble/ed25519';
+import { createHash, randomBytes } from 'crypto';
+
+const API_URL = process.env.PERPL_API_URL || 'https://app.perpl.xyz/api';
+const CHAIN_ID = Number(process.env.PERPL_CHAIN_ID) || 143;
+
+// An enrolled key (from the web UI or Integrations enrollment), read from the environment:
+const API_KEY = process.env.PERPL_API_KEY;                    // the opaque X-API-Key token
+const privateKey = Buffer.from((process.env.PERPL_API_KEY_SECRET ?? '').replace(/^0x/, ''), 'hex'); // Ed25519 private key
+
+// Sign the canonical string and send the four X-API-* headers.
+const target = '/v1/trading/fills?count=1';
+const timestamp = Date.now().toString();
+const nonce = randomBytes(16).toString('base64url');
+const bodyHash = createHash('sha256').update('').digest('hex');
+const canonical = [CHAIN_ID, 'GET', target, timestamp, nonce, bodyHash].join('\n');
+const sig = await ed.signAsync(Buffer.from(canonical), privateKey);
+
+const response = await fetch(`${API_URL}${target}`, {
+   headers: {
+      'X-API-Key': API_KEY,
+      'X-API-Timestamp': timestamp,
+      'X-API-Nonce': nonce,
+      'X-API-Signature': Buffer.from(sig).toString('base64url'),
+   },
+});
+
+console.log(await response.json());
+```
+
+> **Important**: Successful API authentication does NOT mean you have an exchange account,
+> and an exchange account alone does NOT mean you can post orders through this API — order
+> forwarding must also be enabled on-chain. See
+> [API Auth vs Smart Contract Account](#api-auth-vs-smart-contract-account) below.
+> Some calls will return 404 if a Smart Contract Account has not been created.
+
+## API Reference
+
+| Document | Description |
+|----------|-------------|
+| [Authentication](./authentication.md) | Signing requests with an API key |
+| [Integrations](./integrations.md) | API key enrollment for third-party services, and builder codes |
+| [REST Endpoints](./rest-endpoints.md) | All HTTP endpoints |
+| [WebSocket](./websocket.md) | Real-time streams and trading |
+| [Types](./types.md) | Data type reference |
+| [Examples](./examples.md) | Code examples |
+
+## Configuration
+
+All URLs and chain settings are configurable via environment variables. Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PERPL_API_URL` | `https://app.perpl.xyz/api` | REST API base URL |
+| `PERPL_WS_URL` | `wss://app.perpl.xyz` | WebSocket base URL |
+| `PERPL_CHAIN_ID` | `143` | Chain ID |
+| `PERPL_RPC_URL` | `https://rpc.monad.xyz` | RPC URL for on-chain ops |
+| `PERPL_EXCHANGE_ADDRESS` | `0x34B6552d...` | Exchange contract |
+| `PERPL_COLLATERAL_TOKEN` | `0x00000000eF...` | AUSD collateral token |
+
+## Network Configuration
+
+Perpl runs on both **Mainnet** (default) and **Testnet**.
+
+| | Mainnet (default) | Testnet |
+|---|---|---|
+| REST API | `https://app.perpl.xyz/api` | `https://testnet.perpl.xyz/api` |
+| WebSocket | `wss://app.perpl.xyz` | `wss://testnet.perpl.xyz` |
+| Chain ID | `143` | `10143` |
+| RPC | `https://rpc.monad.xyz` | `https://testnet-rpc.monad.xyz` |
+| Exchange | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` | `0x1964c32f0be608e7d29302aff5e61268e72080cc` |
+| Collateral | `0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a` (AUSD) | `0xdf5b718d8fcc173335185a2a1513ee8151e3c027` (USD) |
+
+To use testnet, set the environment variables to testnet values.
+
+## Markets
+
+Market IDs differ between networks:
+
+**Mainnet**:
+| Market ID | Symbol |
+|-----------|--------|
+| 1 | BTC |
+| 10 | MON |
+| 20 | ETH |
+| 31 | SOL |
+| 40 | HYPE |
+| 50 | ZEC |
+
+**Testnet**:
+| Market ID | Symbol |
+|-----------|--------|
+| 16 | BTC |
+| 32 | ETH |
+| 48 | SOL |
+| 64 | MON |
+| 256 | ZEC |
+
+## Fees & fee tiers
+
+Trading fees are **per market** and **per fee tier**. Two things determine the
+rate on a fill: the market's fee schedule (`MarketConfig`) and the account's own
+fee tier (`Account.ft`).
+
+Fees are charged only on the size that **opens or increases** a position —
+closing or reducing is fee-free. Whether the maker or taker rate applies is
+decided at match time and reported per fill (`Fill.l`: 1 = maker, 2 = taker).
+
+### Reading the rate
+
+`MarketConfig` carries the whole schedule, in **micros** (`10^-6` fractions;
+`1000` = 0.1% = 10 bps):
+
+```typescript
+maker_fee: Micros;      // base tier, equals maker_fees[0]
+taker_fee: Micros;      // base tier, equals taker_fees[0]
+maker_fees?: Micros[];  // one entry per fee tier, index 0 = base
+taker_fees?: Micros[];  // one entry per fee tier, index 0 = base
+```
+
+`Account.ft` is that account's tier — an **index into those arrays**, where `0`
+is the base rate and higher tiers are progressively discounted. Together they let
+you compute your own effective rate without any extra endpoint:
+
+```typescript
+// market: from /api/v1/pub/context or the market-config stream (mt: 8)
+// account: from the WalletSnapshot (mt: 19) or an account update (mt: 21)
+function feeMicros(market: Market, account: Account, isMaker: boolean): number {
+  const tiers = isMaker ? market.config.maker_fees : market.config.taker_fees;
+  const base  = isMaker ? market.config.maker_fee  : market.config.taker_fee;
+  // The arrays are omitted until the schedule has been indexed — fall back to base.
+  return tiers?.[account.ft] ?? base;
+}
+
+// Fee on a fill that opens/increases a position, in collateral units:
+//   fee = notional * feeMicros / 1_000_000
+```
+
+The arrays are `omitempty`: treat a missing array as "base tier only" rather than
+as an error, and range-check `ft` against the array length before indexing.
+
+### How a tier is assigned
+
+- Tiers are earned from **rolling 14-day trading volume**, re-evaluated
+  periodically in the background — not per order. Published thresholds are at
+  [docs.perpl.xyz/exchange/fees](https://docs.perpl.xyz/exchange/fees).
+- A change reaches you as an ordinary **account update** (`mt: 21`) with a new
+  `ft`. Re-read it from every update instead of caching the snapshot value; it is
+  resolved on-chain at fill time, so a stale local copy only affects your own
+  cost estimates.
+
+### What you are charged, as reported
+
+Fee amounts on `Order` (`mt: 24`), `Fill` (`mt: 25`) and `AccountEvent` are
+**gross**: `f` is the total paid, protocol fee **plus** any builder fee, with the
+builder portion broken out as `bfa` (and lifetime as `tbf` inside `tf` on
+`AccountStats`). Never add `f` and `bfa` together. See
+[Integrations → Builder codes](./integrations.md#builder-codes).
+
+## Rate Limits
+
+### WebSocket
+
+Trading and market data are **separate servers with separate limits**. Sizing a
+market-data client against the trading numbers will get it closed.
+
+**Trading** (`/ws/v1/trading`):
+
+| | Testnet | Mainnet |
+|---|---|---|
+| Requests | 60/min | 120/min |
+| Connections | 4 per wallet address | 4 per wallet address |
+
+The connection cap is keyed on the owning **wallet address**, not the individual
+key. Every API key enrolled on a wallet shares one budget of 4, and logged-in
+browser sessions count against the same budget — a desk running two keys does
+not get 8 connections.
+
+Higher limits may be available for market makers — contact Perpl.
+
+**Market data** (`/ws/v1/market-data`) — per connection, identical on testnet and
+mainnet:
+
+| | Limit |
+|---|---|
+| Requests | 10/min |
+| Subscriptions | 16 |
+
+Application-level pings count toward the request budget, so a 30s keep-alive spends
+2 of the 10. Market-data connections do not need one — see
+[Keep-Alive](./websocket.md#keep-alive).
+
+Exceeding a **request-rate** limit closes the connection with code `1008` and no
+per-request status — anything in flight is lost silently. See
+[WebSocket Close Codes](#websocket-close-codes) for the reason strings.
+
+The **subscription** cap does not close the connection. The individual subscribe
+fails inside the `mt: 6` SubscriptionResponse with `code: 429`
+(`too many subscriptions`) and the socket stays usable — unsubscribe from
+something and retry.
+
+> [!NOTE]
+> Use Change orders instead of Post + Cancel.
+
+### REST
+
+REST requests are rate-limited at the edge. Limits are not published and may
+change without notice — treat HTTP 429 as the signal and back off exponentially
+(example below).
+
+```typescript
+// Handle rate limiting with exponential backoff
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    const res = await fetch(url, options);
+    if (res.status === 429) {
+      const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+    return res;
+  }
+  throw new Error('Rate limit exceeded after retries');
+}
+```
+
+## Error Handling
+
+### HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success |
+| 400 | Bad Request |
+| 401 | Unauthorized - bad/stale signature, replayed nonce, or revoked/expired key |
+| 403 | Forbidden - scope insufficient |
+| 404 | Not Found |
+| 429 | Too Many Requests |
+| 500 | Internal Server Error |
+
+### WebSocket Close Codes
+
+| Code | Reason | Meaning |
+|------|--------|---------|
+| 1008 | `too many requests` | Request rate limit exceeded |
+| 1008 | `too many connections` | Connection cap exceeded |
+| 1008 | `ping timeout` | No response to the server's ping |
+| 1008 | `idle timeout` | No frame received within the idle window (5s mainnet, 10s testnet). Applies to the initial sign-in frame too |
+| 1011 | `failed to process` | Unknown market, an account not owned by the connected wallet, or an unparseable frame |
+| 1013 | `send buffer overflow` | The client is not reading fast enough: its send buffer stayed full for the whole server I/O timeout. Retry after a pause, and consume messages faster (see below) |
+| 1001 | — | Server going away — the instance is shutting down. Reconnect immediately, no back-off needed |
+| 3401 | `unauthorized` | Authentication failure |
+
+`1013` is back-pressure, not a rejection of anything you sent: the socket is closed
+because the server could not hand off messages destined for the client. It is
+reached either by falling behind on a busy stream, or by pipelining requests faster
+than the replies are read. Read frames off the socket promptly into your own queue
+rather than processing them inline, and subscribe only to the streams you consume.
+
+A close carries no per-request status. Any request in flight when the socket closes
+is lost silently — reconcile against `mt: 24` / snapshots after reconnecting, do
+not assume it was dropped.
+
+A close code of `1006` (abnormal closure, no close frame) is never sent by the
+server: it means the connection was lost at the network level, or the close frame
+could not be delivered. Treat it as a transient failure and reconnect with back-off.
+
+## Endpoint Authentication
+
+### Public Endpoints (No Auth)
+
+These endpoints work without authentication:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pub/context` | Chain and market configuration |
+| `GET /api/v1/market-data/.../candles/...` | OHLCV candlestick data |
+| `GET /api/v1/market-data/.../funding/...` | Funding rate history of one market |
+| `GET /api/v1/market-data/funding/...` | Funding rate history of all markets |
+| `GET /api/v1/profile/announcements` | Public announcements |
+| `wss://.../ws/v1/market-data` | Real-time market data streams |
+
+### Authenticated Endpoints (API Key)
+
+These endpoints require a signed request from an enrolled API key (see [Authentication](./authentication.md)):
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/trading/account-history` | Account events (deposits, settlements, etc.) |
+| `GET /api/v1/trading/fills` | Order fill history |
+| `GET /api/v1/trading/order-history` | Order history |
+| `GET /api/v1/trading/position-history` | Position history |
+| `GET /api/v1/profile/ref-code` | Your referral code |
+| `wss://.../ws/v1/trading` | Real-time trading data & order placement (`trade` scope) |
+
+### Testing
+
+Create a key at the web UI ([app.perpl.xyz/apikeys](https://app.perpl.xyz/apikeys),
+testnet [testnet.perpl.xyz/apikeys](https://testnet.perpl.xyz/apikeys)) or enroll
+one programmatically, then run the examples in `examples/` (see
+[Examples](./examples.md)). The example programs read your enrolled key from
+`PERPL_API_KEY` / `PERPL_API_KEY_SECRET`, and the wallet used for enrollment
+from a private key you supply.
+
+## API Auth vs Smart Contract Account
+
+**This is a common source of confusion.** API authentication, smart contract account
+creation, and the on-chain permission to forward orders are three separate things:
+
+| Concept | What It Means | Required For |
+|---------|---------------|--------------|
+| **API Authentication** | An enrolled API key can call authenticated API endpoints | Reading order history, position history, trading WebSocket |
+| **Exchange Account** | On-chain account exists on Exchange contract with collateral | Placing orders, holding positions, trading |
+| **Order Forwarding** | The account has authorized the exchange to submit orders on its behalf ("one-click trading") | Posting orders on the trading WebSocket (not needed to trade directly on-chain) |
+
+### Key Points
+
+1. **API auth does NOT create an exchange account**
+   - Enrolling an API key only authorizes API access for your wallet
+   - A valid signed request means you can use authenticated API endpoints
+   - It does NOT mean you can trade
+
+2. **Exchange account must be created on-chain**
+   - Call `createAccount(uint256 amountCNS)` on the Exchange contract
+   - Requires initial collateral deposit (USDC)
+   - This creates your account ID
+
+3. **Order forwarding must be enabled on-chain to trade via the API**
+   - `createAccount` leaves forwarding **disabled**; a brand-new account cannot post orders
+     through the API
+   - Call `allowOrderForwarding(true)` on the Exchange contract from the account's own wallet
+   - Every order placed through the API is forwarded (submitted and paid for) by the exchange
+     on your behalf — this is the authorization for that, and without it the contract refuses
+     the order
+   - The flag gates only the forwarded path. An account can still trade by sending its own
+     order transactions on-chain; that is out of scope for these docs
+
+4. **All three are required to trade through this API**
+   - API auth → Access trading history, real-time data via authenticated endpoints
+   - Exchange account → Hold collateral and positions
+   - Order forwarding → Actually post orders on the trading WebSocket
+
+On the front end, the "Deposit to Enable trading" button and the **One-Click Trading**
+toggle in user settings take care of steps 2 and 3.
+
+### Fetch smart contract information
+
+Fetch the smart contract information from the public API over http:
+
+```typescript
+    const accountCreationInfo = await getAccountCreationInfo(API_URL);
+    console.log(accountCreationInfo);
+    // Example output:
+    // { 'account_open_min_deposit_display': '10.0 AUSD',
+    //   'collateral_token_address': '0x00000000efe302beaa2b3e6e1b18d08d69a9012a',
+    //   'collateral_token_symbol': 'AUSD',
+    //   'min_account_open_amount': 100000000,
+    //   'smart_contract_address': '0xSMART_CONTRACT_ADDRESS'
+    // }
+```
+
+Example code is given in examples/*/fetch_smart_contract_info for JavaScript, Python, Rust and TypeScript.
+
+### Checking Account Status
+
+To make the API calls to the Smart Contract use Foundry: https://www.getfoundry.sh and fill in the environment variables with the information from the public API.
+
+```bash
+export SMART_CONTRACT_ADDRESS=0xSmartContractAddress
+export WALLET_ADDRESS=0xYourWalletAddress
+cast call --from $WALLET_ADDRESS $SMART_CONTRACT_ADDRESS "getAccountByAddr(address)(uint256)" $WALLET_ADDRESS --rpc-url $RPC_URL
+```
+
+This call returns the account id for an address if an account exists otherwise returns an execution reverted error.
+
+### Creating an Exchange Account
+
+Again, fill in the environment variables using the API output above and use cast to create the Smart Contract Account:
+
+```bash
+export SMART_CONTRACT_ADDRESS=0xSmartContractAddress
+export TOKEN_CONTRACT_ADDRESS=0xCollateralTokenContractAddress
+export WALLET_ADDRESS=0xYourWalletAddress
+export WALLET_KEY=0xYourWalletPrivateKey;
+# Check API for current min account open amount
+export MIN_ACCOUNT_OPEN_AMOUNT=100000000
+
+# Approve deposit to DEX contract (ERC-20)
+cast send --from $WALLET_ADDRESS $TOKEN_CONTRACT_ADDRESS "approve(address,uint256)(bool)" $SMART_CONTRACT_ADDRESS $MIN_ACCOUNT_OPEN_AMOUNT --private-key $WALLET_KEY --rpc-url $RPC_URL
+
+# Create DEX account with initial deposit
+cast send --from $WALLET_ADDRESS $SMART_CONTRACT_ADDRESS "createAccount(uint256)(uint256)" $MIN_ACCOUNT_OPEN_AMOUNT --private-key $WALLET_KEY --rpc-url $RPC_URL
+```
+
+### Enabling Order Forwarding (One-Click Trading)
+
+**Order forwarding is what makes API trading possible.** An order placed on the trading
+WebSocket is never sent to the chain by the client: the exchange submits (forwards) the
+transaction on your behalf and pays the gas — gas-less, click-less trading. The Exchange
+contract only accepts forwarded orders for accounts that have explicitly authorized it, so
+this permission is a prerequisite for every order posted through this API, independent of
+API authentication.
+
+It is **not** a prerequisite for trading itself. An account can always transact directly
+on-chain from its own wallet — submitting its own order transactions and paying its own
+gas — and that path is unaffected by the flag. Direct on-chain trading is out of scope for
+these docs; everything below assumes you are posting orders through the API.
+
+A freshly created account has forwarding **disabled** — `createAccount` does not turn it
+on. Grant it by calling `allowOrderForwarding` from the account's own wallet:
+
+```solidity
+/// Sets whether the account permits the exchange Administrator role to forward orders on
+/// its behalf. Enables gas-less, click-less trading.
+function allowOrderForwarding(bool allow) external;
+```
+
+```bash
+export SMART_CONTRACT_ADDRESS=0xSmartContractAddress
+export WALLET_ADDRESS=0xYourWalletAddress
+export WALLET_KEY=0xYourWalletPrivateKey
+
+# Enable order forwarding (pass false to revoke it)
+cast send --from $WALLET_ADDRESS $SMART_CONTRACT_ADDRESS "allowOrderForwarding(bool)" true --private-key $WALLET_KEY --rpc-url $RPC_URL
+```
+
+Notes:
+
+- `msg.sender` must be the wallet that owns the exchange account; the call reverts if no
+  account exists for it, or if the account is frozen.
+- The permission is per-account and persistent — a one-time setup, not per-session. Pass
+  `false` to revoke it; orders already on the book are unaffected, but no new order can be
+  placed through the API until it is granted again.
+- On success the contract emits `OrderForwardingUpdated(accountId, allowed)`.
+- The front end exposes this as the **One-Click Trading** toggle in user settings.
+
+**Checking the current state.** There is no on-chain getter for it —
+`getAccountByAddr` does not return the flag. Read `fw` on the
+[`Account`](./types.md#account) object instead: it arrives in the wallet snapshot
+(`as[]`) and in every account update (`mt: 21`) on the trading WebSocket. Because the flag
+can be toggled from any wallet client at any time, re-read `fw` on each `mt: 21` update
+rather than caching it from the snapshot.
+
+**What a missing permission looks like.** The order is rejected before any transaction
+reaches the chain: the `mt: 22` frame is still acknowledged with `code: 0`, and the
+rejection arrives on the `mt: 24` order stream as `st: 7` (`Failed`) with
+`sr: 34` (`OrderForwardingNotAllowed`). No on-chain order id is assigned. See
+[Command Status](./websocket.md#command-status-mt-3) and
+[OrderStatusReason](./types.md#orderstatusreason).
+
+### Common Error Scenarios
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| API auth succeeds but `getAccountByAddr` returns `accountId: 0` | Signed requests work but no on-chain account | Create account with `createAccount()` |
+| Can read order history but can't place orders | API works but no exchange account | Create account with `createAccount()` |
+| Orders acknowledged (`code: 0`) then fail with `sr: 34` | Account exists but has not authorized order forwarding | Call `allowOrderForwarding(true)` from the account's wallet |
+| `fw: false` on the account snapshot | Order forwarding disabled or revoked | Call `allowOrderForwarding(true)` from the account's wallet |
+| 401 on signed requests | Bad/stale signature, clock skew, or revoked/expired key | Re-sign with a fresh timestamp + nonce; check key status |
+| 403 on order placement | Key lacks `trade` scope | Enroll a `trade`-scoped key |

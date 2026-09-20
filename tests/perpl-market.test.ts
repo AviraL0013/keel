@@ -1,0 +1,3 @@
+import { describe, expect, it } from 'vitest'
+import { applyMarketMessage, depthNotional, realizedVolatility } from '../packages/perpl/src/marketDecoder.js'
+describe('Perpl market decoder', () => { it('merges L2 updates and removes zero levels', () => { let state = applyMarketMessage({ fundingRate: 0, candleCloses: [] }, { mt: 15, at: { t: 1 }, bid: [{ p: 100, s: 2, o: 1 }], ask: [{ p: 101, s: 2, o: 1 }] }); state = applyMarketMessage(state, { mt: 16, at: { t: 2 }, bid: [{ p: 100, s: 0, o: 0 }], ask: [] }); expect(state.book?.bids).toHaveLength(0); expect(depthNotional(state.book)).toBe(202) }); it('calculates deterministic volatility', () => expect(realizedVolatility([100, 101, 99, 100])).toBeGreaterThan(0)) })

@@ -1,0 +1,24 @@
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Keep the example
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Example build artifacts
+node_modules/
+package-lock.json
+examples/rust/target/
+examples/rust/Cargo.lock
+.venv/
+venv/

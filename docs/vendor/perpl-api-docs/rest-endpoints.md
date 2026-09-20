@@ -1,0 +1,441 @@
+# REST API Endpoints
+
+Base URL: `${PERPL_API_URL}` (default: `https://app.perpl.xyz/api`)
+
+Authenticated endpoints are signed per request with an API key (`X-API-*`
+headers) — see [Authentication](./authentication.md). To obtain a key, see
+[Integrations](./integrations.md).
+
+## Public Endpoints
+
+### GET /api/v1/pub/context
+
+Returns global protocol configuration including chain, markets, and tokens.
+
+**Authentication**: Optional. Unauthenticated requests return the public context; providing an API-key signature personalizes the response.
+
+**Response**:
+```typescript
+interface Context {
+  chain: Chain;
+  instances: ProtocolInstance[];
+  tokens: Token[];
+  markets: Market[];
+}
+```
+
+Each market's `config` carries the full per-tier fee schedule
+(`maker_fees` / `taker_fees`) — see [Fees & fee tiers](./README.md#fees--fee-tiers).
+
+**Example**:
+```bash
+# Using default live URL
+curl https://app.perpl.xyz/api/v1/pub/context
+
+# Or using environment variable
+curl ${PERPL_API_URL:-https://app.perpl.xyz/api}/v1/pub/context
+```
+
+---
+
+### GET /api/v1/market-data/:market_id/candles/:resolution/:from-:to
+
+Returns OHLCV candlestick data.
+
+**Authentication**: None
+
+**URL Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| market_id | number | Market ID (e.g., 1 for BTC on mainnet) |
+| resolution | number | Candle resolution in seconds |
+| from | number | Start timestamp (ms) |
+| to | number | End timestamp (ms) |
+
+**Limits**:
+- Maximum **1024 candles** per request
+
+**Supported Resolutions** (seconds):
+- `60` (1m)
+- `300` (5m)
+- `900` (15m)
+- `1800` (30m)
+- `3600` (1h)
+- `7200` (2h)
+- `14400` (4h)
+- `28800` (8h)
+- `43200` (12h)
+- `86400` (1d)
+
+**Response**:
+```typescript
+interface CandleSeries {
+  mt: number;           // Message type
+  at: BlockTimestamp;   // Timestamp
+  r: number;            // Resolution (seconds)
+  d: Candle[];          // Candle data
+}
+
+interface Candle {
+  t: number;    // Open timestamp (ms)
+  o: number;    // Open price (scaled)
+  c: number;    // Close price (scaled)
+  h: number;    // High price (scaled)
+  l: number;    // Low price (scaled)
+  v: string;    // Volume (collateral token)
+  n: number;    // Number of trades
+}
+```
+
+**Example**:
+```bash
+# Get 1-hour BTC candles for last 24 hours
+API_URL=${PERPL_API_URL:-https://app.perpl.xyz/api}
+FROM=$(($(date +%s) * 1000 - 86400000))
+TO=$(($(date +%s) * 1000))
+curl "${API_URL}/v1/market-data/1/candles/3600/${FROM}-${TO}"
+```
+
+A market with no candles yet returns an empty `d`.
+
+---
+
+### GET /api/v1/market-data/:market_id/funding/:from-:to
+
+Returns the funding events of a market, oldest first — one per funding interval the
+market had a rate set for. An interval whose rate was never set is absent from the
+series.
+
+**Authentication**: None
+
+**URL Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| market_id | number | Market ID (e.g., 1 for BTC on mainnet) |
+| from | number | Start timestamp (ms), inclusive |
+| to | number | End timestamp (ms), inclusive |
+
+`from` and `to` are matched against the timestamp each event **applies** at (`at.t`
+of the event, see below), not the timestamp it was published at.
+
+**Limits**:
+- The period may cover at most **1024 funding intervals** of the market. The interval
+  is `funding_interval_sec` of the market configuration (`GET /v1/pub/context`), so
+  longer history is retrieved in several requests.
+
+**Response**:
+```typescript
+interface FundingSeries {
+  mt: number;           // Message type
+  at: BlockTimestamp;   // Block/timestamp of the most recent event in the series
+  m: number;            // Market ID
+  d: FundingEvent[];    // Funding events, oldest first
+}
+```
+
+`FundingEvent` is the same type the `funding@<chain_id>` WebSocket stream and
+`GET /v1/pub/context` report — see **[Types](./types.md#fundingevent)**.
+
+Two behaviours to plan for:
+
+- **At least one event** is returned whenever the market has any funding history, even
+  if the requested period contains none of its own: a period shorter than the funding
+  interval resolves to the rate that was in force over it. A market with no funding
+  history at all returns an empty `d`.
+- The **most recent event** may carry an estimated `at.t` (see below), which is
+  corrected within about a minute.
+
+**Example**:
+```bash
+# Get BTC funding history for the last 24 hours
+API_URL=${PERPL_API_URL:-https://app.perpl.xyz/api}
+FROM=$(($(date +%s) * 1000 - 86400000))
+TO=$(($(date +%s) * 1000))
+curl "${API_URL}/v1/market-data/1/funding/${FROM}-${TO}"
+```
+
+For every market in one request, see below.
+
+---
+
+### GET /api/v1/market-data/funding/:from-:to
+
+Returns the funding events of **all markets** applied within the requested period,
+keyed by market ID — the same data the per-market endpoint above serves, for the
+whole exchange in one request.
+
+**Authentication**: None
+
+**URL Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| from | number | Start timestamp (ms), inclusive |
+| to | number | End timestamp (ms), inclusive |
+
+`from` and `to` are matched against the timestamp each event **applies** at, exactly
+as for a single market.
+
+**Limits**:
+- The period may cover at most **128 funding intervals of the market with the
+  shortest interval** — an order of magnitude below the single-market cap, because
+  the response carries that many events for every market at once. Markets may be configured with
+  different `funding_interval_sec`, and the cap is applied so that no single market
+  can overrun it, so longer history is retrieved in several requests stepping by the
+  shortest interval of the markets in `GET /v1/pub/context`. Deep history of one
+  market is cheaper to page over the per-market endpoint, which allows 1024.
+- `to` may run up to the **longest** funding interval past the current time, so the
+  most recent event of every market is reachable — a funding event is timestamped
+  ahead of the chain, as above.
+
+**Response**:
+```typescript
+interface MarketFundingSeries {
+  mt: number;           // Message type
+  at: BlockTimestamp;   // Block/timestamp of the most recent event across all markets
+  d: { [market_id: number]: FundingEvent[] };  // Events per market, oldest first
+}
+```
+
+`FundingEvent` is the same type the per-market endpoint, the `funding@<chain_id>`
+WebSocket stream and `GET /v1/pub/context` report — see
+**[Types](./types.md#fundingevent)**.
+
+Behaviours to plan for, on top of the per-market ones above:
+
+- Each market's series is resolved **against its own history**, so a period shorter
+  than a market's funding interval still resolves to the rate that was in force over
+  it. One request can therefore return a different number of events per market.
+- A market with **no funding history at all is absent** from `d` rather than present
+  with an empty array, as are markets not listed in `GET /v1/pub/context`. Do not
+  assume a key exists for every market.
+
+**Example**:
+```bash
+# Get the funding history of every market for the last 24 hours
+API_URL=${PERPL_API_URL:-https://app.perpl.xyz/api}
+FROM=$(($(date +%s) * 1000 - 86400000))
+TO=$(($(date +%s) * 1000))
+curl "${API_URL}/v1/market-data/funding/${FROM}-${TO}"
+```
+
+---
+
+## API Keys
+
+API keys are the **primary programmatic authentication** mechanism: an Ed25519 key pair enrolled once via a wallet signature, after which every request is signed with the private key (headers `X-API-Key`, `X-API-Timestamp`, `X-API-Nonce`, `X-API-Signature`).
+
+- Enrolling a key (`POST /api/v1/api-key/payload` + `POST /api/v1/api-key/enroll`) — see **[Integrations](./integrations.md)**.
+- Signing each request / the canonical string format — see **[Authentication](./authentication.md)**.
+- Listing and revoking keys is handled by the web UI (`/apikeys`), not the API.
+
+---
+
+## Profile Endpoints
+
+### GET /api/v1/profile/ref-code
+
+Get your current referral code.
+
+**Authentication**: API-key signature
+
+**Response**:
+```typescript
+interface RefCode {
+  code: string;
+  limit?: number;      // Max profiles that can be created with this code
+  used?: number;       // Profiles already created with this code
+  volume?: Amount;     // Total volume generated by referred profiles (T1 only, all time), CNS
+  created_at: number;  // Ref code creation timestamp (ms)
+}
+```
+
+Returns 404 with empty code if no referral code assigned.
+
+---
+
+### GET /api/v1/profile/announcements
+
+Get announcements.
+
+**Authentication**: Optional. Works unauthenticated (public audience); an API-key signature personalizes the returned announcements.
+
+**Response**:
+```typescript
+interface AnnouncementsResponse {
+  ver: number;
+  active: Announcement[];
+}
+
+interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+}
+```
+
+---
+
+## Trading History Endpoints
+
+All trading history endpoints are signed with an API key (`X-API-*` headers — see [Authentication](./authentication.md)) and support pagination.
+
+### GET /api/v1/trading/account-history
+
+**Authentication**: API-key signature
+
+**Common Query Parameters**:
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| page | string | - | Cursor for pagination (from previous response `np`) |
+| count | number | 50 | Items per page (max: 100) |
+
+*Note: Server-side filtering by market ID or date range is not currently supported. Filter results client-side if needed.*
+
+**Common Response Pattern**:
+```typescript
+interface HistoryPage<T> {
+  d: T[];      // Data array (newest to oldest)
+  np: string;  // Next page cursor
+}
+```
+
+Get account events (deposits, withdrawals, settlements, etc.)
+
+**Response**:
+```typescript
+interface AccountHistoryPage {
+  d: AccountEvent[];
+  np: string;
+}
+
+interface AccountEvent {
+  at: BlockTxLogTimestamp;  // Timestamp
+  in: number;               // Instance ID
+  id: number;               // Account ID
+  et: AccountEventType;     // Event type
+  m?: number;               // Market ID
+  r?: number;               // Request ID
+  o?: number;               // Order ID
+  p?: number;               // Position ID
+  a: string;                // Amount change
+  b: string;                // Updated balance
+  lb: string;               // Locked balance
+  f: string;                // Fee (gross: protocol fee + `bfa`)
+  bfa?: string;             // Builder-fee portion of `f`, omitted when zero
+}
+```
+
+**Account Event Types**:
+| Value | Name |
+|-------|------|
+| 0 | Unspecified |
+| 1 | Deposit |
+| 2 | Withdrawal |
+| 3 | IncreasePositionCollateral |
+| 4 | Settlement |
+| 5 | Liquidation |
+| 6 | TransferToProtocol |
+| 7 | TransferFromProtocol |
+| 8 | Funding |
+| 9 | Deleveraging |
+| 10 | Unwinding |
+| 11 | PositionCollateralDecreased |
+| 12 | LastForwardedDescIdReset |
+
+---
+
+### GET /api/v1/trading/fills
+
+Get order fill history.
+
+**Authentication**: API-key signature
+
+**Response**:
+```typescript
+interface FillHistoryPage {
+  d: Fill[];
+  np: string;
+}
+
+interface Fill {
+  at: BlockTxLogTimestamp;
+  mkt: number;      // Market ID
+  acc: number;      // Account ID
+  oid: number;      // Order ID
+  t: OrderType;     // Order type
+  l: LiquiditySide; // Maker=1, Taker=2
+  p?: number;       // Fill price (scaled)
+  s: number;        // Filled size (scaled)
+  f: string;        // Fee/rebate (gross: protocol fee + `bfa`)
+  bfa?: string;     // Builder-fee portion of `f`, omitted when zero
+}
+```
+
+The rate behind `f` is the market's maker or taker fee at the account's fee tier
+— see [Fees & fee tiers](./README.md#fees--fee-tiers).
+
+---
+
+### GET /api/v1/trading/order-history
+
+Get historical order events.
+
+**Authentication**: API-key signature
+
+**Response**:
+```typescript
+interface OrderHistoryPage {
+  d: Order[];
+  np: string;
+}
+```
+
+See [Types](./types.md#order) for Order structure.
+
+---
+
+### GET /api/v1/trading/position-history
+
+Get position history.
+
+**Authentication**: API-key signature
+
+**Response**:
+```typescript
+interface PositionHistoryPage {
+  d: Position[];
+  np: string;
+}
+```
+
+See [Types](./types.md#position) for Position structure.
+
+---
+
+## Pagination Example
+
+Requests are signed with the API-key headers. `signedRequest(method, target, body)` is
+the helper defined in [Authentication](./authentication.md#authenticating-rest-requests) —
+note the `request-target` (path + query string) must be signed exactly as sent.
+
+```typescript
+async function fetchAllFills() {
+  const fills: Fill[] = [];
+  let page: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ count: '100' });
+    if (page) params.set('page', page);
+    const target = `/v1/trading/fills?${params.toString()}`;
+
+    // signed with X-API-* headers, see authentication.md
+    const response = await signedRequest('GET', target);
+
+    const data: FillHistoryPage = await response.json();
+    fills.push(...data.d);
+    page = data.np;
+  } while (page);
+
+  return fills;
+}
+```
