@@ -81,7 +81,7 @@ class BookMetricsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final distance = _distancePercent(telemetry, book.side);
+    final distance = telemetry.liquidationDistance;
     final spent = telemetry.reserveDeployed;
     return Card(
         child: Padding(
@@ -91,7 +91,7 @@ class BookMetricsCard extends StatelessWidget {
               const Text('Protection health', style: KeelTypography.title),
               const SizedBox(height: KeelSpacing.lg),
               MetricGauge(
-                  label: 'LIQUIDATION DISTANCE',
+                  label: 'ESTIMATED LIQUIDATION DISTANCE',
                   value: distance,
                   maximum: (book.liquidationFloor * 2).clamp(1, 100).toDouble(),
                   threshold: book.liquidationFloor,
@@ -147,15 +147,6 @@ class BookMetricsCard extends StatelessWidget {
                                     ?.color)))
                   ])),
             ])));
-  }
-
-  double? _distancePercent(BookTelemetry value, String side) {
-    if (value.mark == null || value.liquidationPrice == null || value.mark == 0)
-      return null;
-    final difference = side == 'SHORT'
-        ? value.liquidationPrice! - value.mark!
-        : value.mark! - value.liquidationPrice!;
-    return difference / value.mark!.abs() * 100;
   }
 
   String _money(double? value) =>

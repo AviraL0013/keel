@@ -46,32 +46,33 @@ class BooksRepository {
       api.post('/books/$id/$action',
           decode: (value) =>
               Book.fromJson(Map<String, dynamic>.from(value as Map)));
-  Future<BookTelemetry> telemetry(String id) async {
-    final risk = await api.get('/books/$id/risk', (value) => value);
-    final market = await api.get('/books/$id/telemetry', (value) => value);
-    final position = await api.get('/books/$id/position', (value) => value);
-    final actions = await api.get('/books/$id/actions', (value) => value);
-    final reserve = await api.get('/books/$id/reserve', (value) => value);
-    final riskMap =
-        risk is Map ? Map<String, dynamic>.from(risk) : <String, dynamic>{};
-    final marketMap =
-        market is Map ? Map<String, dynamic>.from(market) : <String, dynamic>{};
-    final positionMap = position is Map
-        ? Map<String, dynamic>.from(position)
+  Future<BookDashboardState> state(String id) async {
+    final raw = await api.get('/books/$id/state', (value) => value);
+    final value = Map<String, dynamic>.from(raw as Map);
+    final book = Book.fromJson(Map<String, dynamic>.from(value['book'] as Map));
+    final marketMap = value['telemetry'] is Map
+        ? Map<String, dynamic>.from(value['telemetry'] as Map)
         : <String, dynamic>{};
-    final actionRows = actions is List ? actions : const [];
-    final executionState = actionRows.isNotEmpty && actionRows.first is Map
-        ? (actionRows.first as Map)['status'] as String?
-        : null;
-    final reserveMap = reserve is Map
-        ? Map<String, dynamic>.from(reserve)
+    final positionMap = value['position'] is Map
+        ? Map<String, dynamic>.from(value['position'] as Map)
+        : <String, dynamic>{};
+    final riskMap = value['risk'] is Map
+        ? Map<String, dynamic>.from(value['risk'] as Map)
+        : <String, dynamic>{};
+    final executionMap = value['execution'] is Map
+        ? Map<String, dynamic>.from(value['execution'] as Map)
+        : <String, dynamic>{};
+    final reserveMap = value['reserve'] is Map
+        ? Map<String, dynamic>.from(value['reserve'] as Map)
         : <String, dynamic>{};
     double? number(Object? value) => value is num
         ? value.toDouble()
         : value is String
             ? double.tryParse(value)
             : null;
-    return BookTelemetry(
+    return BookDashboardState(
+        book: book,
+        telemetry: BookTelemetry(
         size: number(positionMap['size']),
         entryPrice: number(positionMap['entryPrice']),
         mark: number(marketMap['mark']),
@@ -86,6 +87,7 @@ class BooksRepository {
         depthNotional: number(marketMap['depthNotional']),
         reserveAvailable: number(reserveMap['available']),
         reserveDeployed: number(reserveMap['deployed']),
+        liquidationDistance: number(marketMap['liquidationDistance']),
         freshnessMs: marketMap['freshnessMs'] is num
             ? (marketMap['freshnessMs'] as num).toInt()
             : null,
@@ -93,16 +95,22 @@ class BooksRepository {
             ? null
             : TelemetryFreshnessModel.fromJson(marketMap['freshness']),
         riskState: riskMap['state'] as String?,
+        riskStatus: riskMap['status'] as String?,
+        riskReason: riskMap['reason'] as String?,
         reasonCodes: riskMap['reasonCodes'] is List
-            ? (riskMap['reasonCodes'] as List).whereType<String>().toList()
+            ? (riskMap['reasonCodes'] as List).map((item) => item.toString()).toList()
             : const [],
-        reasons: riskMap['humanReadableReasons'] is List
-            ? (riskMap['humanReadableReasons'] as List)
-                .whereType<String>()
-                .toList()
+        reasons: riskMap['reasons'] is List
+            ? (riskMap['reasons'] as List).map((item) => item.toString()).toList()
             : const [],
-        executionState: executionState,
-        positionStatus: positionMap['status'] as String?);
+        executionState: executionMap['status'] as String?,
+        executionReason: executionMap['reason'] as String?,
+        executionActionId: executionMap['actionId'] as String?,
+        positionStatus: positionMap['status'] as String?));
+  }
+
+  Future<BookTelemetry> telemetry(String id) async {
+    return (await state(id)).telemetry;
   }
 }
 
@@ -113,3 +121,6 @@ final booksProvider = FutureProvider.autoDispose<List<Book>>(
 final bookTelemetryProvider = FutureProvider.family
     .autoDispose<BookTelemetry, String>(
         (ref, id) => ref.watch(booksRepositoryProvider).telemetry(id));
+final bookDashboardProvider = FutureProvider.family
+    .autoDispose<BookDashboardState, String>(
+        (ref, id) => ref.watch(booksRepositoryProvider).state(id));

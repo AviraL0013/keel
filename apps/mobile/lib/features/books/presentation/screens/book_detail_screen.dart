@@ -14,21 +14,21 @@ class BookDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final telemetry = ref.watch(bookTelemetryProvider(book.id));
+    final telemetry = ref.watch(bookDashboardProvider(book.id));
     final action = ref.watch(bookActionProvider);
     return Scaffold(
       appBar: AppBar(title: Text(book.market), actions: [
         IconButton(
-            onPressed: () => ref.invalidate(bookTelemetryProvider(book.id)),
+            onPressed: () => ref.invalidate(bookDashboardProvider(book.id)),
             icon: const Icon(Icons.refresh))
       ]),
       body: telemetry.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => ErrorStateCard(
             message: friendlyError(error),
-            onRetry: () => ref.invalidate(bookTelemetryProvider(book.id))),
-        data: (state) => RefreshIndicator(
-          onRefresh: () async => ref.invalidate(bookTelemetryProvider(book.id)),
+            onRetry: () => ref.invalidate(bookDashboardProvider(book.id))),
+        data: (dashboard) => RefreshIndicator(
+          onRefresh: () async => ref.invalidate(bookDashboardProvider(book.id)),
           child: ListView(
               padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
                   KeelSpacing.md, KeelSpacing.xl),
@@ -49,14 +49,14 @@ class BookDetailScreen extends ConsumerWidget {
                                         .bodyMedium
                                         ?.color))
                           ]),
-                      RiskStateBadge(state: state.riskState)
+                      RiskStateBadge(state: dashboard.telemetry.riskState)
                     ]),
                 const SizedBox(height: KeelSpacing.md),
-                TelemetryFreshness(freshness: state.freshness),
+                TelemetryFreshness(freshness: dashboard.telemetry.freshness),
                 const SizedBox(height: KeelSpacing.md),
                 RiskBanner(
-                    state: state.riskState, reasons: _reasonSentences(state)),
-                if (state.reasonCodes.isNotEmpty)
+                    state: dashboard.telemetry.riskState, reasons: _reasonSentences(dashboard.telemetry)),
+                if (dashboard.telemetry.reasonCodes.isNotEmpty)
                   Card(
                       child: ExpansionTile(
                           title: const Text('Technical reason codes',
@@ -67,12 +67,12 @@ class BookDetailScreen extends ConsumerWidget {
                                 0, KeelSpacing.md, KeelSpacing.md),
                             child: Align(
                                 alignment: Alignment.centerLeft,
-                                child: Text(state.reasonCodes.join(' / '))))
+                                child: Text(dashboard.telemetry.reasonCodes.join(' / '))))
                       ])),
                 const SizedBox(height: KeelSpacing.md),
-                BookMetricsCard(book: book, telemetry: state),
+                BookMetricsCard(book: dashboard.book, telemetry: dashboard.telemetry),
                 const SizedBox(height: KeelSpacing.md),
-                _ExecutionCard(state: state),
+                _ExecutionCard(state: dashboard.telemetry),
                 const SizedBox(height: KeelSpacing.md),
                 if (action.isLoading) const LinearProgressIndicator(),
                 if (action.hasError)
@@ -83,13 +83,13 @@ class BookDetailScreen extends ConsumerWidget {
                 ActionButtonRow(
                     disabled: action.isLoading,
                     onDefend: () =>
-                        _confirmAction(context, ref, 'DEFEND', state),
+                        _confirmAction(context, ref, 'DEFEND', dashboard.telemetry),
                     onReduce: () =>
-                        _confirmAction(context, ref, 'REDUCE', state),
-                    onExit: () => _confirmAction(context, ref, 'EXIT', state)),
+                        _confirmAction(context, ref, 'REDUCE', dashboard.telemetry),
+                    onExit: () => _confirmAction(context, ref, 'EXIT', dashboard.telemetry)),
                 const SizedBox(height: KeelSpacing.md),
                 _ControlCard(
-                    book: book,
+                    book: dashboard.book,
                     disabled: action.isLoading,
                     onControl: (control) =>
                         _confirmControl(context, ref, control)),
@@ -117,11 +117,11 @@ class BookDetailScreen extends ConsumerWidget {
                       child: Text(destructive ? 'CONFIRM EXIT' : 'CONFIRM'))
                 ]));
     if (confirmed == true) {
-      ref.invalidate(bookTelemetryProvider(book.id));
+      ref.invalidate(bookDashboardProvider(book.id));
       await ref
           .read(bookActionProvider.notifier)
           .run(book.id, kind == 'EXIT' ? 'close' : kind.toLowerCase());
-      ref.invalidate(bookTelemetryProvider(book.id));
+      ref.invalidate(bookDashboardProvider(book.id));
     }
   }
 
@@ -147,11 +147,14 @@ class BookDetailScreen extends ConsumerWidget {
                 ]));
     if (confirmed == true) {
       await ref.read(bookActionProvider.notifier).run(book.id, control);
-      ref.invalidate(bookTelemetryProvider(book.id));
+      ref.invalidate(bookDashboardProvider(book.id));
     }
   }
 
   List<String> _reasonSentences(BookTelemetry state) {
+    if (state.riskReason != null && state.riskReason!.isNotEmpty) {
+      return [state.riskReason!];
+    }
     if (state.reasons.isNotEmpty) return state.reasons;
     return state.reasonCodes
         .map((code) => switch (code) {
@@ -178,12 +181,13 @@ class _ExecutionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = state.executionState ?? 'UNKNOWN';
     final unknown = status == 'UNKNOWN';
+    final none = status == 'NO_ACTIVE_EXECUTION';
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(KeelSpacing.md),
             child: Row(children: [
-              Icon(unknown ? Icons.help_outline : Icons.receipt_long_outlined,
-                  color: unknown ? KeelColors.reduce : KeelColors.info),
+              Icon(none ? Icons.hourglass_empty : unknown ? Icons.help_outline : Icons.receipt_long_outlined,
+                  color: none ? KeelColors.info : unknown ? KeelColors.reduce : KeelColors.info),
               const SizedBox(width: KeelSpacing.sm),
               Expanded(
                   child: Column(
@@ -192,9 +196,9 @@ class _ExecutionCard extends StatelessWidget {
                     const Text('EXECUTION', style: KeelTypography.label),
                     const SizedBox(height: 4),
                     Text(status, style: KeelTypography.section),
-                    if (unknown)
+                    if (none || unknown)
                       Text(
-                          'Authoritative venue outcome is not established yet.',
+                          state.executionReason ?? (unknown ? 'Authoritative venue outcome is not established yet.' : 'No KEEL action is active for this Book.'),
                           style: KeelTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
@@ -218,19 +222,26 @@ class _ControlCard extends StatelessWidget {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('AUTOMATION', style: KeelTypography.label),
-              StatusPill(
-                  label: book.automationEnabled ? 'ARMED' : 'PAUSED',
-                  color: book.automationEnabled
-                      ? KeelColors.defend
-                      : KeelColors.reduce,
-                  icon: book.automationEnabled ? Icons.play_arrow : Icons.pause)
+              const Text('BOOK + AUTOMATION', style: KeelTypography.label),
+              Row(children: [
+                StatusPill(
+                    label: book.status,
+                    color: book.status == 'ACTIVE' ? KeelColors.defend : KeelColors.reduce,
+                    icon: book.status == 'ACTIVE' ? Icons.play_arrow : Icons.pause),
+                const SizedBox(width: KeelSpacing.xs),
+                StatusPill(
+                    label: book.automationEnabled ? 'AUTOMATION ON' : 'AUTOMATION OFF',
+                    color: book.automationEnabled ? KeelColors.defend : KeelColors.info,
+                    icon: book.automationEnabled ? Icons.bolt : Icons.pause_circle_outline)
+              ])
             ]),
             const SizedBox(height: KeelSpacing.sm),
             Text(
                 book.automationEnabled
                     ? 'KEEL may act within this Book policy.'
-                    : 'Automation is paused; manual controls remain explicit.',
+                    : book.status == 'PAUSED'
+                        ? 'Book is paused. Automation is off; manual controls remain explicit.'
+                        : 'Automation is off; manual controls remain explicit.',
                 style: KeelTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color)),
             const SizedBox(height: KeelSpacing.md),

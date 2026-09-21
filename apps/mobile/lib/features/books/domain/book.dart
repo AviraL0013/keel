@@ -46,9 +46,14 @@ class BookTelemetry {
       this.freshnessMs,
       this.freshness,
       this.riskState,
+      this.riskStatus,
+      this.riskReason,
       this.reasonCodes = const [],
       this.reasons = const [],
       this.executionState,
+      this.executionReason,
+      this.executionActionId,
+      this.liquidationDistance,
       this.positionStatus});
   final double? size,
       entryPrice,
@@ -64,19 +69,28 @@ class BookTelemetry {
       depthNotional,
       reserveAvailable,
       reserveDeployed;
+  final double? liquidationDistance;
   final int? freshnessMs;
   final TelemetryFreshnessModel? freshness;
-  final String? riskState, executionState, positionStatus;
+  final String? riskState, riskStatus, riskReason, executionState, executionReason, executionActionId, positionStatus;
   final List<String> reasonCodes;
   final List<String> reasons;
-  bool get stale =>
+  bool get stale {
+    final value = freshness;
+    return value != null &&
+        [value.market, value.position, value.funding, value.orderbook]
+            .any((point) => point.stale);
+  }
+  bool get freshnessUnknown =>
       freshness == null ||
-      [
-        freshness!.market,
-        freshness!.position,
-        freshness!.funding,
-        freshness!.orderbook
-      ].any((point) => !point.fresh);
+      [freshness!.market, freshness!.position, freshness!.funding, freshness!.orderbook]
+          .any((point) => point.status == 'UNKNOWN');
+}
+
+class BookDashboardState {
+  const BookDashboardState({required this.book, required this.telemetry});
+  final Book book;
+  final BookTelemetry telemetry;
 }
 
 class BookConfiguration {

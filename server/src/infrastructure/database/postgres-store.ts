@@ -26,10 +26,10 @@ export class PostgresStore implements Store {
       await client.query('INSERT INTO reserves(book_id,available,reserved,deployed,cap) VALUES($1,$2,0,0,$3)', [book.id, reserveAvailable, reserveAvailable])
       if (input.initialPosition) {
         const p = input.initialPosition
-        await client.query('INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())', [book.id,p.size,p.entryPrice,p.markPrice,p.liquidationPrice,p.leverage,p.unrealizedPnl,p.margin,p.status])
+        await client.query('INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10/1000.0))', [book.id,p.size,p.entryPrice,p.markPrice,p.liquidationPrice,p.leverage,p.unrealizedPnl,p.margin,p.status,p.observedAt ?? p.timestamp ?? Date.now()])
         if (input.initialTelemetry) {
           const t = input.initialTelemetry
-          await client.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid) VALUES($1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)', [book.id,t.block,t.marketTimestamp ?? t.timestamp,t.mark,t.oracle,p.liquidationPrice,t.fundingRate,t.spreadBps,t.depthNotional,t.volatility,reserveAvailable,t.freshnessMs ?? 0,t.source ?? 'replay',t.bid,t.ask,t.mid])
+          await client.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid,freshness_detail) VALUES($1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)', [book.id,t.block,t.marketTimestamp ?? t.timestamp,t.mark,t.oracle,p.liquidationPrice,t.fundingRate,t.spreadBps,t.depthNotional,t.volatility,reserveAvailable,t.freshnessMs ?? 0,t.source ?? 'replay',t.bid,t.ask,t.mid,t.freshness ? JSON.stringify(t.freshness) : null])
         }
       }
       await client.query("INSERT INTO reserve_ledger_entries(book_id,type,amount,external_reference) VALUES($1,'RESERVE_CREATED',$2,'book-creation')", [book.id, reserveAvailable])

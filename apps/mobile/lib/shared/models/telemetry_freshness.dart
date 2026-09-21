@@ -2,11 +2,13 @@ class TelemetryFreshnessPoint {
   static const defaultThresholdMs = 10000;
   const TelemetryFreshnessPoint(
       {required this.status,
+      this.source,
       this.updatedAt,
       this.ageMs,
       required this.thresholdMs});
 
   final String status;
+  final String? source;
   final DateTime? updatedAt;
   final int? ageMs;
   final int thresholdMs;
@@ -20,6 +22,7 @@ class TelemetryFreshnessPoint {
     final updated = value['updatedAt'];
     return TelemetryFreshnessPoint(
       status: value['status'] as String? ?? 'UNKNOWN',
+      source: value['source'] as String?,
       updatedAt: updated is String
           ? DateTime.tryParse(updated)
           : updated is num

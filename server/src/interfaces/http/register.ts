@@ -3,6 +3,7 @@ import { isAddress } from 'viem'
 import type { Config } from '../../config/index.js'
 import { logger } from '../../config/index.js'
 import type { Book } from '../../../../packages/domain/src/index.js'
+import { buildTelemetryFreshness } from '../../../../packages/domain/src/index.js'
 import { AuthenticationError, ValidationError } from '../../application/errors.js'
 import { BooksApplication, type CreateBookCommand } from '../../application/books.js'
 import type { Store } from '../../infrastructure/database/postgres-store.js'
@@ -13,7 +14,7 @@ import type { NotificationStore } from '../../infrastructure/database/notificati
 import type { KeelRuntime, RuntimeVenue } from '../../runtime.js'
 import type { DeterministicTestRuntime } from '../../infrastructure/replay/test-runtime.js'
 import { toBookDto } from './dto.js'
-import { toActionDto, toAutopsyDto, toDecisionDto, toNotificationDto, toPositionDto, toReserveDto, toRiskDto, toTelemetryDto } from './mappers.js'
+import { toActionDto, toAutopsyDto, toBookRiskDto, toDecisionDto, toExecutionSummaryDto, toNotificationDto, toPositionDto, toReserveDto, toRiskDto, toTelemetryDto } from './mappers.js'
 
 export type HttpContext = {
   app: FastifyInstance
@@ -78,6 +79,37 @@ export function registerRoutes(context: HttpContext) {
   app.get<{ Params: { id: string } }>('/books/:id/position', async request => { const current = await requireSession(request); const book = await books.get(current.userId, request.params.id); const row = await persistence.getPositionRow(current.userId, request.params.id); return row ? toPositionDto(row, book.side) : null })
   app.get<{ Params: { id: string } }>('/books/:id/telemetry', async request => { const current = await requireSession(request); await books.get(current.userId, request.params.id); const row = await persistence.getTelemetryRow(current.userId, request.params.id); return row ? toTelemetryDto(row) : null })
   app.get<{ Params: { id: string } }>('/books/:id/risk', async request => { const current = await requireSession(request); await books.get(current.userId, request.params.id); const row = await persistence.getRiskRow(current.userId, request.params.id); return row ? toRiskDto(row) : null })
+  app.get<{ Params: { id: string } }>('/books/:id/state', async request => {
+    const current = await requireSession(request)
+    const book = await books.get(current.userId, request.params.id)
+    const [positionRow, telemetryRow, riskRow, actionRows, reserveRow] = await Promise.all([
+      persistence.getPositionRow(current.userId, request.params.id),
+      persistence.getTelemetryRow(current.userId, request.params.id),
+      persistence.getRiskRow(current.userId, request.params.id),
+      persistence.listActions(current.userId, request.params.id),
+      persistence.getReserve(current.userId, request.params.id),
+    ])
+    const risk = toBookRiskDto(riskRow)
+    const positionUpdatedAt = positionRow?.observed_at instanceof Date ? positionRow.observed_at.getTime() : Date.parse(String(positionRow?.observed_at ?? ''))
+    const snapshotUpdatedAt = telemetryRow?.timestamp instanceof Date ? telemetryRow.timestamp.getTime() : Date.parse(String(telemetryRow?.timestamp ?? ''))
+    const telemetrySourceRow = telemetryRow && !telemetryRow.freshness_detail
+      ? { ...telemetryRow, freshness_detail: Number.isFinite(snapshotUpdatedAt) ? buildTelemetryFreshness({ marketUpdatedAt: snapshotUpdatedAt, positionUpdatedAt: Number.isFinite(positionUpdatedAt) ? positionUpdatedAt : undefined, fundingUpdatedAt: snapshotUpdatedAt, orderbookUpdatedAt: snapshotUpdatedAt }) : null }
+      : telemetryRow
+    const telemetry = telemetrySourceRow ? toTelemetryDto(telemetrySourceRow) : null
+    if (telemetry && risk.riskFeatures && typeof risk.riskFeatures === 'object') {
+      const distance = (risk.riskFeatures as Record<string, unknown>).liquidationDistance
+      telemetry.liquidationDistance = distance == null ? null : Number(distance)
+    }
+    if (telemetry && telemetry.liquidationDistance == null && positionRow) {
+      const mark = Number(telemetry.mark)
+      const liquidation = Number(positionRow.liquidation_price)
+      if (Number.isFinite(mark) && mark > 0 && Number.isFinite(liquidation)) {
+        telemetry.liquidationDistance = (book.side === 'SHORT' ? liquidation - mark : mark - liquidation) / Math.abs(mark) * 100
+      }
+    }
+    const action = actionRows.length && actionRows[0] && typeof actionRows[0] === 'object' ? actionRows[0] as Record<string, unknown> : null
+    return { book: toBookDto(book), position: positionRow ? toPositionDto(positionRow, book.side) : null, telemetry, risk, execution: toExecutionSummaryDto(action), reserve: reserveRow ? toReserveDto(reserveRow as Record<string, unknown>) : null }
+  })
   app.get<{ Params: { id: string } }>('/books/:id/autopsy', async request => (await persistence.listAutopsy((await requireSession(request)).userId, request.params.id)).map(row => toAutopsyDto(row as Record<string, unknown>)))
   app.get<{ Params: { id: string } }>('/books/:id/decisions', async request => (await persistence.listDecisions((await requireSession(request)).userId, request.params.id)).map(row => toDecisionDto(row as Record<string, unknown>)))
   app.get<{ Params: { id: string } }>('/books/:id/actions', async request => (await persistence.listActions((await requireSession(request)).userId, request.params.id)).map(row => toActionDto(row as Record<string, unknown>)))

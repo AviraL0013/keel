@@ -132,15 +132,17 @@ class _BookCard extends ConsumerWidget {
                       ]),
                       const SizedBox(height: KeelSpacing.md),
                       LinearProgressIndicator(
-                          value: state.freshnessMs == null
+                          value: state.freshnessMs == null || state.freshnessUnknown
                               ? null
                               : state.stale
                                   ? .18
                                   : .82,
                           minHeight: 6,
-                          color: state.stale
-                              ? KeelColors.reduce
-                              : KeelColors.defend,
+                          color: state.freshnessUnknown
+                              ? KeelColors.info
+                              : state.stale
+                                  ? KeelColors.reduce
+                                  : KeelColors.defend,
                           backgroundColor: Theme.of(context)
                               .colorScheme
                               .onSurface
