@@ -18,7 +18,7 @@ export class ExecutionWorker {
     if (!Number.isFinite(decision.amount) || decision.amount < 0) throw new Error('INVALID_ACTION_AMOUNT')
     const refreshed = classifyDecision(context.book, features, defenseAmount(features, context.position, context.reserve, context.book, context.telemetry))
     if ((!manualClose && decision.action !== refreshed.action) || (decision.action === 'DEFEND' && decision.amount !== refreshed.amount)) throw new Error('DECISION_SUPERSEDED')
-    if (decision.action === 'DEFEND' && (decision.amount > context.reserve.available || decision.amount > context.book.defenseCap - context.reserve.deployed - context.reserve.reserved)) throw new Error('RESERVE_CAP_EXCEEDED')
+    if (decision.action === 'DEFEND' && (decision.amount > context.reserve.available || decision.amount > context.book.defenseCap)) throw new Error('RESERVE_CAP_EXCEEDED')
     const action: Action = { id: crypto.randomUUID(), bookId: decision.bookId, decisionId: decision.id, kind: decision.action as Action['kind'], amount: decision.amount, status: 'QUEUED', idempotencyKey: key, beforeState: { position: context.position, reserve: context.reserve, telemetry: context.telemetry } }
     await this.repo.saveAction(action); await this.repo.addEvent({ id: crypto.randomUUID(), bookId: action.bookId, type: `${action.kind}_QUEUED`, payload: { actionId: action.id, amount: action.amount }, timestamp: new Date().toISOString() })
     try {

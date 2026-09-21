@@ -1,5 +1,25 @@
 import '../../../shared/models/telemetry_freshness.dart';
 
+class BookCreationReadiness {
+  const BookCreationReadiness({required this.allowed, required this.code, required this.reason, required this.market, required this.position});
+  final bool allowed;
+  final String code;
+  final String reason;
+  final TelemetryFreshnessPoint market;
+  final TelemetryFreshnessPoint position;
+
+  factory BookCreationReadiness.fromJson(Object? raw) {
+    final value = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    return BookCreationReadiness(
+      allowed: value['allowed'] == true,
+      code: value['code'] as String? ?? 'POSITION_TELEMETRY_UNKNOWN',
+      reason: value['reason'] as String? ?? 'Live telemetry is unavailable.',
+      market: TelemetryFreshnessPoint.fromJson(value['market']),
+      position: TelemetryFreshnessPoint.fromJson(value['position']),
+    );
+  }
+}
+
 class Position {
   const Position(
       {required this.marketId,
@@ -27,7 +47,8 @@ class Position {
       this.positionFreshnessMs,
       this.fundingFreshnessMs,
       this.orderbookFreshnessMs,
-      this.freshness});
+      this.freshness,
+      this.bookCreation});
   final int marketId, accountId, positionId;
   final String market, side, status;
   final double size, entryPrice, markPrice, liquidationPrice, leverage, margin;
@@ -39,6 +60,7 @@ class Position {
       fundingFreshnessMs,
       orderbookFreshnessMs;
   final TelemetryFreshnessModel? freshness;
+  final BookCreationReadiness? bookCreation;
   factory Position.fromJson(Map<String, dynamic> json) {
     final value = Map<String, dynamic>.from(json['position'] as Map);
     final telemetry = json['telemetry'] == null
@@ -74,6 +96,9 @@ class Position {
             (telemetry?['orderbookFreshnessMs'] as num?)?.toInt(),
         freshness: telemetry?['freshness'] == null
             ? null
-            : TelemetryFreshnessModel.fromJson(telemetry?['freshness']));
+            : TelemetryFreshnessModel.fromJson(telemetry?['freshness']),
+        bookCreation: json['bookCreation'] == null
+            ? null
+            : BookCreationReadiness.fromJson(json['bookCreation']));
   }
 }

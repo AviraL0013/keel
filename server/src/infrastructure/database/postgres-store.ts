@@ -21,8 +21,9 @@ export class PostgresStore implements Store {
       const result = await client.query('INSERT INTO books(user_id,market,market_id,venue_account_id,venue_position_id,side,stance,liquidation_floor,defense_cap,time_limit_ms,automation_enabled,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *', [userId, input.market, input.marketId ?? null, input.venueAccountId ?? null, input.venuePositionId ?? null, input.side, input.stance, input.liquidationFloor, input.defenseCap, input.timeLimitMs, hasPosition && input.automationEnabled, status])
       const book = mapBook(result.rows[0])
       const reserveAvailable = input.reserveAvailable ?? 0
-      if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0 || reserveAvailable > input.defenseCap) throw new Error('INVALID_BOOK_RESERVE')
-      await client.query('INSERT INTO reserves(book_id,available,reserved,deployed,cap) VALUES($1,$2,0,0,$3)', [book.id, reserveAvailable, input.defenseCap])
+      if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('INVALID_BOOK_RESERVE')
+      if (!Number.isFinite(input.defenseCap) || input.defenseCap <= 0 || input.defenseCap > reserveAvailable) throw new Error('Defense cap cannot exceed reserve.')
+      await client.query('INSERT INTO reserves(book_id,available,reserved,deployed,cap) VALUES($1,$2,0,0,$3)', [book.id, reserveAvailable, reserveAvailable])
       if (input.initialPosition) {
         const p = input.initialPosition
         await client.query('INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())', [book.id,p.size,p.entryPrice,p.markPrice,p.liquidationPrice,p.leverage,p.unrealizedPnl,p.margin,p.status])

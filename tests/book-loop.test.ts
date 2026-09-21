@@ -6,7 +6,7 @@ import type { Action } from '../packages/domain/src/index.js'
 
 function input() {
   return { market: 'BTC-PERP', marketId: 1, venueAccountId: 7, venuePositionId: 9,
-    side: 'LONG' as const, stance: 'DEFEND' as const, liquidationFloor: 6, defenseCap: 100,
+    side: 'LONG' as const, stance: 'DEFEND' as const, liquidationFloor: 6, defenseCap: 50,
     timeLimitMs: 3600000, automationEnabled: false, status: 'PAUSED' as const, reserveAvailable: 50,
     initialPosition: { side: 'LONG' as const, size: 1, entryPrice: 100, markPrice: 100, liquidationPrice: 90,
       leverage: 5, unrealizedPnl: 0, margin: 20, status: 'OPEN' as const, timestamp: Date.now() },

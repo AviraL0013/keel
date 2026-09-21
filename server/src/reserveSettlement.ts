@@ -10,7 +10,7 @@ export async function settleDefense(client: TransactionClient, bookId: string, a
   const existing = await client.query("SELECT id FROM reserve_ledger_entries WHERE action_id=$1 AND type='RESERVE_DEPLOYED'", [actionId])
   if (existing.rows.length) return
   const result = await client.query(`UPDATE reserves r SET available=r.available-$1,deployed=r.deployed+$1,updated_at=now()
-    FROM books b WHERE r.book_id=$2 AND b.id=r.book_id AND r.deployed+r.reserved+$1<=LEAST(r.cap,b.defense_cap) AND r.available >= $1 RETURNING r.book_id`, [amount, bookId])
+    FROM books b WHERE r.book_id=$2 AND b.id=r.book_id AND $1<=b.defense_cap AND r.deployed+r.reserved+$1<=r.cap AND r.available >= $1 RETURNING r.book_id`, [amount, bookId])
   if (result.rows.length !== 1) throw new Error('RESERVE_INVARIANT_VIOLATION')
   await client.query(`INSERT INTO reserve_ledger_entries(book_id,type,amount,action_id,decision_id,external_reference)
     VALUES($1,'RESERVE_DEPLOYED',$2,$3,$4,$5)`, [bookId, amount, actionId, decisionId, action.rows[0].venue_reference ?? null])

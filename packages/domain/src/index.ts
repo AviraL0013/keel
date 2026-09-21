@@ -15,6 +15,8 @@ export type FreshnessThresholds = { marketMs: number; positionMs: number; fundin
 export const defaultFreshnessThresholds: FreshnessThresholds = { marketMs: 10_000, positionMs: 10_000, fundingMs: 10_000, orderbookMs: 10_000 }
 export type TelemetryFreshnessPoint = { status: FreshnessStatus; updatedAt?: number; ageMs?: number; thresholdMs: number }
 export type TelemetryFreshness = { market: TelemetryFreshnessPoint; position: TelemetryFreshnessPoint; funding: TelemetryFreshnessPoint; orderbook: TelemetryFreshnessPoint; thresholdsMs: FreshnessThresholds }
+export type BookCreationReadinessCode = 'READY' | 'POSITION_NOT_OPEN' | 'POSITION_INVALID' | 'MARKET_INVALID' | 'MARKET_TELEMETRY_UNKNOWN' | 'MARKET_TELEMETRY_STALE' | 'POSITION_TELEMETRY_UNKNOWN' | 'POSITION_TELEMETRY_STALE'
+export type BookCreationReadiness = { allowed: boolean; code: BookCreationReadinessCode; reason: string; market: TelemetryFreshnessPoint; position: TelemetryFreshnessPoint }
 export function freshnessPoint(updatedAt: number | undefined, now = Date.now(), thresholdMs = defaultFreshnessThresholds.marketMs): TelemetryFreshnessPoint {
   if (updatedAt === undefined || !Number.isFinite(updatedAt) || updatedAt <= 0) return { status: 'UNKNOWN', thresholdMs }
   const ageMs = now >= updatedAt ? now - updatedAt : 0

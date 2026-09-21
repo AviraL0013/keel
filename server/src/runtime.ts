@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
-import type { Book, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed } from '../../packages/domain/src/index.js'
+import type { Book, BookCreationReadiness, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed } from '../../packages/domain/src/index.js'
 import { evaluate } from '../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
@@ -12,7 +12,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
   loadBookSetup?(marketId: number, accountId: number, positionId: number): Promise<{ market: string; position: BookPositionSeed; telemetry: BookTelemetrySeed; reserveAvailable: number }>
-  listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: BookPositionSeed; telemetry?: BookTelemetrySeed }>>
+  listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: BookPositionSeed; telemetry?: BookTelemetrySeed; bookCreation: BookCreationReadiness }>>
   capital?(walletAddress?: string): Promise<CapitalSnapshot>
   start?(): Promise<void>
   refresh(book: Book): Promise<void>

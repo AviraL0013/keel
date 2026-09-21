@@ -21,7 +21,7 @@ export class DeterministicTestVenue implements RuntimeVenue {
   async start() {}
   async close() {}
   async validate() { return 'VALID' as const }
-  async listPositions() { return [{ marketId: MARKET_ID, market: 'BTC-PERP', accountId: ACCOUNT_ID, positionId: POSITION_ID, position: { ...this.currentPosition }, telemetry: this.telemetrySnapshot() }] }
+  async listPositions() { const telemetry = this.telemetrySnapshot(); return [{ marketId: MARKET_ID, market: 'BTC-PERP', accountId: ACCOUNT_ID, positionId: POSITION_ID, position: { ...this.currentPosition }, telemetry, bookCreation: { allowed: telemetry.freshness.market.status === 'FRESH' && telemetry.freshness.position.status === 'FRESH', code: 'READY' as const, reason: 'Live market and position telemetry are within the configured safety threshold.', market: telemetry.freshness.market, position: telemetry.freshness.position } }] }
   async loadBookSetup(marketId: number, accountId: number, positionId: number) {
     if (marketId !== MARKET_ID || accountId !== ACCOUNT_ID || positionId !== POSITION_ID) throw new Error('TEST_POSITION_NOT_FOUND')
     return { market: 'BTC-PERP', position: { ...this.currentPosition }, telemetry: this.telemetrySnapshot(), reserveAvailable: 600 }

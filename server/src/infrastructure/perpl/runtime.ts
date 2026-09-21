@@ -5,20 +5,31 @@ import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packag
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
-import { buildTelemetryFreshness, defaultFreshnessThresholds, type Action, type Book, type CapitalAmount, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
+import { buildTelemetryFreshness, defaultFreshnessThresholds, freshnessPoint, type Action, type Book, type BookCreationReadiness, type CapitalAmount, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
 import { ChainAdapter } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { getAddress } from 'viem'
 import { logger } from '../../config/index.js'
 
-export function assertPerplBookSetupReady(position: Position, telemetry: NormalizedTelemetry, now = Date.now(), freshnessWindowMs = defaultFreshnessThresholds.marketMs) {
+export function perplBookCreationReadiness(position: Position, telemetry: NormalizedTelemetry, now = Date.now(), freshnessWindowMs = defaultFreshnessThresholds.marketMs): BookCreationReadiness {
   const positionObservedAt = position.observedAt ?? position.timestamp
-  const positionFreshnessMs = positionObservedAt === undefined ? Number.POSITIVE_INFINITY : now - positionObservedAt
-  const sourceFresh = telemetry.freshness
-    ? [telemetry.freshness.market, telemetry.freshness.position, telemetry.freshness.funding, telemetry.freshness.orderbook].every(point => point.status === 'FRESH')
-    : Number.isFinite(telemetry.freshnessMs) && telemetry.freshnessMs >= 0 && telemetry.freshnessMs <= freshnessWindowMs && Number.isFinite(positionFreshnessMs) && positionFreshnessMs >= 0 && positionFreshnessMs <= freshnessWindowMs
-  if (position.status !== 'OPEN' || !Number.isFinite(position.size) || position.size <= 0 || !Number.isFinite(position.entryPrice) || !Number.isFinite(position.margin) || position.margin < 0 || !sourceFresh) throw new Error('PERPL_TELEMETRY_STALE')
+  const market = telemetry.freshness?.market ?? freshnessPoint(telemetry.marketTimestamp ?? telemetry.timestamp, now, freshnessWindowMs)
+  const positionFreshness = telemetry.freshness?.position ?? freshnessPoint(positionObservedAt, now, freshnessWindowMs)
+  const blocked = (code: BookCreationReadiness['code'], reason: string): BookCreationReadiness => ({ allowed: false, code, reason, market, position: positionFreshness })
+  if (position.status !== 'OPEN') return blocked('POSITION_NOT_OPEN', 'Selected Perpl position is not open.')
+  if (!Number.isFinite(position.size) || position.size <= 0 || !Number.isFinite(position.entryPrice) || position.entryPrice <= 0 || !Number.isFinite(position.margin) || position.margin < 0) return blocked('POSITION_INVALID', 'Selected Perpl position values are invalid.')
+  if (![telemetry.mark, telemetry.oracle, telemetry.bid, telemetry.ask].every(Number.isFinite) || telemetry.mark <= 0 || telemetry.oracle <= 0 || telemetry.bid <= 0 || telemetry.ask < telemetry.bid) return blocked('MARKET_INVALID', 'Current Perpl market values are invalid.')
+  if (market.status === 'UNKNOWN') return blocked('MARKET_TELEMETRY_UNKNOWN', 'Live market telemetry is unavailable.')
+  if (market.status === 'STALE') return blocked('MARKET_TELEMETRY_STALE', `Live market telemetry is stale${market.ageMs === undefined ? '.' : ` by ${market.ageMs}ms.`}`)
+  if (positionFreshness.status === 'UNKNOWN') return blocked('POSITION_TELEMETRY_UNKNOWN', 'Live position telemetry is unavailable.')
+  if (positionFreshness.status === 'STALE') return blocked('POSITION_TELEMETRY_STALE', `Live position telemetry is stale${positionFreshness.ageMs === undefined ? '.' : ` by ${positionFreshness.ageMs}ms.`}`)
+  return { allowed: true, code: 'READY', reason: 'Live market and position telemetry are within the configured safety threshold.', market, position: positionFreshness }
+}
+
+export function assertPerplBookSetupReady(position: Position, telemetry: NormalizedTelemetry, now = Date.now(), freshnessWindowMs = defaultFreshnessThresholds.marketMs) {
+  const readiness = perplBookCreationReadiness(position, telemetry, now, freshnessWindowMs)
+  if (!readiness.allowed) throw Object.assign(new Error(readiness.code), { statusCode: 409, details: readiness })
 }
 
 export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefined {
@@ -72,7 +83,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     async listPositions() {
       const context = await adapter.getProtocolContext()
       const accountId = Number(env.PERPL_ACCOUNT_ID)
-      const result: Array<{ marketId: number; market: string; accountId: number; positionId: number; position: import('../../../../packages/domain/src/index.js').BookPositionSeed; telemetry?: import('../../../../packages/domain/src/index.js').BookTelemetrySeed }> = []
+      const result: Array<{ marketId: number; market: string; accountId: number; positionId: number; position: import('../../../../packages/domain/src/index.js').BookPositionSeed; telemetry?: import('../../../../packages/domain/src/index.js').BookTelemetrySeed; bookCreation: BookCreationReadiness }> = []
       for (const market of context.markets) {
         const rows = await adapter.getPositions(accountId, market.id)
         for (const row of rows.filter(item => item.st === 1)) {
@@ -80,8 +91,8 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
           if (!position) continue
           const telemetry = await adapter.getNormalizedMarket(market.id)
           const { bookId: _bookId, ...positionSeed } = position
-          if (telemetry) { const currentTelemetry = telemetryForPosition(telemetry, position); const { source: _source, freshnessMs: _freshnessMs, ...telemetrySeed } = currentTelemetry; result.push({ marketId: market.id, market: market.symbol, accountId, positionId: row.pid, position: positionSeed, telemetry: { ...telemetrySeed, source: currentTelemetry.source, freshnessMs: currentTelemetry.freshnessMs } }) }
-          else result.push({ marketId: market.id, market: market.symbol, accountId, positionId: row.pid, position: positionSeed })
+          if (telemetry) { const currentTelemetry = telemetryForPosition(telemetry, position); const { source: _source, freshnessMs: _freshnessMs, ...telemetrySeed } = currentTelemetry; result.push({ marketId: market.id, market: market.symbol, accountId, positionId: row.pid, position: positionSeed, telemetry: { ...telemetrySeed, source: currentTelemetry.source, freshnessMs: currentTelemetry.freshnessMs }, bookCreation: perplBookCreationReadiness(position, currentTelemetry) }) }
+          else { const unavailableTelemetry = { mark: Number.NaN, oracle: Number.NaN, bid: Number.NaN, ask: Number.NaN, mid: Number.NaN, spreadBps: Number.NaN, fundingRate: Number.NaN, depthNotional: Number.NaN, volatility: Number.NaN, volume24h: Number.NaN, openInterest: Number.NaN, block: 0, timestamp: 0, source: 'perpl-rest' as const, freshnessMs: Number.POSITIVE_INFINITY }; result.push({ marketId: market.id, market: market.symbol, accountId, positionId: row.pid, position: positionSeed, bookCreation: perplBookCreationReadiness(position, unavailableTelemetry) }) }
         }
       }
       return result

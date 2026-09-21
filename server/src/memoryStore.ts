@@ -29,9 +29,12 @@ export class MemoryStore implements Store {
     const now = new Date().toISOString()
     const bound = Boolean(input.initialPosition && input.initialTelemetry && input.marketId && input.venueAccountId && input.venuePositionId)
     if (input.automationEnabled && !bound) throw new Error('BOOK_POSITION_BINDING_REQUIRED')
+    const reserveAvailable = input.reserveAvailable ?? 0
+    if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('INVALID_BOOK_RESERVE')
+    if (!Number.isFinite(input.defenseCap) || input.defenseCap <= 0 || input.defenseCap > reserveAvailable) throw new Error('Defense cap cannot exceed reserve.')
     const book: Book = { ...input, automationEnabled: bound && input.automationEnabled, status: bound ? input.status : 'PAUSED', id: crypto.randomUUID(), userId, createdAt: now, updatedAt: now }
     this.books.set(book.id, book)
-    this.reserves.set(book.id, { bookId: book.id, available: input.reserveAvailable ?? 0, reserved: 0, deployed: 0, cap: input.defenseCap, updatedAt: now })
+    this.reserves.set(book.id, { bookId: book.id, available: reserveAvailable, reserved: 0, deployed: 0, cap: reserveAvailable, updatedAt: now })
     if (input.initialPosition) this.positions.set(book.id, { ...input.initialPosition, bookId: book.id })
     if (input.initialTelemetry) this.telemetry.set(book.id, { ...input.initialTelemetry, source: input.initialTelemetry.source ?? 'replay', freshnessMs: input.initialTelemetry.freshnessMs ?? 1 })
     await this.addMemoryEvent(book.id, 'BOOK_CREATED', { bookId: book.id })

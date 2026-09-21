@@ -11,7 +11,7 @@ export function sizeDefense(book: Book, position: Position, reserve: Reserve, fe
   const sensitivity = position.collateralPerDistancePoint ?? new Decimal(position.size).abs().mul(mark).div(100).toNumber()
   if (!Number.isFinite(sensitivity) || sensitivity <= 0) return 0
   const required = gap.mul(sensitivity).toDecimalPlaces(6, Decimal.ROUND_CEIL)
-  const ceiling = Decimal.min(reserve.available, features.reserveHeadroom, new Decimal(book.defenseCap).minus(reserve.deployed).minus(reserve.reserved))
+  const ceiling = Decimal.min(reserve.available, features.reserveHeadroom, new Decimal(book.defenseCap))
   return required.gt(0) && required.lte(ceiling) ? required.toNumber() : 0
 }
 

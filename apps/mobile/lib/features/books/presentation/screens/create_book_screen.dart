@@ -25,15 +25,8 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
   String? stance;
   bool automation = false;
   String? error;
-  bool get telemetryReady =>
-      widget.position.status == 'OPEN' &&
-      widget.position.size > 0 &&
-      widget.position.margin >= 0 &&
-      widget.position.freshness != null &&
-      widget.position.freshness!.market.fresh &&
-      widget.position.freshness!.position.fresh &&
-      widget.position.freshness!.funding.fresh &&
-      widget.position.freshness!.orderbook.fresh;
+  bool get telemetryReady => widget.position.bookCreation?.allowed == true;
+  String get telemetryReason => widget.position.bookCreation?.reason ?? 'Backend has not confirmed live telemetry readiness.';
 
   @override
   void dispose() {
@@ -123,6 +116,10 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
             const Padding(
                 padding: EdgeInsets.only(top: 12),
                 child: Text('LIVE TELEMETRY REQUIRED')),
+          if (!telemetryReady)
+            Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(telemetryReason)),
           if (error != null)
             Text(error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -143,15 +140,7 @@ class BookReviewScreen extends ConsumerWidget {
   final Position position;
   final BookConfiguration config;
 
-  bool get telemetryReady =>
-      position.status == 'OPEN' &&
-      position.size > 0 &&
-      position.margin >= 0 &&
-      position.freshness != null &&
-      position.freshness!.market.fresh &&
-      position.freshness!.position.fresh &&
-      position.freshness!.funding.fresh &&
-      position.freshness!.orderbook.fresh;
+  bool get telemetryReady => position.bookCreation?.allowed == true;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -170,6 +159,10 @@ class BookReviewScreen extends ConsumerWidget {
           Text(
             'Floor ${config.liquidationFloor} / cap ${config.defenseCap} / reserve ${config.reserve} / ${config.timeLimit.inHours}h / ${config.stance} / automation ${config.automation ? 'on' : 'off'}',
           ),
+          if (!telemetryReady) ...[
+            const SizedBox(height: 12),
+            Text(position.bookCreation?.reason ?? 'Backend has not confirmed live telemetry readiness.'),
+          ],
           const SizedBox(height: 16),
           _CapitalPreview(snapshot: ref.watch(capitalProvider)),
           const SizedBox(height: 16),

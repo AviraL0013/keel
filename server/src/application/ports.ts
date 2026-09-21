@@ -1,4 +1,4 @@
-import type { Action, AutopsyEvent, Book, BookPositionSeed, BookStance, BookStatus, BookTelemetrySeed, CapitalSnapshot, Decision, NormalizedTelemetry, Position, Reserve } from '../../../packages/domain/src/index.js'
+import type { Action, AutopsyEvent, Book, BookCreationReadiness, BookPositionSeed, BookStance, BookStatus, BookTelemetrySeed, CapitalSnapshot, Decision, NormalizedTelemetry, Position, Reserve } from '../../../packages/domain/src/index.js'
 export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & { reserveAvailable?: number; initialPosition?: BookPositionSeed; initialTelemetry?: BookTelemetrySeed }
 export type BookControlPatch = { automationEnabled?: boolean; status?: BookStatus; stance?: BookStance }
 
@@ -26,6 +26,6 @@ export type ExecutionPort = {
 
 export type VenuePort = {
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
-  listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: Omit<Position, 'bookId'>; telemetry?: Omit<NormalizedTelemetry, 'source' | 'freshnessMs'> & { source?: NormalizedTelemetry['source']; freshnessMs?: number } }>>
+  listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: Omit<Position, 'bookId'>; telemetry?: Omit<NormalizedTelemetry, 'source' | 'freshnessMs'> & { source?: NormalizedTelemetry['source']; freshnessMs?: number }; bookCreation: BookCreationReadiness }>>
   capital?(walletAddress?: string): Promise<CapitalSnapshot>
 }

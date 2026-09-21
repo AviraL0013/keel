@@ -6,7 +6,7 @@ import type { CreateBookInput } from '../server/src/infrastructure/database/post
 
 export function bookInput(): CreateBookInput {
   return { market: 'BTC-PERP', marketId: 1, venueAccountId: 7, venuePositionId: 9,
-    side: 'LONG', stance: 'DEFEND', liquidationFloor: 6, defenseCap: 100,
+    side: 'LONG', stance: 'DEFEND', liquidationFloor: 6, defenseCap: 50,
     timeLimitMs: 3600000, automationEnabled: false, status: 'PAUSED', reserveAvailable: 50,
     initialPosition: { side: 'LONG', size: 1, entryPrice: 100, markPrice: 100, liquidationPrice: 90,
       leverage: 5, unrealizedPnl: 0, margin: 20, status: 'OPEN', timestamp: Date.now() },
@@ -39,9 +39,9 @@ describe('production Book repository', () => {
     const { db, store } = await databaseFixture()
     try {
       const user = await store.ensureUser('owner')
-      await expect(store.createBook(user, { ...bookInput(), reserveAvailable: 101 })).rejects.toThrow('INVALID_BOOK_RESERVE')
+      await expect(store.createBook(user, { ...bookInput(), reserveAvailable: 40 })).rejects.toThrow('Defense cap cannot exceed reserve.')
       expect(await store.listBooks(user)).toHaveLength(0)
-      const book = await store.createBook(user, { ...bookInput(), initialPosition: undefined, initialTelemetry: undefined, reserveAvailable: 0 })
+      const book = await store.createBook(user, { ...bookInput(), initialPosition: undefined, initialTelemetry: undefined, reserveAvailable: 50 })
       await expect(store.updateBookControls(user, book.id, { status: 'ACTIVE' })).rejects.toThrow('BOOK_NOT_ARMABLE')
       expect((await store.getBook(user, book.id))?.status).toBe('PAUSED')
     } finally { await db.close() }
