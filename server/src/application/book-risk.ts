@@ -16,5 +16,13 @@ export function evaluateBookSnapshot(book: Book, position: SnapshotPosition | nu
   const normalizedPosition: Position = { bookId: book.id, side: book.side, size: value(position.size), entryPrice: value(position.entryPrice), markPrice: value(telemetry.mark), liquidationPrice: value(position.liquidationPrice), leverage: value(position.leverage), unrealizedPnl: value(position.unrealizedPnl), margin: value(position.margin), status: position.status as Position['status'], timestamp: at(sources?.position) }
   const normalizedReserve: Reserve = { bookId: book.id, available: value(reserve.available), reserved: value(reserve.reserved), deployed: value(reserve.deployed), cap: value(reserve.cap), updatedAt: new Date(now).toISOString() }
   const normalizedTelemetry: NormalizedTelemetry = { mark: value(telemetry.mark), oracle: value(telemetry.oracle), bid: value(telemetry.bid), ask: value(telemetry.ask), mid: value(telemetry.mid), spreadBps: value(telemetry.spreadBps), fundingRate: value(telemetry.fundingRate), depthNotional: value(telemetry.depthNotional), volatility: value(telemetry.volatility), block: value(telemetry.block), timestamp, freshnessMs: now - timestamp, volume24h: 0, openInterest: 0, source: 'perpl-ws', executionHealthy }
-  return evaluate(book, normalizedPosition, normalizedReserve, normalizedTelemetry, priorEfficiency, now)
+  const decision = evaluate(book, normalizedPosition, normalizedReserve, normalizedTelemetry, priorEfficiency, now)
+  if (decision.reasonCodes.includes('STALE_STATE') && sources) {
+    const staleSources = (['market', 'position', 'funding', 'orderbook'] as const).filter(key => sources[key].status !== 'FRESH')
+    if (staleSources.length) {
+      const labels = staleSources.map(source => source === 'orderbook' ? 'depth' : source)
+      return { ...decision, humanReadableReasons: [`${labels.join(', ')} telemetry is ${staleSources.some(source => sources[source].status === 'UNKNOWN') ? 'unavailable' : 'stale'}.`] }
+    }
+  }
+  return decision
 }
