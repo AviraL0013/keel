@@ -12,7 +12,28 @@ void main() {
   test('capital keeps unavailable values unknown', () {
     final capital = CapitalSnapshot.fromJson({'status': 'UNAVAILABLE'});
     expect(capital.ausdBalance, isNull);
-    expect(capital.perplAvailable, isNull);
+    expect(capital.perplAvailable.amount, isNull);
+  });
+  test('capital preserves normalized amount metadata', () {
+    final capital = CapitalSnapshot.fromJson({
+      'status': 'VALID',
+      'accountId': 642,
+      'perplAvailable': {
+        'amount': '99.457410',
+        'asset': 'AUSD',
+        'decimals': 6,
+        'source': 'PERPL_COLLATERAL',
+        'availability': 'AVAILABLE',
+        'freshness': 'STALE',
+        'ageMs': 12000,
+      },
+    });
+    expect(capital.accountId, 642);
+    expect(capital.perplAvailable.amount, '99.457410');
+    expect(capital.perplAvailable.decimals, 6);
+    expect(capital.perplAvailable.source, 'PERPL_COLLATERAL');
+    expect(capital.perplAvailable.freshness, 'STALE');
+    expect(capital.perplAvailable.ageMs, 12000);
   });
   test('position preserves documented lifecycle status', () {
     final position = Position.fromJson({'marketId': 1, 'accountId': 2, 'market': 'BTC-PERP', 'positionId': 3, 'position': {'side': 'LONG', 'size': 1, 'entryPrice': 100, 'markPrice': 101, 'liquidationPrice': 90, 'leverage': 5, 'margin': 20, 'status': 'DELEVERAGED'}});

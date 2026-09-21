@@ -24,6 +24,9 @@ class AuthRepository {
     return result['token'] as String;
   }
 
+  Future<Map<String, dynamic>> session() => api.get(
+      '/auth/session', (value) => Map<String, dynamic>.from(value as Map));
+
   Future<void> logout() async {
     await api.post('/auth/logout', decode: (_) => true);
   }
@@ -42,11 +45,21 @@ class AuthController extends StateNotifier<AuthState> {
     state =
         const AuthState(authenticated: false, loading: true, restoring: true);
     final token = await storage.readToken();
-    state = AuthState(
-        authenticated: token != null,
-        walletStatus: token != null
-            ? WalletStatus.authenticated
-            : WalletStatus.disconnected);
+    if (token == null) {
+      state = const AuthState(authenticated: false);
+      return;
+    }
+    try {
+      final session = await repository.session();
+      final address = session['walletAddress'] as String? ??
+          await storage.readAddress();
+      if (address == null) throw StateError('SESSION_WALLET_MISSING');
+      await storage.saveAddress(address);
+      state = AuthState(authenticated: true, address: address, walletStatus: WalletStatus.authenticated);
+    } catch (_) {
+      await storage.clear();
+      state = const AuthState(authenticated: false);
+    }
   }
 
   Future<Map<String, dynamic>> challenge(String address) =>
@@ -61,6 +74,7 @@ class AuthController extends StateNotifier<AuthState> {
           challengeMessage: message);
       await storage.saveToken(
           await repository.verify(address, nonce, message, signature));
+      await storage.saveAddress(address);
       state = AuthState(
           authenticated: true,
           address: address,
@@ -103,6 +117,7 @@ class AuthController extends StateNotifier<AuthState> {
           challengeResult['nonce'] as String,
           challengeResult['message'] as String,
           signature));
+      await storage.saveAddress(connection.address);
       state = AuthState(
           authenticated: true,
           walletStatus: WalletStatus.authenticated,

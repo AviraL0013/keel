@@ -4,6 +4,7 @@ import '../../../../core/errors/keel_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/keel_widgets.dart';
 import '../data/capital_repository.dart';
+import '../domain/capital_snapshot.dart';
 
 class CapitalScreen extends ConsumerWidget {
   const CapitalScreen({super.key});
@@ -38,7 +39,7 @@ class CapitalScreen extends ConsumerWidget {
               _CapitalSection(
                   title: 'WALLET / AUSD',
                   icon: Icons.account_balance_wallet_outlined,
-                  values: {'AUSD balance': snapshot.ausdBalance}),
+                  values: {'AUSD balance': snapshot.walletAusd}),
               _CapitalSection(
                   title: 'PERPL COLLATERAL',
                   icon: Icons.swap_horiz,
@@ -66,13 +67,11 @@ class _CapitalSection extends StatelessWidget {
       {required this.title, required this.icon, required this.values});
   final String title;
   final IconData icon;
-  final Map<String, double?> values;
+  final Map<String, CapitalAmount> values;
 
   @override
   Widget build(BuildContext context) {
-    final known = values.values
-        .whereType<double>()
-        .fold<double>(0, (sum, value) => sum + value);
+    final known = values.values.where((value) => value.numeric != null).fold<double>(0, (sum, value) => sum + value.numeric!);
     final maximum = known == 0 ? null : known;
     return Card(
         margin: const EdgeInsets.only(bottom: KeelSpacing.md),
@@ -90,11 +89,29 @@ class _CapitalSection extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: KeelSpacing.md),
                   child: MetricGauge(
                       label: entry.key,
-                      value: entry.value,
+                      value: entry.value.numeric,
                       maximum: maximum,
-                      valueLabel: entry.value == null
+                      valueLabel: entry.value.amount == null
                           ? 'Unavailable'
-                          : entry.value!.toStringAsFixed(2)))),
+                          : '${entry.value.numeric?.toStringAsFixed(2) ?? entry.value.amount} ${entry.value.asset}',
+                      thresholdLabel: _status(entry.value))),
+              ),
             ])));
   }
+
+  String _age(int ageMs) => ageMs < 1000 ? '${ageMs}ms' : '${(ageMs / 1000).toStringAsFixed(ageMs < 10000 ? 1 : 0)}s';
+
+  String _status(CapitalAmount value) {
+    if (value.amount == null) {
+      return value.reason == null ? 'UNAVAILABLE' : _reason(value.reason!);
+    }
+    return '${value.freshness}${value.ageMs == null ? '' : '  ${_age(value.ageMs!)}'}';
+  }
+
+  String _reason(String reason) => switch (reason) {
+        'MONAD_WALLET_ADDRESS_NOT_CONFIGURED' => 'Wallet AUSD address unavailable',
+        'MONAD_AUSD_READ_FAILED' => 'Monad AUSD read unavailable',
+        'BOOK_LEDGER_NOT_AGGREGATED' => 'Book ledger unavailable',
+        _ => 'Source unavailable',
+      };
 }

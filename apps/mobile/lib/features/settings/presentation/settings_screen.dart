@@ -5,6 +5,7 @@ import '../../../core/networking/backend_status.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../capital/data/capital_repository.dart';
 import '../data/settings_repository.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -21,6 +22,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
     final backend = ref.watch(backendStatusProvider);
+    final capital = ref.watch(capitalProvider);
     final themeMode = ref.watch(themeModeProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('SETTINGS')),
@@ -40,7 +42,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           const SizedBox(height: KeelSpacing.md),
                           _SettingRow(
                               label: 'Wallet',
-                              value: auth.address ?? 'Unavailable',
+                              value: auth.address == null
+                                  ? 'Unavailable'
+                                  : '${auth.address!.substring(0, 6)}...${auth.address!.substring(auth.address!.length - 4)}  Connected',
                               icon: Icons.account_balance_wallet_outlined),
                           _SettingRow(
                               label: 'KEEL session',
@@ -52,7 +56,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               data: (value) => _SettingRow(
                                   label: 'Backend',
                                   value: value.state == BackendState.live
-                                      ? 'LIVE / ${value.environment ?? 'unknown'}'
+                                      ? _environmentLabel(value.environment)
                                       : 'OFFLINE',
                                   icon: Icons.dns_outlined),
                               loading: () => const _SettingRow(
@@ -63,10 +67,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   label: 'Backend',
                                   value: 'Unavailable',
                                   icon: Icons.dns_outlined)),
-                          const _SettingRow(
-                              label: 'Perpl',
-                              value: 'Server-side connection',
-                              icon: Icons.link),
+                          capital.when(
+                              data: (value) => _SettingRow(
+                                  label: 'Perpl',
+                                  value: value.accountId == null
+                                      ? 'Unavailable'
+                                      : 'Account ${value.accountId}  Connected',
+                                  icon: Icons.link),
+                              loading: () => const _SettingRow(
+                                  label: 'Perpl',
+                                  value: 'Checking',
+                                  icon: Icons.link),
+                              error: (_, __) => const _SettingRow(
+                                  label: 'Perpl',
+                                  value: 'Unavailable',
+                                  icon: Icons.link)),
                         ]))),
             const SizedBox(height: KeelSpacing.md),
             Card(
@@ -150,6 +165,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ]),
     );
   }
+
+  String _environmentLabel(String? environment) => switch (environment) {
+        'test' => 'DEV / TEST VENUE',
+        'mainnet' => 'LIVE TESTNET',
+        'development' => 'LOCAL DEV',
+        _ => environment?.toUpperCase() ?? 'UNKNOWN',
+      };
 
   Future<void> _confirmKillSwitch() async {
     final confirmed = await showDialog<bool>(

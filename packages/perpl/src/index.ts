@@ -16,7 +16,15 @@ export const perplNetworks: Record<PerplEnvironment, PerplConfig> = {
   testnet: { environment: 'testnet', restUrl: 'https://testnet.perpl.xyz/api', wsUrl: 'wss://testnet.perpl.xyz', chainId: 10143, rpcUrl: 'https://testnet-rpc.monad.xyz', exchangeAddress: '0x1964c32f0be608e7d29302aff5e61268e72080cc', collateralToken: '0xdf5b718d8fcc173335185a2a1513ee8151e3c027' },
 }
 export type PerplContext = { chain: unknown; instances: Array<{ id: number; collateral_token_id: number }>; tokens: Array<{ id?: number; decimals: number }>; markets: Array<{ id: number; symbol: string; instance_id?: number; config: Record<string, unknown>; state: Record<string, unknown>; funding: Record<string, unknown> }> }
-export type VenueAdapter = { getProtocolContext(): Promise<PerplContext>; getMarket(marketId: number): Promise<unknown>; getMarketState(marketId: number): Promise<unknown>; getOrderBook(marketId: number): Promise<unknown>; getFunding(marketId: number): Promise<unknown>; getPosition(accountId: number, marketId: number, positionId?: number): Promise<Position | null>; getBalance(accountId: number): Promise<{ available: string; locked: string }>; submit(action: Action): Promise<{ venueReference: string; status: 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'UNKNOWN' | 'FAILED' }>; reconcile(action: Action): Promise<Action>; connect(streams: string[], onMessage: (message: unknown) => void): Promise<() => void> }
+export type PerplBalance = { available: string; locked: string; decimals: number; updatedAt?: number }
+export type VenueAdapter = { getProtocolContext(): Promise<PerplContext>; getMarket(marketId: number): Promise<unknown>; getMarketState(marketId: number): Promise<unknown>; getOrderBook(marketId: number): Promise<unknown>; getFunding(marketId: number): Promise<unknown>; getPosition(accountId: number, marketId: number, positionId?: number): Promise<Position | null>; getBalance(accountId: number): Promise<PerplBalance>; submit(action: Action): Promise<{ venueReference: string; status: 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'UNKNOWN' | 'FAILED' }>; reconcile(action: Action): Promise<Action>; connect(streams: string[], onMessage: (message: unknown) => void): Promise<() => void> }
+
+/** Convert Perpl collateral base units at the venue boundary. Keep fixed precision in the API value. */
+export function normalizePerplBalance(rawAvailable: string, rawLocked: string, decimals: number, updatedAt?: number): PerplBalance {
+  if (!/^\d+(?:\.\d+)?$/.test(rawAvailable) || !/^\d+(?:\.\d+)?$/.test(rawLocked) || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 18) throw new Error('PERPL_BALANCE_INVALID')
+  const scale = new Decimal(10).pow(decimals)
+  return { available: new Decimal(rawAvailable).div(scale).toFixed(decimals), locked: new Decimal(rawLocked).div(scale).toFixed(decimals), decimals, updatedAt }
+}
 export type ApiKeySigner = { apiKey: string; sign(method: string, path: string, body: string, timestamp: string, nonce: string): Promise<string> }
 export function mapPerplPositionStatus(status: number): Position['status'] {
   if (status === 1) return 'OPEN'
@@ -99,7 +107,16 @@ export class PerplAdapter implements VenueAdapter {
     const token = context.tokens.find(item => item.id === instance?.collateral_token_id)
     return normalizePerplPosition(row, market, token?.decimals ?? 6)
   }
-  async getBalance(accountId: number): Promise<{ available: string; locked: string }> { if (!this.history) throw new Error('PERPL_SIGNER_NOT_CONFIGURED'); const rows = await this.history.read<{ id: number; b: string; lb: string; at?: { b?: number; t?: number } }>('account-history', item => item.id === accountId); const row = newestHistory(rows); if (!row) throw new Error('PERPL_ACCOUNT_HISTORY_EMPTY'); if (!/^\d+(?:\.\d+)?$/.test(row.b) || !/^\d+(?:\.\d+)?$/.test(row.lb)) throw new Error('PERPL_BALANCE_INVALID'); return { available: row.b, locked: row.lb } }
+  async getBalance(accountId: number): Promise<PerplBalance> {
+    if (!this.history) throw new Error('PERPL_SIGNER_NOT_CONFIGURED')
+    const rows = await this.history.read<{ id: number; b: string; lb: string; at?: { b?: number; t?: number } }>('account-history', item => item.id === accountId)
+    const row = newestHistory(rows)
+    if (!row) throw new Error('PERPL_ACCOUNT_HISTORY_EMPTY')
+    const context = await this.getProtocolContext()
+    const account = context.instances.find(instance => context.tokens.some(token => token.id === instance.collateral_token_id))
+    const token = context.tokens.find(item => item.id === account?.collateral_token_id)
+    return normalizePerplBalance(row.b, row.lb, token?.decimals ?? 6, decodeTimestamp(row.at?.t))
+  }
   async submit(_action: Action): Promise<{ venueReference: string; status: 'SUBMITTED' | 'CONFIRMED' | 'UNKNOWN' | 'FAILED' }> { throw new Error('PERPL_TRADING_USES_AUTHENTICATED_WS_CLIENT') }
   async reconcile(action: Action): Promise<Action> { return { ...action, status: 'UNKNOWN', error: 'PERPL_RECONCILIATION_REQUIRES_CONTEXT' } }
 

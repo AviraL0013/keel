@@ -26,7 +26,10 @@ export class DeterministicTestVenue implements RuntimeVenue {
     if (marketId !== MARKET_ID || accountId !== ACCOUNT_ID || positionId !== POSITION_ID) throw new Error('TEST_POSITION_NOT_FOUND')
     return { market: 'BTC-PERP', position: { ...this.currentPosition }, telemetry: this.telemetrySnapshot(), reserveAvailable: 600 }
   }
-  async capital() { return { status: 'VALID' as const, accountId: ACCOUNT_ID, ausdBalance: '1000.00', perplAvailable: '600.00', perplLocked: '100.00', bookReserved: null, bookDeployed: null, bookRemaining: null, unreservedCapital: '500.00' } }
+  async capital() {
+    const amount = (value: string | null, source: string, availability: 'AVAILABLE' | 'UNAVAILABLE' = value === null ? 'UNAVAILABLE' : 'AVAILABLE', reason?: string) => ({ amount: value, asset: 'AUSD', decimals: 6, source, availability, freshness: value === null ? 'UNKNOWN' as const : 'FRESH' as const, ...(reason ? { reason } : {}) })
+    return { status: 'VALID' as const, accountId: ACCOUNT_ID, walletAusd: amount('1000.00', 'TEST_WALLET'), perplAvailable: amount('600.00', 'TEST_PERPL'), perplLocked: amount('100.00', 'TEST_PERPL'), bookReserved: amount(null, 'TEST_LEDGER', 'UNAVAILABLE', 'NO_BOOKS'), bookDeployed: amount(null, 'TEST_LEDGER', 'UNAVAILABLE', 'NO_BOOKS'), bookRemaining: amount(null, 'TEST_LEDGER', 'UNAVAILABLE', 'NO_BOOKS'), unreservedCapital: amount('500.00', 'TEST_LEDGER') }
+  }
   async refresh(book: Book) {
     const current = { ...this.currentPosition, markPrice: this.currentTelemetry.mark, unrealizedPnl: (this.currentTelemetry.mark - this.position.entryPrice) * this.position.size, timestamp: Date.now() }
     this.currentPosition = current

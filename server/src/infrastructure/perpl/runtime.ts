@@ -1,11 +1,11 @@
 import type { PostgresStore } from '../database/postgres-store.js'
 import type { RuntimeVenue } from '../../runtime.js'
-import { PerplAdapter, perplNetworks } from '../../../../packages/perpl/src/index.js'
+import { PerplAdapter, perplNetworks, decodeAmount } from '../../../../packages/perpl/src/index.js'
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
-import { buildTelemetryFreshness, defaultFreshnessThresholds, type Action, type Book, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
+import { buildTelemetryFreshness, defaultFreshnessThresholds, type Action, type Book, type CapitalAmount, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
 import { ChainAdapter } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
@@ -86,12 +86,38 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       }
       return result
     },
-    async capital() {
+    async capital(walletAddress?: string) {
       const accountId = Number(env.PERPL_ACCOUNT_ID)
       const perpl = await adapter.getBalance(accountId)
-      const wallet = env.MONAD_WALLET_ADDRESS ? await ausd.walletBalance(getAddress(env.MONAD_WALLET_ADDRESS)) : undefined
+      const configuredWallet = env.MONAD_WALLET_ADDRESS || walletAddress
+      let wallet: Awaited<ReturnType<AusdAdapter['walletBalance']>> | undefined
+      let walletUnavailableReason: string | undefined
+      if (configuredWallet) {
+        try { wallet = await ausd.walletBalance(getAddress(configuredWallet)) }
+        catch (error) { walletUnavailableReason = 'MONAD_AUSD_READ_FAILED'; logger.warn({ error: error instanceof Error ? error.message : 'MONAD_AUSD_READ_FAILED' }, 'Monad AUSD balance unavailable') }
+      } else walletUnavailableReason = 'MONAD_WALLET_ADDRESS_NOT_CONFIGURED'
       const agoraMetrics = env.AGORA_METRICS_ENABLED === 'true' ? await agora.metrics() : undefined
-      return { status: 'VALID' as const, accountId, ausdBalance: wallet ? wallet.raw.toString() : null, perplAvailable: perpl.available, perplLocked: perpl.locked, bookReserved: null, bookDeployed: null, bookRemaining: null, unreservedCapital: null, ausd: wallet ? { raw: wallet.raw.toString(), decimals: wallet.decimals, symbol: wallet.symbol, token: wallet.token, chainId: wallet.chainId } : undefined, agora: agoraMetrics }
+      const unavailable = (source: string, reason: string, decimals = 6): CapitalAmount => ({ amount: null, asset: 'AUSD', decimals, source, availability: 'UNAVAILABLE', freshness: 'UNKNOWN', reason })
+      const available = (amount: string, source: string, decimals: number, updatedAt?: number): CapitalAmount => {
+        if (updatedAt === undefined) return { amount, asset: 'AUSD', decimals, source, availability: 'AVAILABLE', freshness: 'UNKNOWN' }
+        const ageMs = Math.max(0, Date.now() - updatedAt)
+        return { amount, asset: 'AUSD', decimals, source, availability: 'AVAILABLE', freshness: ageMs <= freshnessThresholds.marketMs ? 'FRESH' : 'STALE', ageMs, updatedAt: new Date(updatedAt).toISOString() }
+      }
+      const walletAmount = wallet ? decodeAmount(wallet.raw.toString(), wallet.decimals) : null
+      const walletUpdatedAt = wallet ? Date.now() : undefined
+      return {
+        status: 'VALID' as const,
+        accountId,
+        walletAusd: wallet ? available(walletAmount!, 'MONAD_AUSD', wallet.decimals, walletUpdatedAt) : unavailable('MONAD_AUSD', walletUnavailableReason ?? 'MONAD_AUSD_UNAVAILABLE'),
+        perplAvailable: available(perpl.available, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt),
+        perplLocked: available(perpl.locked, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt),
+        bookReserved: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        bookDeployed: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        bookRemaining: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        unreservedCapital: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        ausd: wallet ? { raw: wallet.raw.toString(), decimals: wallet.decimals, symbol: wallet.symbol, token: wallet.token, chainId: wallet.chainId } : undefined,
+        agora: agoraMetrics,
+      }
     },
     async start() {
       try { await trading.connect() }

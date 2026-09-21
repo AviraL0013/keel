@@ -223,10 +223,10 @@ class _CapitalPreview extends StatelessWidget {
                         Text('CAPITAL CONTEXT',
                             style: Theme.of(context).textTheme.labelLarge),
                         const SizedBox(height: 8),
-                        Text('AUSD wallet: ${_value(value.ausdBalance)}'),
+                        Text('AUSD wallet: ${_value(value.walletAusd.amount)}'),
                         Text(
-                            'Perpl available: ${_value(value.perplAvailable)}'),
-                        Text('Perpl locked: ${_value(value.perplLocked)}'),
+                            'Perpl available: ${_value(value.perplAvailable.amount)}'),
+                        Text('Perpl locked: ${_value(value.perplLocked.amount)}'),
                         const SizedBox(height: 4),
                         const Text(
                             'Wallet balance and Perpl collateral are shown separately.')

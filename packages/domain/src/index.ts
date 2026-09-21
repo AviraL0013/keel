@@ -25,7 +25,22 @@ export function buildTelemetryFreshness(input: { marketUpdatedAt?: number; posit
 }
 export type NormalizedTelemetry = { mark: number; oracle: number; bid: number; ask: number; mid: number; spreadBps: number; fundingRate: number; depthNotional: number; volatility: number; volume24h: number; openInterest: number; block: number; timestamp: number; marketTimestamp?: number; positionTimestamp?: number; fundingTimestamp?: number; orderbookTimestamp?: number; combinedTimestamp?: number; marketFreshnessMs?: number; positionFreshnessMs?: number; fundingFreshnessMs?: number; orderbookFreshnessMs?: number; freshness?: TelemetryFreshness; source: 'perpl-rest' | 'perpl-ws' | 'replay'; freshnessMs: number; executionHealthy?: boolean }
 export type TelemetrySnapshot = NormalizedTelemetry
-export type CapitalSnapshot = { status: 'VALID' | 'UNAVAILABLE'; accountId?: number; ausdBalance: string | null; perplAvailable: string | null; perplLocked: string | null; bookReserved: string | null; bookDeployed: string | null; bookRemaining: string | null; unreservedCapital: string | null; ausd?: { raw: string; decimals: number; symbol: string; token: string; chainId: number }; agora?: Record<string, unknown> }
+export type CapitalAvailability = 'AVAILABLE' | 'UNAVAILABLE' | 'UNKNOWN'
+export type CapitalFreshness = 'FRESH' | 'STALE' | 'UNKNOWN'
+export type CapitalAmount = { amount: string | null; asset: string; decimals: number; source: string; availability: CapitalAvailability; freshness: CapitalFreshness; ageMs?: number; updatedAt?: string; reason?: string }
+export type CapitalSnapshot = {
+  status: 'VALID' | 'UNAVAILABLE'
+  accountId?: number
+  walletAusd: CapitalAmount
+  perplAvailable: CapitalAmount
+  perplLocked: CapitalAmount
+  bookReserved: CapitalAmount
+  bookDeployed: CapitalAmount
+  bookRemaining: CapitalAmount
+  unreservedCapital: CapitalAmount
+  ausd?: { raw: string; decimals: number; symbol: string; token: string; chainId: number }
+  agora?: Record<string, unknown>
+}
 export type RiskFeatures = { liquidationDistance: number; fundingPressure: number; spreadBps: number; depthCoverage: number; volatility: number; reserveHeadroom: number; capUtilization: number; timeRemainingMs: number; defenseEfficiency: number; fresh: boolean }
 export type Decision = { id: string; bookId: string; state: RiskState; action: ActionKind | 'HOLD' | 'SAFE_MODE'; amount: number; reasonCodes: string[]; humanReadableReasons: string[]; riskFeatures: RiskFeatures; createdAt: string }
 export type Action = { id: string; bookId: string; decisionId: string; kind: ActionKind; amount: number; status: ActionStatus; idempotencyKey: string; beforeState?: { position: Position; reserve: Reserve; telemetry: NormalizedTelemetry }; venueReference?: string; submittedAt?: string; confirmedAt?: string; failedAt?: string; error?: string }

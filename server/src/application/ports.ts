@@ -27,5 +27,5 @@ export type ExecutionPort = {
 export type VenuePort = {
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
   listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: Omit<Position, 'bookId'>; telemetry?: Omit<NormalizedTelemetry, 'source' | 'freshnessMs'> & { source?: NormalizedTelemetry['source']; freshnessMs?: number } }>>
-  capital?(): Promise<CapitalSnapshot>
+  capital?(walletAddress?: string): Promise<CapitalSnapshot>
 }

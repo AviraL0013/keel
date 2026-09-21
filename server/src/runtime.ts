@@ -13,7 +13,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
   loadBookSetup?(marketId: number, accountId: number, positionId: number): Promise<{ market: string; position: BookPositionSeed; telemetry: BookTelemetrySeed; reserveAvailable: number }>
   listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: BookPositionSeed; telemetry?: BookTelemetrySeed }>>
-  capital?(): Promise<CapitalSnapshot>
+  capital?(walletAddress?: string): Promise<CapitalSnapshot>
   start?(): Promise<void>
   refresh(book: Book): Promise<void>
   close(): Promise<void>
