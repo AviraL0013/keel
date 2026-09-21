@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/errors/keel_exception.dart';
@@ -9,30 +10,72 @@ import '../../../positions/domain/position.dart';
 import '../../../positions/presentation/positions_screen.dart';
 import 'book_detail_screen.dart';
 import 'create_book_screen.dart';
+import '../widgets/live_sync_status.dart';
 
-class BooksScreen extends ConsumerWidget {
+class BooksScreen extends ConsumerStatefulWidget {
   const BooksScreen({super.key});
+  @override
+  ConsumerState<BooksScreen> createState() => _BooksScreenState();
+}
+
+class _BooksScreenState extends ConsumerState<BooksScreen> {
+  bool _syncing = false;
+  bool _updated = false;
+  String? _syncError;
+  Timer? _updatedTimer;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    _updatedTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _resync() async {
+    if (_syncing) return;
+    _updatedTimer?.cancel();
+    setState(() { _syncing = true; _updated = false; _syncError = null; });
+    try {
+      final items = await ref.refresh(booksProvider.future);
+      await Future.wait(items.map((book) {
+        return ref.read(bookDashboardProvider(book.id).notifier).refreshNow();
+      }));
+      if (!mounted) return;
+      setState(() { _syncing = false; _updated = true; });
+      _updatedTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _updated = false);
+      });
+    } catch (error) {
+      if (mounted) setState(() { _syncing = false; _syncError = friendlyError(error); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final books = ref.watch(booksProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('KEEL'), actions: [
+        SizedBox(width: 104, child: Center(child: Text(
+            _syncing ? 'SYNCING' : _updated ? 'UPDATED' : _syncError != null ? 'RESYNC FAILED' : '',
+            style: KeelTypography.label))),
         IconButton(
-            onPressed: () => ref.invalidate(booksProvider),
+            tooltip: 'Resync Books',
+            onPressed: _syncing ? null : _resync,
             icon: const Icon(Icons.refresh))
       ]),
       body: books.when(
+        skipLoadingOnReload: true,
+        skipError: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => ErrorStateCard(
             message: friendlyError(error),
             onRetry: () => ref.invalidate(booksProvider)),
         data: (items) => RefreshIndicator(
-          onRefresh: () async => ref.invalidate(booksProvider),
+          onRefresh: _resync,
           child: ListView(
               padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
                   KeelSpacing.md, KeelSpacing.xl),
               children: [
+                if (_syncError != null) Text(_syncError!, style: KeelTypography.body),
                 Text('Good morning',
                     style: KeelTypography.body.copyWith(
                         color: Theme.of(context).textTheme.bodyMedium?.color)),
@@ -59,6 +102,7 @@ class BooksScreen extends ConsumerWidget {
                               icon: const Icon(Icons.arrow_forward),
                               label: const Text('VIEW POSITIONS')))),
                 ...items.map((book) => Padding(
+                    key: ValueKey('book-card-${book.id}'),
                     padding: const EdgeInsets.only(bottom: KeelSpacing.md),
                     child: _BookCard(book: book))),
               ]),
@@ -74,7 +118,7 @@ class _BookCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final telemetry = ref.watch(bookTelemetryProvider(book.id));
+    final telemetry = ref.watch(bookDashboardProvider(book.id));
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(KeelRadii.card),
@@ -83,9 +127,13 @@ class _BookCard extends ConsumerWidget {
         child: Padding(
             padding: const EdgeInsets.all(KeelSpacing.lg),
             child: telemetry.when(
+              skipLoadingOnReload: true,
+              skipError: true,
               loading: () => const LinearProgressIndicator(),
               error: (error, _) => Text(friendlyError(error)),
-              data: (state) {
+              data: (dashboard) {
+                final state = dashboard.telemetry;
+                final currentBook = dashboard.book;
                 final visual = KeelRiskVisual.forState(state.riskState);
                 return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,26 +141,27 @@ class _BookCard extends ConsumerWidget {
                       Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
+                            Expanded(child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(book.market,
+                                  Text(currentBook.market,
                                       style: KeelTypography.title),
                                   const SizedBox(height: KeelSpacing.xs),
-                                  Text('${book.side} / ${book.stance}',
+                                  Text('${currentBook.side} / ${currentBook.stance}',
                                       style: KeelTypography.body.copyWith(
                                           color: Theme.of(context)
                                               .textTheme
                                               .bodyMedium
                                               ?.color))
-                                ]),
+                                ])),
+                            const SizedBox(width: KeelSpacing.sm),
                             StatusPill(
                                 label: visual.label,
                                 color: visual.color,
                                 icon: visual.icon),
                           ]),
                       const SizedBox(height: KeelSpacing.lg),
-                      Text(visual.description,
+                      Text(state.riskReason ?? (state.reasons.isNotEmpty ? state.reasons.join(' ') : visual.description),
                           style: KeelTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
@@ -124,29 +173,16 @@ class _BookCard extends ConsumerWidget {
                         _Metric(
                             label: 'RESERVE',
                             value: _number(state.reserveAvailable)),
-                        Expanded(
-                            child: Align(
-                                alignment: Alignment.centerRight,
-                                child: TelemetryFreshness(
-                                    freshness: state.freshness)))
                       ]),
                       const SizedBox(height: KeelSpacing.md),
-                      LinearProgressIndicator(
-                          value: state.freshnessMs == null || state.freshnessUnknown
-                              ? null
-                              : state.stale
-                                  ? .18
-                                  : .82,
-                          minHeight: 6,
-                          color: state.freshnessUnknown
-                              ? KeelColors.info
-                              : state.stale
-                                  ? KeelColors.reduce
-                                  : KeelColors.defend,
-                          backgroundColor: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: .1)),
+                      TelemetryFreshness(freshness: telemetry.hasError ? null : state.freshness),
+                      const SizedBox(height: KeelSpacing.md),
+                      Wrap(spacing: KeelSpacing.sm, runSpacing: KeelSpacing.xs, children: [
+                        Text('BOOK ${currentBook.status}', style: KeelTypography.label),
+                        Text(currentBook.automationEnabled ? 'AUTOMATION ON' : 'AUTOMATION OFF', style: KeelTypography.label),
+                        Text(state.executionState ?? 'UNKNOWN', style: KeelTypography.label),
+                      ]),
+                      LiveSyncStatus(value: telemetry),
                     ]);
               },
             )),

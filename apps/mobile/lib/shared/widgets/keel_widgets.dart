@@ -23,9 +23,13 @@ class StatusPill extends StatelessWidget {
           Icon(icon, size: 14, color: tone),
           const SizedBox(width: 6)
         ],
-        Text(label,
-            style: KeelTypography.label
-                .copyWith(color: tone, fontSize: 10, letterSpacing: .6)),
+        Flexible(
+            child: Text(label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                softWrap: true,
+                style: KeelTypography.label
+                    .copyWith(color: tone, fontSize: 10, letterSpacing: .6))),
       ]),
     );
   }
@@ -119,10 +123,10 @@ class TelemetryFreshness extends StatelessWidget {
             _source(context, 'DEPTH', freshness!.orderbook),
           ]);
     }
-    return const StatusPill(
-        label: 'TELEMETRY UNKNOWN',
-        color: KeelColors.hold,
-        icon: Icons.help_outline);
+    return Wrap(spacing: KeelSpacing.sm, runSpacing: KeelSpacing.xs, children: [
+      for (final source in ['MARKET', 'POSITION', 'FUNDING', 'DEPTH'])
+        StatusPill(label: '$source UNKNOWN', color: KeelColors.hold, icon: Icons.help_outline),
+    ]);
   }
 
   Widget _source(
@@ -132,11 +136,9 @@ class TelemetryFreshness extends StatelessWidget {
         : point.fresh
             ? KeelColors.defend
             : KeelColors.hold;
-    final age = point.ageMs == null
-        ? 'UNKNOWN'
-        : '${point.status} ${_format(point.ageMs!)}';
+    final status = point.fresh ? 'LIVE' : point.stale ? 'STALE' : point.status == 'UNAVAILABLE' ? 'UNAVAILABLE' : 'UNKNOWN';
     return StatusPill(
-        label: '$label $age',
+        label: '$label $status',
         color: color,
         icon: point.stale
             ? Icons.sync_problem
@@ -145,9 +147,7 @@ class TelemetryFreshness extends StatelessWidget {
                 : Icons.help_outline);
   }
 
-  String _format(int ms) => ms < 1000
-      ? '${ms}ms'
-      : '${(ms / 1000).toStringAsFixed(ms < 10000 ? 1 : 0)}s';
+
 }
 
 class ActionButtonRow extends StatelessWidget {

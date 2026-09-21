@@ -26,7 +26,7 @@ export class PostgresStore implements Store {
       await client.query('INSERT INTO reserves(book_id,available,reserved,deployed,cap) VALUES($1,$2,0,0,$3)', [book.id, reserveAvailable, reserveAvailable])
       if (input.initialPosition) {
         const p = input.initialPosition
-        await client.query('INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10/1000.0))', [book.id,p.size,p.entryPrice,p.markPrice,p.liquidationPrice,p.leverage,p.unrealizedPnl,p.margin,p.status,p.observedAt ?? p.timestamp ?? Date.now()])
+        await client.query('INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10/1000.0))', [book.id,p.size,p.entryPrice,p.markPrice,p.liquidationPrice,p.leverage,p.unrealizedPnl,p.margin,p.status,p.timestamp ?? p.observedAt ?? Date.now()])
         if (input.initialTelemetry) {
           const t = input.initialTelemetry
           await client.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid,freshness_detail) VALUES($1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)', [book.id,t.block,t.marketTimestamp ?? t.timestamp,t.mark,t.oracle,p.liquidationPrice,t.fundingRate,t.spreadBps,t.depthNotional,t.volatility,reserveAvailable,t.freshnessMs ?? 0,t.source ?? 'replay',t.bid,t.ask,t.mid,t.freshness ? JSON.stringify(t.freshness) : null])
@@ -40,7 +40,7 @@ export class PostgresStore implements Store {
   async getBook(userId: string, bookId: string) { const result = await this.pool.query('SELECT * FROM books WHERE id=$1 AND user_id=$2', [bookId, userId]); return result.rows[0] ? mapBook(result.rows[0]) : null }
   async listBooks(userId: string) { const result = await this.pool.query('SELECT * FROM books WHERE user_id=$1 ORDER BY created_at DESC', [userId]); return result.rows.map(mapBook) }
   async getPositionRow(userId: string, bookId: string) { const result = await this.pool.query('SELECT p.* FROM positions p JOIN books b ON b.id=p.book_id WHERE b.user_id=$1 AND p.book_id=$2', [userId, bookId]); return result.rows[0] ?? null }
-  async getTelemetryRow(userId: string, bookId: string) { const result = await this.pool.query('SELECT rs.* FROM risk_snapshots rs JOIN books b ON b.id=rs.book_id WHERE b.user_id=$1 AND rs.book_id=$2 ORDER BY rs.timestamp DESC LIMIT 1', [userId, bookId]); return result.rows[0] ?? null }
+  async getTelemetryRow(userId: string, bookId: string) { const result = await this.pool.query('SELECT rs.* FROM risk_snapshots rs JOIN books b ON b.id=rs.book_id WHERE b.user_id=$1 AND rs.book_id=$2 ORDER BY rs.timestamp DESC, (rs.freshness_detail->\'position\'->>\'updatedAt\') DESC NULLS LAST LIMIT 1', [userId, bookId]); return result.rows[0] ?? null }
   async getRiskRow(userId: string, bookId: string) { const result = await this.pool.query('SELECT d.state,d.action,d.amount,d.reason_codes,d.human_readable_reasons,d.risk_features,d.created_at FROM decisions d JOIN books b ON b.id=d.book_id WHERE b.user_id=$1 AND d.book_id=$2 ORDER BY d.created_at DESC LIMIT 1', [userId, bookId]); return result.rows[0] ?? null }
   async updateBookControls(userId: string, bookId: string, patch: { automationEnabled?: boolean; status?: Book['status']; stance?: Book['stance'] }) {
     const client = await this.pool.connect()

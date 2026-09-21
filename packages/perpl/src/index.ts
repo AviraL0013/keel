@@ -84,7 +84,9 @@ export class PerplAdapter implements VenueAdapter {
     // Public context is authoritative fallback when market-state WS has stopped
     // advancing. Keep orderbook snapshot separate so its age remains visible.
     if (!state.market || contextAt > streamedAt) state = { ...state, market: contextMarket }
-    state = { ...state, fundingRate: fundingRate / 1_000_000, fundingTimestamp: decodeTimestamp((market.funding.at as Record<string, unknown> | undefined)?.t) ?? state.fundingTimestamp }
+    const contextFundingTimestamp = decodeTimestamp((market.funding.at as Record<string, unknown> | undefined)?.t)
+    const streamedFundingIsNewer = state.fundingTimestamp !== undefined && (contextFundingTimestamp === undefined || state.fundingTimestamp >= contextFundingTimestamp)
+    state = { ...state, fundingRate: streamedFundingIsNewer ? state.fundingRate : fundingRate / 1_000_000, fundingTimestamp: streamedFundingIsNewer ? state.fundingTimestamp : contextFundingTimestamp }
     if (state.market) state = { ...state, market: scaleMarketState(state.market, priceDecimals, sizeDecimals) }
     if (state.book) state = { ...state, book: { ...state.book, bids: state.book.bids.map(level => ({ ...level, p: decodePrice(level.p, priceDecimals), s: decodeSize(level.s, sizeDecimals) })), asks: state.book.asks.map(level => ({ ...level, p: decodePrice(level.p, priceDecimals), s: decodeSize(level.s, sizeDecimals) })) } }
     const scaledMarket = state.market as Record<string, unknown> | undefined

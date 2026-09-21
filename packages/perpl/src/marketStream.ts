@@ -18,9 +18,12 @@ export class PerplMarketStream {
 
   async ensure(marketIds: number[]): Promise<void> {
     this.stopped = false
-    for (const marketId of marketIds) this.subscriptions.set(`order-book@${marketId}`, { stream: `order-book@${marketId}` })
+    for (const marketId of marketIds) {
+      const stream = `order-book@${marketId}`
+      if (!this.subscriptions.has(stream)) this.subscriptions.set(stream, { stream })
+    }
     const marketStateStream = `market-state@${this.wsUrl.includes('testnet') ? 10143 : 143}`
-    this.subscriptions.set(marketStateStream, { stream: marketStateStream })
+    if (!this.subscriptions.has(marketStateStream)) this.subscriptions.set(marketStateStream, { stream: marketStateStream })
     const wasConnected = this.socket?.readyState === WS.OPEN
     if (!wasConnected) await this.connect()
     const pending = [...this.subscriptions.values()].filter(item => item.sid === undefined)
@@ -49,7 +52,7 @@ export class PerplMarketStream {
       socket.on('open', () => { this.resubscribe(); resolve() })
       socket.on('message', raw => this.handle(String(raw)))
       socket.on('error', () => undefined)
-      socket.on('close', () => { this.socket = undefined; this.connecting = undefined; for (const item of this.subscriptions.values()) item.sid = undefined; if (!this.stopped) this.reconnectTimer = setTimeout(() => { void this.connect().catch(() => undefined) }, 1000) })
+      socket.on('close', () => { this.socket = undefined; this.connecting = undefined; this.states.clear(); this.lastUpdateAt = 0; for (const item of this.subscriptions.values()) item.sid = undefined; if (!this.stopped) this.reconnectTimer = setTimeout(() => { this.reconnectTimer = undefined; void this.connect().catch(() => undefined) }, 1000) })
       socket.once('error', reject)
     }).finally(() => { this.connecting = undefined })
     return this.connecting

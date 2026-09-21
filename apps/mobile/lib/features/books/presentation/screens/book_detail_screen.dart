@@ -23,6 +23,8 @@ class BookDetailScreen extends ConsumerWidget {
             icon: const Icon(Icons.refresh))
       ]),
       body: telemetry.when(
+        skipLoadingOnReload: true,
+        skipError: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => ErrorStateCard(
             message: friendlyError(error),
@@ -81,7 +83,7 @@ class BookDetailScreen extends ConsumerWidget {
                       child: Text(friendlyError(action.error!),
                           style: const TextStyle(color: KeelColors.exit))),
                 ActionButtonRow(
-                    disabled: action.isLoading,
+                    disabled: action.isLoading || dashboard.telemetry.stale || dashboard.telemetry.freshnessUnknown,
                     onDefend: () =>
                         _confirmAction(context, ref, 'DEFEND', dashboard.telemetry),
                     onReduce: () =>

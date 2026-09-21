@@ -10,9 +10,14 @@ import { ChainAdapter } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { getAddress } from 'viem'
+import Decimal from 'decimal.js'
 import { logger } from '../../config/index.js'
 
 export function perplBookCreationReadiness(position: Position, telemetry: NormalizedTelemetry, now = Date.now(), freshnessWindowMs = defaultFreshnessThresholds.marketMs): BookCreationReadiness {
+  // Perpl history `at.t` is the venue event time (often the position's
+  // opening/update event), not the time this authenticated snapshot was
+  // observed. Freshness for a REST snapshot must use the adapter receipt
+  // time when available; the venue timestamp remains available on Position.
   const positionObservedAt = position.observedAt ?? position.timestamp
   const market = telemetry.freshness?.market ?? freshnessPoint(telemetry.marketTimestamp ?? telemetry.timestamp, now, freshnessWindowMs)
   const positionFreshness = telemetry.freshness?.position ?? freshnessPoint(positionObservedAt, now, freshnessWindowMs)
@@ -140,11 +145,22 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     async reconcile(action) { return live.reconcile(action) },
     async refresh(book: Book) {
       if (!book.marketId || !book.venueAccountId) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
-      const telemetry = await adapter.getNormalizedMarket(book.marketId)
+      if (book.venueAccountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
+      const marketTelemetry = await adapter.getNormalizedMarket(book.marketId)
       const position = await adapter.getPosition(book.venueAccountId, book.marketId, book.venuePositionId)
-      if (!telemetry || !position) throw new Error('PERPL_STATE_UNAVAILABLE')
-      await store.pool.query(`INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10/1000.0)) ON CONFLICT(book_id) DO UPDATE SET size=EXCLUDED.size,mark_price=EXCLUDED.mark_price,liquidation_price=EXCLUDED.liquidation_price,leverage=EXCLUDED.leverage,unrealized_pnl=EXCLUDED.unrealized_pnl,margin=EXCLUDED.margin,status=EXCLUDED.status,observed_at=EXCLUDED.observed_at`, [book.id, position.size, position.entryPrice, position.markPrice, position.liquidationPrice, position.leverage, position.unrealizedPnl, position.margin, position.status, position.observedAt ?? position.timestamp ?? Date.now()])
-      await store.pool.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid,freshness_detail) SELECT $1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,r.available,$11,$12,$13,$14,$15,$16 FROM reserves r WHERE r.book_id=$1', [book.id, telemetry.block, telemetry.marketTimestamp ?? telemetry.timestamp, telemetry.mark, telemetry.oracle, position.liquidationPrice, telemetry.fundingRate, telemetry.spreadBps, telemetry.depthNotional, telemetry.volatility, telemetry.freshnessMs, telemetry.source, telemetry.bid, telemetry.ask, telemetry.mid, telemetry.freshness ? JSON.stringify(telemetry.freshness) : null])
+      if (!marketTelemetry || !position) throw new Error('PERPL_STATE_UNAVAILABLE')
+      const telemetry = telemetryForPosition(marketTelemetry, position)
+      // Use one market observation for both the position valuation and risk input.
+      const pnl = new Decimal(telemetry.mark).minus(position.entryPrice).mul(position.size).mul(position.side === 'LONG' ? 1 : -1).toNumber()
+      const client = await store.pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query('SELECT id FROM books WHERE id=$1 FOR UPDATE', [book.id])
+        await client.query(`INSERT INTO positions(book_id,size,entry_price,mark_price,liquidation_price,leverage,unrealized_pnl,margin,status,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10/1000.0)) ON CONFLICT(book_id) DO UPDATE SET size=EXCLUDED.size,entry_price=EXCLUDED.entry_price,mark_price=EXCLUDED.mark_price,liquidation_price=EXCLUDED.liquidation_price,leverage=EXCLUDED.leverage,unrealized_pnl=EXCLUDED.unrealized_pnl,margin=EXCLUDED.margin,status=EXCLUDED.status,observed_at=EXCLUDED.observed_at`, [book.id, position.size, position.entryPrice, telemetry.mark, position.liquidationPrice, position.leverage, pnl, position.margin, position.status, position.observedAt ?? position.timestamp ?? Date.now()])
+        await client.query('INSERT INTO risk_snapshots(book_id,block,timestamp,mark,oracle,liquidation,funding,spread,depth,volatility,reserve,freshness,source,bid,ask,mid,freshness_detail) SELECT $1,$2,to_timestamp($3/1000.0),$4,$5,$6,$7,$8,$9,$10,r.available,$11,$12,$13,$14,$15,$16 FROM reserves r WHERE r.book_id=$1', [book.id, telemetry.block, telemetry.marketTimestamp ?? telemetry.timestamp, telemetry.mark, telemetry.oracle, position.liquidationPrice, telemetry.fundingRate, telemetry.spreadBps, telemetry.depthNotional, telemetry.volatility, telemetry.freshnessMs, telemetry.source, telemetry.bid, telemetry.ask, telemetry.mid, JSON.stringify(telemetry.freshness)])
+        await client.query('COMMIT')
+      } catch (error) { await client.query('ROLLBACK'); throw error }
+      finally { client.release() }
     },
   }
 }

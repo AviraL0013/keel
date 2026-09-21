@@ -1,27 +1,16 @@
 import type { AutopsyEventDto, BookRiskDto, BookTelemetryDto, DecisionDto, ExecutionDto, ExecutionSummaryDto, NotificationDto, PositionDto, ReserveDto, RiskDto, TelemetryFreshnessDto } from './dto.js'
 import { buildTelemetryFreshness, defaultFreshnessThresholds } from '../../../../packages/domain/src/index.js'
+import { storedTelemetryFreshness } from '../../infrastructure/database/telemetry-freshness.js'
 
 const number = (value: unknown): number | null => value == null ? null : Number(value)
 const text = (value: unknown): string | null => value == null ? null : String(value)
 export function toPositionDto(row: Record<string, unknown>, side: string): PositionDto {
   return { bookId: String(row.book_id), side, size: number(row.size), entryPrice: number(row.entry_price), markPrice: number(row.mark_price), liquidationPrice: number(row.liquidation_price), liquidationEstimated: true, leverage: number(row.leverage), unrealizedPnl: number(row.unrealized_pnl), margin: number(row.margin), status: text(row.status), observedAt: text(row.observed_at) }
 }
-function freshnessPoint(value: unknown, source: string | null = null): TelemetryFreshnessDto['market'] {
-  const point = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  const status = point.status === 'FRESH' || point.status === 'STALE' ? point.status : 'UNKNOWN'
-  return { status, source: text(point.source) ?? source, updatedAt: text(point.updatedAt), ageMs: number(point.ageMs), thresholdMs: number(point.thresholdMs) ?? defaultFreshnessThresholds.marketMs }
-}
-function freshness(value: unknown): TelemetryFreshnessDto | null {
-  if (!value || typeof value !== 'object') return null
-  const input = value as Record<string, unknown>
-  const thresholds = input.thresholdsMs && typeof input.thresholdsMs === 'object' ? input.thresholdsMs as Record<string, unknown> : {}
-  const source = text(input.source)
-  return { market: freshnessPoint(input.market, source), position: freshnessPoint(input.position, source), funding: freshnessPoint(input.funding, source), orderbook: freshnessPoint(input.orderbook, source), thresholdsMs: { marketMs: number(thresholds.marketMs) ?? defaultFreshnessThresholds.marketMs, positionMs: number(thresholds.positionMs) ?? defaultFreshnessThresholds.positionMs, fundingMs: number(thresholds.fundingMs) ?? defaultFreshnessThresholds.fundingMs, orderbookMs: number(thresholds.orderbookMs) ?? defaultFreshnessThresholds.orderbookMs } }
-}
 export function toTelemetryDto(row: Record<string, unknown>): BookTelemetryDto {
-  const explicit = freshness(row.freshness_detail)
+  const explicit = storedTelemetryFreshness(row.freshness_detail)
   const marketUpdatedAt = row.timestamp instanceof Date ? row.timestamp.getTime() : Date.parse(String(row.timestamp ?? ''))
-  const fallback = Number.isFinite(marketUpdatedAt) ? buildTelemetryFreshness({ marketUpdatedAt, fundingUpdatedAt: marketUpdatedAt, orderbookUpdatedAt: marketUpdatedAt }, Date.now()) : null
+  const fallback = Number.isFinite(marketUpdatedAt) ? buildTelemetryFreshness({ marketUpdatedAt }, Date.now()) : null
   const detail = explicit ?? fallback
   const point = (value: unknown): TelemetryFreshnessDto['market'] => {
     if (!value || typeof value !== 'object') return { status: 'UNKNOWN', source: text(row.source), updatedAt: null, ageMs: null, thresholdMs: defaultFreshnessThresholds.marketMs }

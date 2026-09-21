@@ -19,6 +19,17 @@ describe('Perpl position normalization', () => {
     expect(value.unrealizedPnl).toBeCloseTo(0.06359, 6)
     expect(value.liquidationEstimated).toBe(true)
   })
+  it('keeps venue observation timestamp separate from local fetch time', () => {
+    const venueTimestamp = Date.now() - 20_000
+    const fetchedAt = Date.now()
+    const value = normalizePerplPosition({ acc: 642, mkt: 16, pid: 77, st: 1, sd: 1, c: '539809', ep: 805993, s: 10, lv: 1500, at: { t: venueTimestamp }, efs: 0, xfs: 0, fee: '0' }, {
+      config: { price_decimals: 1, size_decimals: 5, maintenance_margin: 2000 },
+      state: { mrk: 812352 },
+    }, 6, fetchedAt)
+    expect(value.timestamp).toBe(venueTimestamp)
+    expect(value.observedAt).toBe(fetchedAt)
+    expect(value.timestamp).toBeLessThan(value.observedAt!)
+  })
 
   it('rejects stale position telemetry before live Book creation', () => {
     const now = Date.now()
@@ -26,6 +37,12 @@ describe('Perpl position normalization', () => {
     const telemetry = { mark: 81235.2, oracle: 81235.2, bid: 81265.5, ask: 81275.5, mid: 81270.5, spreadBps: 1, fundingRate: 0, depthNotional: 3_317_230.81, volatility: 0.01, volume24h: 0, openInterest: 0, block: 1, timestamp: now - 400, source: 'perpl-rest' as const, freshnessMs: 400 }
     expect(() => assertPerplBookSetupReady(position, telemetry, now)).toThrow('POSITION_TELEMETRY_STALE')
     expect(() => assertPerplBookSetupReady({ ...position, timestamp: now - 400 }, telemetry, now)).not.toThrow()
+  })
+  it('uses the current authenticated read time for freshness when venue event time is old', () => {
+    const now = Date.now()
+    const position = { bookId: '642:16', side: 'LONG' as const, size: 0.0001, entryPrice: 80599.3, liquidationPrice: 78449.99, leverage: 15, unrealizedPnl: 0.06, margin: 0.539809, status: 'OPEN' as const, timestamp: now - 86_400_000, observedAt: now - 300 }
+    const telemetry = { mark: 81235.2, oracle: 81235.2, bid: 81235, ask: 81236, mid: 81235.5, spreadBps: 1, fundingRate: 0, depthNotional: 3_317_230.81, volatility: 0.01, volume24h: 0, openInterest: 0, block: 1, timestamp: now - 300, marketTimestamp: now - 300, fundingTimestamp: now - 300, orderbookTimestamp: now - 300, freshness: buildTelemetryFreshness({ marketUpdatedAt: now - 300, positionUpdatedAt: now - 300, fundingUpdatedAt: now - 300, orderbookUpdatedAt: now - 300 }, now), source: 'perpl-rest' as const, freshnessMs: 300 }
+    expect(perplBookCreationReadiness(position, telemetry, now)).toMatchObject({ allowed: true, code: 'READY', position: { status: 'FRESH' } })
   })
   it('blocks Book creation when market is stale even if position is fresh', () => {
     const now = Date.now()

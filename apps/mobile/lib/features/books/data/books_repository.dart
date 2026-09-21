@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
 import '../domain/book.dart';
@@ -73,40 +74,44 @@ class BooksRepository {
     return BookDashboardState(
         book: book,
         telemetry: BookTelemetry(
-        size: number(positionMap['size']),
-        entryPrice: number(positionMap['entryPrice']),
-        mark: number(marketMap['mark']),
-        oracle: number(marketMap['oracle']),
-        bid: number(marketMap['bid']),
-        ask: number(marketMap['ask']),
-        pnl: number(positionMap['unrealizedPnl']),
-        leverage: number(positionMap['leverage']),
-        margin: number(positionMap['margin']),
-        liquidationPrice: number(positionMap['liquidationPrice']),
-        fundingRate: number(marketMap['fundingRate']),
-        depthNotional: number(marketMap['depthNotional']),
-        reserveAvailable: number(reserveMap['available']),
-        reserveDeployed: number(reserveMap['deployed']),
-        liquidationDistance: number(marketMap['liquidationDistance']),
-        freshnessMs: marketMap['freshnessMs'] is num
-            ? (marketMap['freshnessMs'] as num).toInt()
-            : null,
-        freshness: marketMap['freshness'] == null
-            ? null
-            : TelemetryFreshnessModel.fromJson(marketMap['freshness']),
-        riskState: riskMap['state'] as String?,
-        riskStatus: riskMap['status'] as String?,
-        riskReason: riskMap['reason'] as String?,
-        reasonCodes: riskMap['reasonCodes'] is List
-            ? (riskMap['reasonCodes'] as List).map((item) => item.toString()).toList()
-            : const [],
-        reasons: riskMap['reasons'] is List
-            ? (riskMap['reasons'] as List).map((item) => item.toString()).toList()
-            : const [],
-        executionState: executionMap['status'] as String?,
-        executionReason: executionMap['reason'] as String?,
-        executionActionId: executionMap['actionId'] as String?,
-        positionStatus: positionMap['status'] as String?));
+            size: number(positionMap['size']),
+            entryPrice: number(positionMap['entryPrice']),
+            mark: number(marketMap['mark']),
+            oracle: number(marketMap['oracle']),
+            bid: number(marketMap['bid']),
+            ask: number(marketMap['ask']),
+            pnl: number(positionMap['unrealizedPnl']),
+            leverage: number(positionMap['leverage']),
+            margin: number(positionMap['margin']),
+            liquidationPrice: number(positionMap['liquidationPrice']),
+            fundingRate: number(marketMap['fundingRate']),
+            depthNotional: number(marketMap['depthNotional']),
+            reserveAvailable: number(reserveMap['available']),
+            reserveDeployed: number(reserveMap['deployed']),
+            liquidationDistance: number(marketMap['liquidationDistance']),
+            freshnessMs: marketMap['freshnessMs'] is num
+                ? (marketMap['freshnessMs'] as num).toInt()
+                : null,
+            freshness: marketMap['freshness'] == null
+                ? null
+                : TelemetryFreshnessModel.fromJson(marketMap['freshness']),
+            riskState: riskMap['state'] as String?,
+            riskStatus: riskMap['status'] as String?,
+            riskReason: riskMap['reason'] as String?,
+            reasonCodes: riskMap['reasonCodes'] is List
+                ? (riskMap['reasonCodes'] as List)
+                    .map((item) => item.toString())
+                    .toList()
+                : const [],
+            reasons: riskMap['reasons'] is List
+                ? (riskMap['reasons'] as List)
+                    .map((item) => item.toString())
+                    .toList()
+                : const [],
+            executionState: executionMap['status'] as String?,
+            executionReason: executionMap['reason'] as String?,
+            executionActionId: executionMap['actionId'] as String?,
+            positionStatus: positionMap['status'] as String?));
   }
 
   Future<BookTelemetry> telemetry(String id) async {
@@ -118,9 +123,40 @@ final booksRepositoryProvider = Provider<BooksRepository>(
     (ref) => BooksRepository(ref.watch(apiClientProvider)));
 final booksProvider = FutureProvider.autoDispose<List<Book>>(
     (ref) => ref.watch(booksRepositoryProvider).list());
-final bookTelemetryProvider = FutureProvider.family
-    .autoDispose<BookTelemetry, String>(
-        (ref, id) => ref.watch(booksRepositoryProvider).telemetry(id));
-final bookDashboardProvider = FutureProvider.family
-    .autoDispose<BookDashboardState, String>(
-        (ref, id) => ref.watch(booksRepositoryProvider).state(id));
+final bookDashboardProvider = AsyncNotifierProvider.autoDispose
+    .family<BookDashboardController, BookDashboardState, String>(
+        BookDashboardController.new);
+
+class BookDashboardController
+    extends AutoDisposeFamilyAsyncNotifier<BookDashboardState, String> {
+  Timer? _timer;
+  var _disposed = false;
+
+  @override
+  Future<BookDashboardState> build(String id) async {
+    ref.onDispose(() {
+      _disposed = true;
+      _timer?.cancel();
+    });
+    final value = await ref.watch(booksRepositoryProvider).state(id);
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => refreshNow());
+    return value;
+  }
+
+  Future<void> refreshNow() async {
+    if (_disposed || state.isLoading) return;
+    final current = state.value;
+    try {
+      state = AsyncData(await ref.read(booksRepositoryProvider).state(arg));
+    } catch (error, stack) {
+      if (current != null) {
+        state = AsyncData(current);
+      } else {
+        state = AsyncError(error, stack);
+      }
+    }
+  }
+}
+
+final bookTelemetryProvider = FutureProvider.family.autoDispose<BookTelemetry, String>(
+    (ref, id) async => (await ref.watch(bookDashboardProvider(id).future)).telemetry);

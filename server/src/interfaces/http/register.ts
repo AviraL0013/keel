@@ -5,6 +5,8 @@ import { logger } from '../../config/index.js'
 import type { Book } from '../../../../packages/domain/src/index.js'
 import { buildTelemetryFreshness } from '../../../../packages/domain/src/index.js'
 import { AuthenticationError, ValidationError } from '../../application/errors.js'
+import { evaluateBookSnapshot } from '../../application/book-risk.js'
+import { PostgresExecutionRepository } from '../../infrastructure/database/execution-repository.js'
 import { BooksApplication, type CreateBookCommand } from '../../application/books.js'
 import type { Store } from '../../infrastructure/database/postgres-store.js'
 import { PostgresStore } from '../../infrastructure/database/postgres-store.js'
@@ -82,6 +84,10 @@ export function registerRoutes(context: HttpContext) {
   app.get<{ Params: { id: string } }>('/books/:id/state', async request => {
     const current = await requireSession(request)
     const book = await books.get(current.userId, request.params.id)
+    if (context.venue?.refresh) {
+      try { await context.venue.refresh(book) }
+      catch (error) { logger.warn({ bookId: book.id, error: error instanceof Error ? error.message : 'VENUE_REFRESH_FAILED' }, 'Book telemetry refresh failed; serving persisted state with its real freshness') }
+    }
     const [positionRow, telemetryRow, riskRow, actionRows, reserveRow] = await Promise.all([
       persistence.getPositionRow(current.userId, request.params.id),
       persistence.getTelemetryRow(current.userId, request.params.id),
@@ -89,16 +95,22 @@ export function registerRoutes(context: HttpContext) {
       persistence.listActions(current.userId, request.params.id),
       persistence.getReserve(current.userId, request.params.id),
     ])
-    const risk = toBookRiskDto(riskRow)
+    let risk = toBookRiskDto(riskRow)
     const positionUpdatedAt = positionRow?.observed_at instanceof Date ? positionRow.observed_at.getTime() : Date.parse(String(positionRow?.observed_at ?? ''))
     const snapshotUpdatedAt = telemetryRow?.timestamp instanceof Date ? telemetryRow.timestamp.getTime() : Date.parse(String(telemetryRow?.timestamp ?? ''))
     const telemetrySourceRow = telemetryRow && !telemetryRow.freshness_detail
       ? { ...telemetryRow, freshness_detail: Number.isFinite(snapshotUpdatedAt) ? buildTelemetryFreshness({ marketUpdatedAt: snapshotUpdatedAt, positionUpdatedAt: Number.isFinite(positionUpdatedAt) ? positionUpdatedAt : undefined, fundingUpdatedAt: snapshotUpdatedAt, orderbookUpdatedAt: snapshotUpdatedAt }) : null }
       : telemetryRow
     const telemetry = telemetrySourceRow ? toTelemetryDto(telemetrySourceRow) : null
-    if (telemetry && risk.riskFeatures && typeof risk.riskFeatures === 'object') {
-      const distance = (risk.riskFeatures as Record<string, unknown>).liquidationDistance
-      telemetry.liquidationDistance = distance == null ? null : Number(distance)
+    const position = positionRow ? toPositionDto(positionRow, book.side) : null
+    const reserve = reserveRow ? toReserveDto(reserveRow as Record<string, unknown>) : null
+    const unresolved = actionRows.some(row => row && typeof row === 'object' && ['QUEUED', 'VALIDATING', 'SUBMITTING', 'SUBMITTED', 'VERIFYING', 'UNKNOWN'].includes(String((row as Record<string, unknown>).status)))
+    const priorEfficiency = persistence instanceof PostgresStore ? await new PostgresExecutionRepository(persistence).priorEfficiency(book.id) : Infinity
+    const decision = evaluateBookSnapshot(book, position, telemetry, reserve, priorEfficiency, !unresolved && (context.venue?.ready() ?? false))
+    if (decision) {
+      risk = toBookRiskDto({ state: decision.state, action: decision.action, amount: decision.amount, reason_codes: decision.reasonCodes, human_readable_reasons: decision.humanReadableReasons, risk_features: decision.riskFeatures, created_at: decision.createdAt })
+    } else {
+      risk = { ...toBookRiskDto(null), reasonCode: 'BOOK_INPUTS_UNAVAILABLE', reason: 'Current position, telemetry, or reserve is unavailable.' }
     }
     if (telemetry && telemetry.liquidationDistance == null && positionRow) {
       const mark = Number(telemetry.mark)
@@ -108,7 +120,7 @@ export function registerRoutes(context: HttpContext) {
       }
     }
     const action = actionRows.length && actionRows[0] && typeof actionRows[0] === 'object' ? actionRows[0] as Record<string, unknown> : null
-    return { book: toBookDto(book), position: positionRow ? toPositionDto(positionRow, book.side) : null, telemetry, risk, execution: toExecutionSummaryDto(action), reserve: reserveRow ? toReserveDto(reserveRow as Record<string, unknown>) : null }
+    return { book: toBookDto(book), position, telemetry, risk, execution: toExecutionSummaryDto(action), reserve }
   })
   app.get<{ Params: { id: string } }>('/books/:id/autopsy', async request => (await persistence.listAutopsy((await requireSession(request)).userId, request.params.id)).map(row => toAutopsyDto(row as Record<string, unknown>)))
   app.get<{ Params: { id: string } }>('/books/:id/decisions', async request => (await persistence.listDecisions((await requireSession(request)).userId, request.params.id)).map(row => toDecisionDto(row as Record<string, unknown>)))
@@ -142,6 +154,5 @@ export function registerRoutes(context: HttpContext) {
   app.post<{ Body: { scenario: string } }>('/dev/test-venue/scenario', async request => { await requireSession(request); if (!context.testRuntime || config.environment === 'mainnet') throw Object.assign(new Error('TEST_VENUE_NOT_ENABLED'), { statusCode: 404 }); context.testRuntime.venue.setScenario(request.body.scenario); return { ok: true, scenario: request.body.scenario, environment: 'DEV / TEST VENUE' } })
   app.setErrorHandler((error, _request, reply) => { logger.error({ error: error instanceof Error ? error.message : 'INTERNAL_ERROR' }, 'request failed'); const typed = error as Error & { statusCode?: number; details?: unknown }; const status = error instanceof Error && 'statusCode' in error ? Number(typed.statusCode) : 500; return reply.code(status).send({ error: error instanceof Error ? error.message : 'INTERNAL_ERROR', ...(typed.details === undefined ? {} : { details: typed.details }) }) })
 }
-
 
 
