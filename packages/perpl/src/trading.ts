@@ -45,7 +45,9 @@ export class PerplTradingClient {
     if (!this.socket || this.socket.readyState !== WS.OPEN) throw new Error('PERPL_TRADING_NOT_CONNECTED')
     if (!this.state.ready()) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
     const account = this.state.snapshot().accounts.find(item => item.id === order.acc)
-    if (!account || account.fr || !account.fw) throw new Error('PERPL_ACCOUNT_NOT_AUTHORIZED')
+    if (!account) throw Object.assign(new Error('PERPL_ACCOUNT_NOT_FOUND'), { statusCode: 403 })
+    if (account.fr) throw Object.assign(new Error('PERPL_ACCOUNT_FROZEN'), { statusCode: 403 })
+    if (!account.fw) throw Object.assign(new Error('PERPL_ORDER_FORWARDING_DISABLED'), { statusCode: 403 })
     this.requestId = Math.max(this.requestId, this.state.requestIdBaseline(order.acc)) + 1
     if (!Number.isSafeInteger(this.requestId)) throw new Error('PERPL_REQUEST_ID_OVERFLOW')
     const rq = this.requestId, sn = ++this.sequence, reference = `${order.acc}:${rq}`

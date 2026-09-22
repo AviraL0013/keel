@@ -42,7 +42,12 @@ class KeelApiClient {
       final message = parsed is Map && parsed['error'] is String
           ? parsed['error'] as String
           : 'HTTP_${response.statusCode}';
-      throw KeelException(message, statusCode: response.statusCode);
+      final details = parsed is Map ? parsed['details'] : null;
+      final policy = message == 'POLICY_REJECTED' && details is Map
+          ? PolicyRejection.fromJson(Map<String, dynamic>.from(details))
+          : null;
+      throw KeelException(message,
+          statusCode: response.statusCode, policyRejection: policy);
     }
     return decode(response.body.isEmpty ? null : jsonDecode(response.body));
   }

@@ -7,6 +7,7 @@ import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
 import { ExecutionWorker } from './workers/execution-worker.js'
 import { MonitorScheduler } from './lifecycle.js'
+import { PolicyRejectedError } from './application/errors.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
@@ -115,7 +116,7 @@ export class KeelRuntime {
     await this.venue.refresh(book)
     const context = await this.repository.getBookContext(bookId)
     const decision = { ...evaluate(context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, Date.now()), id: randomUUID() }
-    if (decision.action !== kind) throw new Error('POLICY_REJECTED')
+    if (decision.action !== kind) throw new PolicyRejectedError(kind, decision)
     await this.recordDecision(decision)
     const result = await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current)).execute(decision)
     if (!result || !('status' in result)) throw new Error('ACTION_NOT_CREATED')

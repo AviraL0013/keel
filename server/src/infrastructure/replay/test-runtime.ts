@@ -73,7 +73,7 @@ export class DeterministicTestRuntime {
     await this.venue.refresh(book)
     const context = await this.repository.getBookContext(bookId)
     const decision = evaluate(context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, Date.now())
-    if (decision.action !== kind) throw new Error('POLICY_REJECTED')
+    if (decision.action !== kind) throw new PolicyRejectedError(kind, decision)
     const withId: Decision = { ...decision, id: randomUUID() }
     await this.repository.saveDecision(withId)
     return this.result(await new ExecutionWorker(this.repository, this.venue, current => this.venue.refresh(current)).execute(withId))
@@ -88,3 +88,4 @@ export class DeterministicTestRuntime {
   }
   private result(action: Action | Decision) { return 'status' in action ? { actionId: action.id, status: action.status } : { actionId: action.id, status: action.state } }
 }
+import { PolicyRejectedError } from '../../application/errors.js'
