@@ -7,6 +7,7 @@ import { PerplHistory } from './history.js'
 import type { WirePosition, WireOrder, WireFill } from './decoder.js'
 import { decodeAmount, decodePrice, decodeSize, decodeTimestamp } from './units.js'
 import { PerplMarketStream } from './marketStream.js'
+import { normalizeContextFunding } from './funding.js'
 export { decodePrice, decodeSize, encodePrice, encodeSize, decodeAmount, encodeAmount, decodeTimestamp } from './units.js'
 export { PerplHistory } from './history.js'
 export type PerplEnvironment = 'testnet' | 'mainnet'
@@ -15,7 +16,7 @@ export const perplNetworks: Record<PerplEnvironment, PerplConfig> = {
   mainnet: { environment: 'mainnet', restUrl: 'https://app.perpl.xyz/api', wsUrl: 'wss://app.perpl.xyz', chainId: 143, rpcUrl: 'https://rpc.monad.xyz', exchangeAddress: '0x34B6552d57a35a1D042CcAe1951BD1C370112a6F', collateralToken: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a' },
   testnet: { environment: 'testnet', restUrl: 'https://testnet.perpl.xyz/api', wsUrl: 'wss://testnet.perpl.xyz', chainId: 10143, rpcUrl: 'https://testnet-rpc.monad.xyz', exchangeAddress: '0x1964c32f0be608e7d29302aff5e61268e72080cc', collateralToken: '0xdf5b718d8fcc173335185a2a1513ee8151e3c027' },
 }
-export type PerplContext = { chain: unknown; instances: Array<{ id: number; collateral_token_id: number }>; tokens: Array<{ id?: number; decimals: number }>; markets: Array<{ id: number; symbol: string; instance_id?: number; config: Record<string, unknown>; state: Record<string, unknown>; funding: Record<string, unknown> }> }
+export type PerplContext = { chain: unknown; instances: Array<{ id: number; collateral_token_id: number }>; tokens: Array<{ id?: number; decimals: number }>; markets: Array<{ id: number; symbol: string; instance_id?: number; funding_interval_blocks?: number; config: Record<string, unknown>; state: Record<string, unknown>; funding: Record<string, unknown> }> }
 export type PerplBalance = { available: string; locked: string; decimals: number; updatedAt?: number }
 export type VenueAdapter = { getProtocolContext(): Promise<PerplContext>; getMarket(marketId: number): Promise<unknown>; getMarketState(marketId: number): Promise<unknown>; getOrderBook(marketId: number): Promise<unknown>; getFunding(marketId: number): Promise<unknown>; getPosition(accountId: number, marketId: number, positionId?: number): Promise<Position | null>; getBalance(accountId: number): Promise<PerplBalance>; submit(action: Action): Promise<{ venueReference: string; status: 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'UNKNOWN' | 'FAILED' }>; reconcile(action: Action): Promise<Action>; connect(streams: string[], onMessage: (message: unknown) => void): Promise<() => void> }
 
@@ -70,10 +71,10 @@ export class PerplAdapter implements VenueAdapter {
     await this.marketStream.ensure([marketId])
     let state = await this.marketStream.snapshot(marketId)
     if (!state) return null
-    const market = await this.getMarket(marketId) as PerplContext['markets'][number] | null
+    const context = await this.getProtocolContext()
+    const market = context.markets.find(item => item.id === marketId)
     if (!market) return null
-    const fundingRate = Number(market.funding?.rate)
-    if (!Number.isFinite(fundingRate)) return null
+    const funding = normalizeContextFunding(market, context.chain)
     const priceDecimals = Number(market?.config?.price_decimals ?? 0)
     const sizeDecimals = Number(market?.config?.size_decimals ?? 0)
     // Keep the context snapshot in wire units here. The selected market state
@@ -84,15 +85,15 @@ export class PerplAdapter implements VenueAdapter {
     // Public context is authoritative fallback when market-state WS has stopped
     // advancing. Keep orderbook snapshot separate so its age remains visible.
     if (!state.market || contextAt > streamedAt) state = { ...state, market: contextMarket }
-    const contextFundingTimestamp = decodeTimestamp((market.funding.at as Record<string, unknown> | undefined)?.t)
-    const streamedFundingIsNewer = state.fundingTimestamp !== undefined && (contextFundingTimestamp === undefined || state.fundingTimestamp >= contextFundingTimestamp)
-    state = { ...state, fundingRate: streamedFundingIsNewer ? state.fundingRate : fundingRate / 1_000_000, fundingTimestamp: streamedFundingIsNewer ? state.fundingTimestamp : contextFundingTimestamp }
+    state = { ...state, fundingRate: funding.rate, fundingTimestamp: funding.verifiedAt }
     if (state.market) state = { ...state, market: scaleMarketState(state.market, priceDecimals, sizeDecimals) }
     if (state.book) state = { ...state, book: { ...state.book, bids: state.book.bids.map(level => ({ ...level, p: decodePrice(level.p, priceDecimals), s: decodeSize(level.s, sizeDecimals) })), asks: state.book.asks.map(level => ({ ...level, p: decodePrice(level.p, priceDecimals), s: decodeSize(level.s, sizeDecimals) })) } }
     const scaledMarket = state.market as Record<string, unknown> | undefined
     const mark = Number(scaledMarket?.mrk)
     if (Number.isFinite(mark) && mark > 0) { const history = [...(this.markHistory.get(marketId) ?? []), mark].slice(-120); this.markHistory.set(marketId, history); state = { ...state, candleCloses: history } }
-    return normalizeMarketStream(state, 'perpl-rest')
+    const telemetry = normalizeMarketStream(state, 'perpl-rest')
+    if (telemetry?.freshness) telemetry.freshness.funding.effectiveAt = funding.effectiveAt
+    return telemetry
   }
   async getFunding(marketId: number) { const market = await this.getMarket(marketId) as PerplContext['markets'][number] | null; return market?.funding ?? null }
   async getPositions(accountId: number, marketId?: number): Promise<WirePosition[]> { if (!this.history) throw new Error('PERPL_SIGNER_NOT_CONFIGURED'); return this.history.read<WirePosition>('position-history', item => item.acc === accountId && (marketId === undefined || item.mkt === marketId)) }

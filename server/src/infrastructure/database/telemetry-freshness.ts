@@ -12,5 +12,14 @@ export function storedTelemetryFreshness(detail: unknown, now = Date.now()): Tel
     const time = typeof raw === 'number' || /^\d+$/.test(String(raw)) ? Number(raw) : Date.parse(String(raw))
     return Number.isFinite(time) && time > 0 ? time : undefined
   }
-  return buildTelemetryFreshness({ marketUpdatedAt: timestamp('market'), positionUpdatedAt: timestamp('position'), fundingUpdatedAt: timestamp('funding'), orderbookUpdatedAt: timestamp('orderbook') }, now)
+  const freshness = buildTelemetryFreshness({ marketUpdatedAt: timestamp('market'), positionUpdatedAt: timestamp('position'), fundingUpdatedAt: timestamp('funding'), orderbookUpdatedAt: timestamp('orderbook') }, now)
+  const funding = value.funding
+  if (funding && typeof funding === 'object') {
+    const effectiveAt = (funding as Record<string, unknown>).effectiveAt
+    if (effectiveAt != null) {
+      const parsed = typeof effectiveAt === 'number' ? effectiveAt : Date.parse(String(effectiveAt))
+      if (Number.isFinite(parsed) && parsed > 0) freshness.funding.effectiveAt = parsed
+    }
+  }
+  return freshness
 }

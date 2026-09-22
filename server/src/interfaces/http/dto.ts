@@ -7,7 +7,7 @@ export type PositionDto = {
   liquidationPrice: number | null; liquidationEstimated: boolean; leverage: number | null; unrealizedPnl: number | null; margin: number | null
   status: string | null; observedAt: string | null
 }
-export type TelemetryFreshnessPointDto = { status: 'FRESH' | 'STALE' | 'UNKNOWN'; source: string | null; updatedAt: string | null; ageMs: number | null; thresholdMs: number }
+export type TelemetryFreshnessPointDto = { status: 'FRESH' | 'STALE' | 'UNKNOWN'; source: string | null; updatedAt: string | null; effectiveAt?: string | null; ageMs: number | null; thresholdMs: number }
 export type TelemetryFreshnessDto = { market: TelemetryFreshnessPointDto; position: TelemetryFreshnessPointDto; funding: TelemetryFreshnessPointDto; orderbook: TelemetryFreshnessPointDto; thresholdsMs: { marketMs: number; positionMs: number; fundingMs: number; orderbookMs: number } }
 export type BookTelemetryDto = {
   mark: number | null; oracle: number | null; bid: number | null; ask: number | null; mid: number | null

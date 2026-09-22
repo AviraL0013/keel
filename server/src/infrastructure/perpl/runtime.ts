@@ -52,7 +52,9 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
   const freshnessThresholds = defaultFreshnessThresholds
   const telemetryForPosition = (telemetry: NormalizedTelemetry, position: Position, now = Date.now()): NormalizedTelemetry => {
     const positionUpdatedAt = position.observedAt ?? position.timestamp
-    return { ...telemetry, positionTimestamp: positionUpdatedAt, positionFreshnessMs: positionUpdatedAt === undefined ? undefined : now - positionUpdatedAt, freshness: buildTelemetryFreshness({ marketUpdatedAt: telemetry.marketTimestamp, positionUpdatedAt, fundingUpdatedAt: telemetry.fundingTimestamp, orderbookUpdatedAt: telemetry.orderbookTimestamp }, now, freshnessThresholds) }
+    const freshness = buildTelemetryFreshness({ marketUpdatedAt: telemetry.marketTimestamp, positionUpdatedAt, fundingUpdatedAt: telemetry.fundingTimestamp, orderbookUpdatedAt: telemetry.orderbookTimestamp }, now, freshnessThresholds)
+    if (telemetry.freshness?.funding.effectiveAt !== undefined) freshness.funding.effectiveAt = telemetry.freshness.funding.effectiveAt
+    return { ...telemetry, positionTimestamp: positionUpdatedAt, positionFreshnessMs: positionUpdatedAt === undefined ? undefined : now - positionUpdatedAt, freshness }
   }
   const contextFor = async (action: Action): Promise<ReconciliationContext> => {
     const row = (await store.pool.query('SELECT b.market_id,b.venue_account_id,b.venue_position_id,p.* FROM books b JOIN positions p ON p.book_id=b.id WHERE b.id=$1', [action.bookId])).rows[0]

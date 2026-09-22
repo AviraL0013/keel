@@ -18,7 +18,9 @@ export function toTelemetryDto(row: Record<string, unknown>): BookTelemetryDto {
     const rawUpdatedAt = input.updatedAt
     const updatedAt = rawUpdatedAt == null ? null : typeof rawUpdatedAt === 'number' ? new Date(rawUpdatedAt).toISOString() : String(rawUpdatedAt)
     const status = input.status === 'FRESH' || input.status === 'STALE' ? input.status : 'UNKNOWN'
-    return { status, source: text(input.source) ?? text(row.source), updatedAt, ageMs: number(input.ageMs), thresholdMs: number(input.thresholdMs) ?? defaultFreshnessThresholds.marketMs }
+    const rawEffectiveAt = input.effectiveAt
+    const effectiveAt = rawEffectiveAt == null ? null : typeof rawEffectiveAt === 'number' ? new Date(rawEffectiveAt).toISOString() : String(rawEffectiveAt)
+    return { status, source: text(input.source) ?? text(row.source), updatedAt, effectiveAt, ageMs: number(input.ageMs), thresholdMs: number(input.thresholdMs) ?? defaultFreshnessThresholds.marketMs }
   }
   return { mark: number(row.mark), oracle: number(row.oracle), bid: number(row.bid), ask: number(row.ask), mid: number(row.mid), spreadBps: number(row.spread), fundingRate: number(row.funding), depthNotional: number(row.depth), volatility: number(row.volatility), block: number(row.block), timestamp: text(row.timestamp), source: text(row.source), freshnessMs: number(row.freshness), freshness: detail ? { market: point(detail.market), position: point(detail.position), funding: point(detail.funding), orderbook: point(detail.orderbook), thresholdsMs: detail.thresholdsMs } : null, liquidationDistance: number(row.liquidation_distance) }
 }
