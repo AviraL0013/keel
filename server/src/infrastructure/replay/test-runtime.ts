@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { buildTelemetryFreshness, type Action, type Book, type BookPositionSeed, type BookTelemetrySeed, type Decision } from '../../../../packages/domain/src/index.js'
-import { evaluate } from '../../../../packages/risk-engine/src/index.js'
+import { evaluate, evaluateManualAction } from '../../../../packages/risk-engine/src/index.js'
 import type { RuntimeVenue } from '../../runtime.js'
 import type { ExecutionRepository } from '../../workers/execution-worker.js'
 import { ExecutionWorker } from '../../workers/execution-worker.js'
@@ -72,11 +72,11 @@ export class DeterministicTestRuntime {
     const book = await this.store.getBook(userId, bookId); if (!book) throw new Error('BOOK_NOT_FOUND')
     await this.venue.refresh(book)
     const context = await this.repository.getBookContext(bookId)
-    const decision = evaluate(context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, Date.now())
+    const decision = evaluateManualAction(context.book, context.position, context.reserve, context.telemetry, kind, context.priorDefenseEfficiency, Date.now())
     if (decision.action !== kind) throw new PolicyRejectedError(kind, decision)
     const withId: Decision = { ...decision, id: randomUUID() }
     await this.repository.saveDecision(withId)
-    return this.result(await new ExecutionWorker(this.repository, this.venue, current => this.venue.refresh(current)).execute(withId))
+    return this.result(await new ExecutionWorker(this.repository, this.venue, current => this.venue.refresh(current)).execute(withId, false, true))
   }
   async closeBook(userId: string, bookId: string) {
     const book = await this.store.getBook(userId, bookId); if (!book) throw new Error('BOOK_NOT_FOUND')

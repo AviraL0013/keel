@@ -62,6 +62,7 @@ export class PerplTradingClient {
     })
   }
   stateSnapshot() { return this.state.snapshot() }
+  positionSnapshot(accountId: number, marketId: number, positionId?: number) { return this.state.positionSnapshot(accountId, marketId, positionId) }
   isReady() {
     const ready = this.state.ready()
     if (ready && this.lifecycle === 'AUTHENTICATED') this.lifecycle = 'SNAPSHOTS_READY'

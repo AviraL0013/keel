@@ -2,8 +2,8 @@ import Decimal from 'decimal.js'
 import type { Book, Position, Reserve, RiskFeatures } from '../../domain/src/index.js'
 
 /** A proposal, not a promise of the venue's resulting liquidation price. */
-export function sizeDefense(book: Book, position: Position, reserve: Reserve, features: RiskFeatures, mark: number): number {
-  if (!features.fresh || book.stance !== 'DEFEND' || !book.automationEnabled) return 0
+export function sizeDefense(book: Book, position: Position, reserve: Reserve, features: RiskFeatures, mark: number, mode: 'AUTOMATED' | 'MANUAL' = 'AUTOMATED'): number {
+  if (!features.fresh || book.stance !== 'DEFEND' || (mode === 'AUTOMATED' && !book.automationEnabled)) return 0
   const gap = new Decimal(book.liquidationFloor).minus(features.liquidationDistance)
   if (gap.lte(0) || !Number.isFinite(mark) || mark <= 0 || position.margin < 0) return 0
   // Prefer a venue-verified sensitivity. Otherwise use a bounded linear isolated

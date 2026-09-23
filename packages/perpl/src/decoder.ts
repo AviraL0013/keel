@@ -21,6 +21,7 @@ function older(a: {at: Stamp}, b: {at: Stamp}) { const x=stamp(a), y=stamp(b); f
 export class PerplStateStore {
   private accounts = new Map<number, WireAccount>()
   private positions = new Map<number, WirePosition>()
+  private positionObservedAt = new Map<number, number>()
   private orders = new Map<number, WireOrder>()
   private fills = new Map<string, WireFill>()
   private wallet?: { addr: string; as: WireAccount[] }
@@ -28,7 +29,7 @@ export class PerplStateStore {
   private snapshots = new Set<number>()
   private connected = false
   private lastHeartbeatAt = 0
-  reset() { this.accounts.clear(); this.positions.clear(); this.orders.clear(); this.fills.clear(); this.snapshots.clear(); this.wallet=undefined; this.heartbeatSequence=undefined; this.connected=false; this.lastHeartbeatAt=0 }
+  reset() { this.accounts.clear(); this.positions.clear(); this.positionObservedAt.clear(); this.orders.clear(); this.fills.clear(); this.snapshots.clear(); this.wallet=undefined; this.heartbeatSequence=undefined; this.connected=false; this.lastHeartbeatAt=0 }
   disconnect() { this.connected=false }
   snapshotsReady() { return [19,23,26].every(type=>this.snapshots.has(type)) }
   ready(now=Date.now(), maximumAge=10000) { return this.connected && this.lastHeartbeatAt > 0 && [19,23,26].every(type=>this.snapshots.has(type)) && now-this.lastHeartbeatAt<=maximumAge }
@@ -46,11 +47,11 @@ export class PerplStateStore {
     } else if([23,24,25,26,27].includes(message.mt)) {
       if(!this.wallet || !Array.isArray(message.d)) throw new Error('PERPL_SNAPSHOT_REQUIRED')
       if(message.mt===23) this.orders.clear()
-      if(message.mt===26) this.positions.clear()
+      if(message.mt===26) { this.positions.clear(); this.positionObservedAt.clear() }
       for(const raw of message.d) {
         requireFields(raw,['acc','mkt']); if(!object(raw.at)) throw new Error('PERPL_TIMESTAMP_REQUIRED')
         if(message.mt===23 || message.mt===24) { requireFields(raw,['oid','rq','st','t','os','fs']); const value=raw as unknown as WireOrder; const previous=this.orders.get(value.oid); if(!previous || !older(value,previous)) this.orders.set(value.oid,value) }
-        else if(message.mt===26 || message.mt===27) { requireFields(raw,['pid','st','sd','ep','s','lv']); if(typeof raw.c!=='string' || !/^\d+$/.test(raw.c)) throw new Error('PERPL_COLLATERAL_INVALID'); const value=raw as unknown as WirePosition; const previous=this.positions.get(value.pid); if(!previous || !older(value,previous)) this.positions.set(value.pid,value) }
+        else if(message.mt===26 || message.mt===27) { requireFields(raw,['pid','st','sd','ep','s','lv']); if(typeof raw.c!=='string' || !/^\d+$/.test(raw.c)) throw new Error('PERPL_COLLATERAL_INVALID'); const value=raw as unknown as WirePosition; const previous=this.positions.get(value.pid); if(!previous || !older(value,previous)) { this.positions.set(value.pid,value); this.positionObservedAt.set(value.pid,receivedAt) } }
         else { requireFields(raw,['oid','s','t']); const value=raw as unknown as WireFill; const key=JSON.stringify([value.acc,value.oid,value.at]); this.fills.set(key,value) }
       }
       if(message.mt===23 || message.mt===26) this.snapshots.add(message.mt)
@@ -59,5 +60,6 @@ export class PerplStateStore {
   }
   private account(raw:unknown) { requireFields(raw,['id','in','lfr','ft']); if(typeof raw.b!=='string' || typeof raw.lb!=='string' || !/^\d+$/.test(raw.b) || !/^\d+$/.test(raw.lb) || typeof raw.fr!=='boolean' || typeof raw.fw!=='boolean') throw new Error('PERPL_ACCOUNT_INVALID'); this.accounts.set(raw.id as number,raw as unknown as WireAccount) }
   snapshot() { return {wallet:this.wallet ? {...this.wallet,as:[...this.accounts.values()]} : undefined,accounts:[...this.accounts.values()],positions:[...this.positions.values()],orders:[...this.orders.values()],fills:[...this.fills.values()]} }
+  positionSnapshot(accountId: number, marketId: number, positionId?: number) { const position = [...this.positions.values()].find(value => value.acc === accountId && value.mkt === marketId && (positionId === undefined || value.pid === positionId)); if (!position) return undefined; return { position, observedAt: this.positionObservedAt.get(position.pid) } }
   requestIdBaseline(accountId?:number) { const account=accountId===undefined ? [...this.accounts.values()][0] : this.accounts.get(accountId); if(!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED'); return account.lfr }
 }

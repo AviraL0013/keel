@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import type { Book, BookCreationReadiness, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed } from '../../packages/domain/src/index.js'
-import { evaluate } from '../../packages/risk-engine/src/index.js'
+import { evaluate, evaluateManualAction, telemetryFreshnessFailures } from '../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
 import { ExecutionWorker } from './workers/execution-worker.js'
 import { MonitorScheduler } from './lifecycle.js'
 import { PolicyRejectedError } from './application/errors.js'
+import { logger } from './config/index.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
@@ -92,6 +93,9 @@ export class KeelRuntime {
   private async safeMode(book: Book, reason: string) {
     await this.recordDecision({ id: randomUUID(), bookId: book.id, state:'SAFE_MODE', action:'SAFE_MODE', amount:0, reasonCodes:[reason], humanReadableReasons:['Automation cannot trust venue or execution state. Reconciliation is required.'], createdAt:new Date().toISOString(), riskFeatures:{liquidationDistance:0,fundingPressure:0,spreadBps:0,depthCoverage:0,volatility:0,reserveHeadroom:0,capUtilization:0,timeRemainingMs:0,defenseEfficiency:0,fresh:false} })
   }
+  private manualAuthorityRejected(bookId: string, code: string | string[], reason: string): Decision {
+    return { id: randomUUID(), bookId, state: 'SAFE_MODE', action: 'SAFE_MODE', amount: 0, reasonCodes: Array.isArray(code) ? code : [code], humanReadableReasons: [reason], createdAt: new Date().toISOString(), riskFeatures: { liquidationDistance: 0, fundingPressure: 0, spreadBps: 0, depthCoverage: 0, volatility: 0, reserveHeadroom: 0, capUtilization: 0, timeRemainingMs: 0, defenseEfficiency: 0, fresh: false } }
+  }
   async closeBook(userId: string, bookId: string): Promise<{ actionId: string; status: string }> {
     const book = await this.store.getBook(userId,bookId)
     if (!book) throw new Error('BOOK_NOT_FOUND')
@@ -111,14 +115,27 @@ export class KeelRuntime {
   async executeAction(userId: string, bookId: string, kind: 'DEFEND' | 'REDUCE'): Promise<{ actionId: string; status: string }> {
     const book = await this.store.getBook(userId, bookId)
     if (!book) throw new Error('BOOK_NOT_FOUND')
-    if (!this.venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
+    if (!this.venue?.ready()) throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, 'VENUE_UNAVAILABLE', 'Venue authority is unavailable; manual action is blocked.'))
     if (await this.repository.getActiveAction(bookId)) throw new Error('ACTION_ALREADY_ACTIVE')
-    await this.venue.refresh(book)
+    try { await this.venue.refresh(book) } catch { throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, 'VENUE_UNAVAILABLE', 'Venue authority could not refresh the current state.')) }
     const context = await this.repository.getBookContext(bookId)
-    const decision = { ...evaluate(context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, Date.now()), id: randomUUID() }
+    const now = Date.now()
+    const telemetryFailures = telemetryFreshnessFailures(context.telemetry, context.position, now)
+    logger.info({ bookId, action: kind, telemetry: { market: context.telemetry.freshness?.market, position: context.telemetry.freshness?.position, funding: context.telemetry.freshness?.funding, orderbook: context.telemetry.freshness?.orderbook }, failures: telemetryFailures.codes }, 'Manual action telemetry gate')
+    const decision = { ...evaluateManualAction(context.book, context.position, context.reserve, context.telemetry, kind, context.priorDefenseEfficiency, now), id: randomUUID() }
     if (decision.action !== kind) throw new PolicyRejectedError(kind, decision)
     await this.recordDecision(decision)
-    const result = await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current)).execute(decision)
+    let result
+    try {
+      result = await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current)).execute(decision, false, true)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'MANUAL_POLICY_REEVALUATION_FAILED'
+      const codes = code.split(',').filter(Boolean)
+      if (['STALE_STATE', 'DECISION_SUPERSEDED', 'BOOK_NOT_ACTIVE', 'RESERVE_CAP_EXCEEDED', 'INVALID_ACTION_AMOUNT', 'TELEMETRY_INVALID'].includes(code) || codes.every(value => /^(MARKET|POSITION|FUNDING|DEPTH)_(STALE|UNKNOWN)$|^BOTH_STALE$/.test(value))) {
+        throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, codes, 'Current Book telemetry or state changed before manual action could be submitted.'))
+      }
+      throw error
+    }
     if (!result || !('status' in result)) throw new Error('ACTION_NOT_CREATED')
     return { actionId: result.id, status: result.status }
   }

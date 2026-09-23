@@ -37,8 +37,9 @@ class _Gate extends StatelessWidget {
   final AuthState state;
   @override
   Widget build(BuildContext context) {
-    if (state.restoring)
+    if (state.restoring) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     return KeelRouter(authenticated: state.authenticated);
   }
 }

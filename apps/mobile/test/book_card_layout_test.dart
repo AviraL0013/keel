@@ -15,9 +15,8 @@ import 'package:keel_mobile/shared/widgets/keel_widgets.dart';
 const book = Book(id: 'book-642', market: 'BTC-PERP', side: 'LONG', stance: 'DEFEND', status: 'ACTIVE', automationEnabled: false, liquidationFloor: 6, defenseCap: 5, timeLimitMs: 86400000);
 
 class StaticBooksRepository extends BooksRepository {
-  StaticBooksRepository(BookDashboardState value, http.Client client)
-      : this.value = value,
-        super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
+  StaticBooksRepository(this.value, http.Client client)
+      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
   final BookDashboardState value;
   @override
   Future<BookDashboardState> state(String id) async => value;

@@ -123,18 +123,24 @@ class _TimelineEvent extends StatelessWidget {
   }
 
   String _summary(AutopsyEvent value) {
-    if (value.type == 'DEFENSE_REFUSED')
+    if (value.type == 'DEFENSE_REFUSED') {
       return 'Refused to defend - safety policy held the reserve.';
-    if (value.type == 'SAFE_MODE_ENTERED')
+    }
+    if (value.type == 'SAFE_MODE_ENTERED') {
       return "Paused automation - telemetry wasn't fresh enough to act safely.";
-    if (value.type == 'SAFE_MODE_EXITED')
+    }
+    if (value.type == 'SAFE_MODE_EXITED') {
       return 'Resumed monitoring after authoritative state returned.';
-    if (value.type == 'DEFENSE_EFFICIENCY_UPDATED')
+    }
+    if (value.type == 'DEFENSE_EFFICIENCY_UPDATED') {
       return 'Defense efficiency updated from the reconciled position.';
-    if (value.type == 'DECISION_CREATED')
+    }
+    if (value.type == 'DECISION_CREATED') {
       return 'Risk decision recorded by the policy engine.';
-    if (value.action != null)
+    }
+    if (value.action != null) {
       return '${value.action} action recorded and reconciled.';
+    }
     return value.type.replaceAll('_', ' ');
   }
 
@@ -153,12 +159,18 @@ class _TimelineEvent extends StatelessWidget {
   }
 
   KeelRiskVisual _style(AutopsyEvent value) {
-    if (value.type.contains('SAFE_MODE'))
+    if (value.type.contains('SAFE_MODE')) {
       return KeelRiskVisual.forState('SAFE_MODE');
-    if (value.type.contains('REFUSED') || value.decision == 'REDUCE')
+    }
+    if (value.type.contains('REFUSED') || value.decision == 'REDUCE') {
       return KeelRiskVisual.forState('REDUCE');
-    if (value.decision == 'DEFEND') return KeelRiskVisual.forState('DEFEND');
-    if (value.decision == 'EXIT') return KeelRiskVisual.forState('EXIT');
+    }
+    if (value.decision == 'DEFEND') {
+      return KeelRiskVisual.forState('DEFEND');
+    }
+    if (value.decision == 'EXIT') {
+      return KeelRiskVisual.forState('EXIT');
+    }
     return KeelRiskVisual.forState('HOLD');
   }
 }

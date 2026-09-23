@@ -41,6 +41,25 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     client.close()
   })
 
+  it('keeps authenticated mt:26 positions with their WS receipt timestamp', async () => {
+    server = new WebSocketServer({ port: 0 })
+    server.on('connection', socket => socket.on('message', raw => {
+      if ((JSON.parse(String(raw)) as { mt?: number }).mt !== 29) return
+      socket.send(JSON.stringify({ mt: 3, cid: 1, status: { code: 0 } }))
+      socket.send(JSON.stringify(wallet))
+      socket.send(JSON.stringify({ mt: 23, d: [] }))
+      socket.send(JSON.stringify({ mt: 26, d: [{ pid: 77, acc: 642, mkt: 16, st: 1, sd: 1, c: '1000000', ep: 100, s: 1, lv: 1500, at: { b: 1, t: 1 } }] }))
+      socket.send(JSON.stringify({ mt: 100, sn: 10 }))
+    }))
+    const port = await listen(server)
+    const client = new PerplTradingClient(config(port), signer)
+    await client.connect()
+    const snapshot = client.positionSnapshot(642, 16, 77)
+    expect(snapshot?.position.pid).toBe(77)
+    expect(snapshot?.observedAt).toEqual(expect.any(Number))
+    client.close()
+  })
+
   it('fails closed when authentication rejects the read-only key', async () => {
     server = new WebSocketServer({ port: 0 })
     server.on('connection', socket => socket.on('message', raw => { if ((JSON.parse(String(raw)) as { mt?: number }).mt === 29) socket.send(JSON.stringify({ mt: 3, cid: 1, status: { code: 3401, error: 'UNAUTHORIZED' } })) }))

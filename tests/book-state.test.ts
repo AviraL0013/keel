@@ -60,6 +60,7 @@ describe('Book dashboard state mapping', () => {
     const sources = buildTelemetryFreshness({ marketUpdatedAt: now - 100, positionUpdatedAt: now - 100, fundingUpdatedAt: now - 20_000, orderbookUpdatedAt: now - 100 }, now)
     const decision = evaluateBookSnapshot(book, { size: 1, entryPrice: 100, liquidationPrice: 94, leverage: 6, unrealizedPnl: 0, margin: 16, status: 'OPEN' }, { mark: 100, oracle: 100, bid: 99.9, ask: 100.1, mid: 100, spreadBps: 20, fundingRate: 0.001, depthNotional: 5_000, volatility: 0.01, block: 1, freshness: sources }, { available: 10, reserved: 0, deployed: 0, cap: 10 }, Infinity, true, now)
     expect(decision?.state).toBe('SAFE_MODE')
-    expect(decision?.humanReadableReasons).toEqual(['funding telemetry is stale.'])
+    expect(decision?.reasonCodes).toEqual(['FUNDING_STALE'])
+    expect(decision?.humanReadableReasons).toEqual(['Funding telemetry is stale.'])
   })
 })

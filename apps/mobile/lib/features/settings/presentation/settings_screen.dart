@@ -188,15 +188,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onPressed: () => Navigator.pop(context, true),
                       child: const Text('ENABLE'))
                 ]));
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      return;
+    }
     setState(() => busy = true);
     try {
       await ref.read(settingsRepositoryProvider).killSwitch();
-      if (mounted)
+      if (mounted) {
         setState(() {
           killEnabled = true;
           busy = false;
         });
+      }
     } catch (error) {
       if (mounted) {
         setState(() => busy = false);

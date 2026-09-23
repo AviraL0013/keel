@@ -1,6 +1,6 @@
 import type { PostgresStore } from '../database/postgres-store.js'
 import type { RuntimeVenue } from '../../runtime.js'
-import { PerplAdapter, perplNetworks, decodeAmount } from '../../../../packages/perpl/src/index.js'
+import { PerplAdapter, perplNetworks, decodeAmount, normalizePerplPosition } from '../../../../packages/perpl/src/index.js'
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
@@ -56,6 +56,22 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     if (telemetry.freshness?.funding.effectiveAt !== undefined) freshness.funding.effectiveAt = telemetry.freshness.funding.effectiveAt
     return { ...telemetry, positionTimestamp: positionUpdatedAt, positionFreshnessMs: positionUpdatedAt === undefined ? undefined : now - positionUpdatedAt, freshness }
   }
+  /** Trading WS mt:26/27 is primary account position source. Signed REST history only replaces an aged WS observation. */
+  const currentPosition = async (accountId: number, marketId: number, positionId?: number): Promise<Position | null> => {
+    const stream = trading.isReady() ? trading.positionSnapshot(accountId, marketId, positionId) : undefined
+    const streamFresh = stream?.observedAt !== undefined && Date.now() - stream.observedAt <= freshnessThresholds.positionMs
+    if (!stream || !streamFresh) {
+      const fallback = await adapter.getPosition(accountId, marketId, positionId)
+      if (fallback) return fallback
+      if (!stream) return null
+    }
+    const protocol = await adapter.getProtocolContext()
+    const market = protocol.markets.find(item => item.id === marketId)
+    if (!market) throw new Error('PERPL_MARKET_NOT_FOUND')
+    const instance = protocol.instances.find(item => item.id === market.instance_id)
+    const token = protocol.tokens.find(item => item.id === instance?.collateral_token_id)
+    return normalizePerplPosition(stream.position, market, token?.decimals ?? 6, stream.observedAt ?? Date.now())
+  }
   const contextFor = async (action: Action): Promise<ReconciliationContext> => {
     const row = (await store.pool.query('SELECT b.market_id,b.venue_account_id,b.venue_position_id,p.* FROM books b JOIN positions p ON p.book_id=b.id WHERE b.id=$1', [action.bookId])).rows[0]
     if (!row || !row.market_id || !row.venue_account_id || !row.venue_position_id) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
@@ -73,7 +89,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       if (accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
       const market = await adapter.getMarket(marketId) as { symbol?: string } | null
       if (!market?.symbol) throw new Error('PERPL_MARKET_NOT_FOUND')
-      const position = await adapter.getPosition(accountId, marketId, positionId)
+      const position = await currentPosition(accountId, marketId, positionId)
       if (!position || position.status !== 'OPEN') throw new Error('PERPL_POSITION_NOT_FOUND')
       const telemetry = await adapter.getNormalizedMarket(marketId)
       if (!telemetry) throw new Error('PERPL_TELEMETRY_NOT_READY')
@@ -92,9 +108,11 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       const accountId = Number(env.PERPL_ACCOUNT_ID)
       const result: Array<{ marketId: number; market: string; accountId: number; positionId: number; position: import('../../../../packages/domain/src/index.js').BookPositionSeed; telemetry?: import('../../../../packages/domain/src/index.js').BookTelemetrySeed; bookCreation: BookCreationReadiness }> = []
       for (const market of context.markets) {
-        const rows = await adapter.getPositions(accountId, market.id)
+        const rows = trading.isReady()
+          ? trading.stateSnapshot().positions.filter(item => item.acc === accountId && item.mkt === market.id)
+          : await adapter.getPositions(accountId, market.id)
         for (const row of rows.filter(item => item.st === 1)) {
-          const position = await adapter.getPosition(accountId, market.id, row.pid)
+          const position = await currentPosition(accountId, market.id, row.pid)
           if (!position) continue
           const telemetry = await adapter.getNormalizedMarket(market.id)
           const { bookId: _bookId, ...positionSeed } = position
@@ -149,7 +167,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       if (!book.marketId || !book.venueAccountId) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
       if (book.venueAccountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
       const marketTelemetry = await adapter.getNormalizedMarket(book.marketId)
-      const position = await adapter.getPosition(book.venueAccountId, book.marketId, book.venuePositionId)
+      const position = await currentPosition(book.venueAccountId, book.marketId, book.venuePositionId)
       if (!marketTelemetry || !position) throw new Error('PERPL_STATE_UNAVAILABLE')
       const telemetry = telemetryForPosition(marketTelemetry, position)
       // Use one market observation for both the position valuation and risk input.

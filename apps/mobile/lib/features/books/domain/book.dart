@@ -106,8 +106,9 @@ class BookConfiguration {
   final String? stance;
   final bool automation;
   String? validate() {
-    if (!liquidationFloor.isFinite || liquidationFloor <= 0 || liquidationFloor > 100)
+    if (!liquidationFloor.isFinite || liquidationFloor <= 0 || liquidationFloor > 100) {
       return 'Liquidation floor must be between 0 and 100.';
+    }
     if (!defenseCap.isFinite || defenseCap <= 0) return 'Defense cap must be positive.';
     if (!reserve.isFinite || reserve < 0) return 'Reserve cannot be negative.';
     if (defenseCap > reserve) return 'Defense cap cannot exceed reserve.';
