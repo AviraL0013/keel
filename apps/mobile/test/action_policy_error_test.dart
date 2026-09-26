@@ -41,4 +41,10 @@ void main() {
     expect(error.userMessage, contains('backend risk policy'));
     expect(error.userMessage, isNot(contains('server unavailable')));
   });
+
+  test('venue rate limit is not reported as KEEL server outage', () {
+    const error = KeelException('PERPL_RATE_LIMITED', statusCode: 503);
+    expect(error.userMessage, contains('Perpl is rate limiting KEEL'));
+    expect(error.userMessage, isNot(contains('server unavailable')));
+  });
 }

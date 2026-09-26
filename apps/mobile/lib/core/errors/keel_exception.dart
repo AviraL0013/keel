@@ -16,6 +16,9 @@ class KeelException implements Exception {
     if (message == 'PERPL_ACCOUNT_NOT_FOUND') {
       return 'Perpl account is not available to submit this action.';
     }
+    if (message == 'PERPL_RATE_LIMITED') {
+      return 'Perpl is rate limiting KEEL. Live venue data is unavailable; retry after Perpl recovers.';
+    }
     if (message == 'POLICY_REJECTED') {
       final reason = policyRejection?.reason;
       return reason != null && reason.isNotEmpty

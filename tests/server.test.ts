@@ -56,3 +56,18 @@ describe('empty Perpl position discovery', () => {
   })
 })
 
+describe('Perpl rate limit response', () => {
+  it('reports venue throttling instead of calling KEEL server unavailable', async () => {
+    const store = new MemoryStore()
+    const userId = await store.ensureUser('0xrate-limited')
+    await store.createSession('rate-limited-session', { userId, walletAddress: '0xrate-limited', expiresAt: Date.now() + 60_000 })
+    const venue = { listPositions: async () => { throw new Error('VENUE_HTTP_429') }, submit: async () => ({ venueReference: 'unused', status: 'UNKNOWN' as const }), reconcile: async (action: Action) => action, refresh: async () => undefined, ready: () => false, close: async () => undefined }
+    const app = createServer(store, { venue })
+    try {
+      const response = await app.inject({ method: 'GET', url: '/connections/perpl/positions', headers: { authorization: 'Bearer rate-limited-session' } })
+      expect(response.statusCode).toBe(503)
+      expect(response.json()).toEqual({ error: 'PERPL_RATE_LIMITED' })
+    } finally { await app.close() }
+  })
+})
+

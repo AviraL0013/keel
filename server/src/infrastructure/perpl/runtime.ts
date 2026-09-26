@@ -5,6 +5,7 @@ import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packag
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
+import { PerplRequestIdAllocator } from './request-id-allocator.js'
 import { buildTelemetryFreshness, defaultFreshnessThresholds, freshnessPoint, type Action, type Book, type BookCreationReadiness, type CapitalAmount, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
 import { ChainAdapter } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
@@ -44,7 +45,8 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
   const network = { ...perplNetworks[environment], ...(env.PERPL_REST_URL ? { restUrl: env.PERPL_REST_URL } : {}), ...(env.PERPL_WS_URL ? { wsUrl: env.PERPL_WS_URL } : {}), ...(env.PERPL_CHAIN_ID ? { chainId: Number(env.PERPL_CHAIN_ID) } : {}) }
   const signer = new Ed25519PerplSigner(env.PERPL_API_KEY, env.PERPL_API_KEY_SECRET, network.chainId)
   const adapter = new PerplAdapter(environment, signer, network)
-  const trading = new PerplTradingClient(network, signer)
+  const requestIds = new PerplRequestIdAllocator(store.pool)
+  const trading = new PerplTradingClient(network, signer, line => console.info(line), (accountId, lfr) => requestIds.allocate(accountId, lfr))
   const history = new PerplHistory(network.restUrl, signer)
   const chain = new ChainAdapter(environment, { rpcUrl: env.MONAD_RPC_URL ?? network.rpcUrl, chainId: Number(env.MONAD_CHAIN_ID ?? network.chainId), ausdToken: getAddress(env.AUSD_TOKEN_ADDRESS ?? network.collateralToken) })
   const ausd = new AusdAdapter(chain)
@@ -81,7 +83,16 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     const token = protocol.tokens.find(item => item.id === protocol.instances.find(instance => instance.id === market?.instance_id)?.collateral_token_id)
     return { marketId: Number(row.market_id), accountId: Number(row.venue_account_id), positionId: Number(row.venue_position_id), position: { bookId: action.bookId, side: row.side as 'LONG' | 'SHORT', size: Number(row.size), entryPrice: Number(row.entry_price), markPrice: Number(row.mark_price), liquidationPrice: Number(row.liquidation_price), leverage: Number(row.leverage), unrealizedPnl: Number(row.unrealized_pnl), margin: Number(row.margin), status: row.status as Position['status'] }, headBlock: Number(chain?.gas?.h ?? 0), orderTtlBlocks: market?.order_ttl_blocks ?? 20, sizeDecimals: market?.config?.size_decimals ?? 0, priceDecimals: market?.config?.price_decimals ?? 0, leverageHundredths: Math.round(Number(row.leverage) * 100), collateralDecimals: token?.decimals ?? 6 }
   }
-  const live = new PerplLiveAdapter(trading, contextFor, history, async action => { await store.pool.query('UPDATE actions SET venue_reference=$2 WHERE id=$1', [action.id, action.venueReference]) })
+  const live = new PerplLiveAdapter(trading, contextFor, history,
+    async action => { await store.pool.query('UPDATE actions SET venue_reference=$2 WHERE id=$1', [action.id, action.venueReference]) },
+    async () => undefined,
+    async action => {
+      if (!action.venueReference) return false
+      const result = await store.pool.query(`SELECT 1 FROM actions WHERE id<>$1
+        AND split_part(venue_reference, ':', 1)=split_part($2, ':', 1)
+        AND split_part(venue_reference, ':', 2)=split_part($2, ':', 2) LIMIT 1`, [action.id, action.venueReference])
+      return result.rows.length > 0
+    })
   return {
     accountId: Number(env.PERPL_ACCOUNT_ID),
     async validate() { try { const context = await adapter.getProtocolContext(); if (!context.markets.length) return 'INVALID'; await adapter.getBalance(Number(env.PERPL_ACCOUNT_ID)); return 'VALID' } catch { return 'UNAVAILABLE' } },

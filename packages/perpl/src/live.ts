@@ -2,7 +2,9 @@ import Decimal from 'decimal.js'
 import type { Action } from '../../domain/src/index.js'
 import { buildPerplOrder, type OrderContext } from './orders.js'
 import type { PerplTradingClient } from './trading.js'
+import { PerplPreSubmissionError } from './trading.js'
 import type { PerplHistory } from './history.js'
+import { requestId } from './request-id.js'
 
 export type ReconciliationContext = OrderContext & { positionId: number; collateralDecimals: number }
 export class PerplLiveAdapter {
@@ -12,26 +14,32 @@ export class PerplLiveAdapter {
     private readonly history: Pick<PerplHistory, 'evidence'>,
     private readonly persistReference: (action: Action) => Promise<void>,
     private readonly persistEvidence: (action: Action, evidence: unknown) => Promise<void> = async () => undefined,
+    private readonly referenceConflicts: (action: Action) => Promise<boolean> = async () => false,
   ) {}
   async submit(action: Action) {
-    const context = await this.context(action)
-    return this.client.submit(action, buildPerplOrder(action, context), async reference => {
-      action.venueReference = reference
-      await this.persistReference(action)
+    let order: ReturnType<typeof buildPerplOrder>
+    try { order = buildPerplOrder(action, await this.context(action)) }
+    catch (error) { throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PERPL_ORDER_CONTEXT_FAILED') }
+    return this.client.submit(action, order, async reference => {
+      try { action.venueReference = reference; await this.persistReference(action) }
+      catch (error) { throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PERPL_REFERENCE_PERSIST_FAILED') }
     })
   }
   async reconcile(action: Action): Promise<Action> {
+    const unknown = (error: string): Action => ({ ...action, status: 'UNKNOWN', error })
+    if (await this.referenceConflicts(action)) return unknown('VENUE_REFERENCE_COLLISION')
     const context = await this.context(action)
     const reference = action.venueReference?.split(':') ?? []
-    const account = Number(reference[0]), requestId = Number(reference[1])
-    const unknown = (error: string): Action => ({ ...action, status: 'UNKNOWN', error })
-    if (account !== context.accountId || !Number.isSafeInteger(requestId) || requestId <= 0) return unknown('MISSING_DURABLE_VENUE_REFERENCE')
-    const evidence = await this.history.evidence(account, requestId, context.marketId, context.positionId)
+    const account = Number(reference[0]), rq = reference[1]
+    if (account !== context.accountId || !rq) return unknown('MISSING_DURABLE_VENUE_REFERENCE')
+    try { if (requestId(rq) === 0n) return unknown('MISSING_DURABLE_VENUE_REFERENCE') }
+    catch { return unknown('MISSING_DURABLE_VENUE_REFERENCE') }
+    const evidence = await this.history.evidence(account, rq, context.marketId, context.positionId)
     const orders = evidence.orders
     const terminal = orders.find(order => [2,3,4,5,6,8,9,10].includes(order.st))
     const executed = terminal && [2,3,4,8,9,10].includes(terminal.st) ? terminal : undefined
     if (!terminal) {
-      if (orders.length && orders.every(order => order.st === 7) && evidence.fills.length === 0 && evidence.accounts.length === 0) return { ...action, status: 'FAILED', failedAt: new Date().toISOString(), error: 'VENUE_REJECTED' }
+      if (orders.length && orders.every(order => order.st === 7) && evidence.fills.length === 0 && evidence.accounts.length === 0) return { ...action, status: 'FAILED', failedAt: new Date().toISOString(), error: orders.some(order => order.sr === 32) ? 'ORDER_REQUEST_ID_TOO_LOW' : 'VENUE_REJECTED' }
       return unknown('VENUE_OUTCOME_PENDING')
     }
     if (terminal.st === 5) return { ...action, status: 'CANCELED', failedAt: new Date().toISOString(), error: 'VENUE_ORDER_CANCELED' }

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/books_repository.dart';
 import '../../domain/book.dart';
 import '../../../positions/domain/position.dart';
+import '../../../positions/data/positions_repository.dart';
 import '../../../capital/data/capital_repository.dart';
 import '../../../../core/errors/keel_exception.dart';
 import 'book_detail_screen.dart';
@@ -25,11 +28,49 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
   String? stance;
   bool automation = false;
   String? error;
-  bool get telemetryReady => widget.position.bookCreation?.allowed == true;
-  String get telemetryReason => widget.position.bookCreation?.reason ?? 'Backend has not confirmed live telemetry readiness.';
+  late Position selectedPosition;
+  Timer? telemetryTimer;
+  Future<void>? positionRefresh;
+  bool positionAvailable = true;
+  bool positionRefreshFailed = false;
+  bool get telemetryReady => selectedPosition.status == 'OPEN' && positionAvailable && !positionRefreshFailed && selectedPosition.bookCreation?.allowed == true;
+  String get telemetryReason {
+    if (!positionAvailable) return 'Selected Perpl position is no longer available.';
+    if (positionRefreshFailed) return 'Live position and market telemetry could not be refreshed. Retry shortly.';
+    return selectedPosition.bookCreation?.reason ?? 'Backend has not confirmed live telemetry readiness.';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    selectedPosition = widget.position;
+    unawaited(refreshPosition());
+    telemetryTimer = Timer.periodic(const Duration(seconds: 3), (_) => unawaited(refreshPosition()));
+  }
+
+  Future<void> refreshPosition() => positionRefresh ??= _loadPosition().whenComplete(() => positionRefresh = null);
+
+  Future<void> _loadPosition() async {
+    try {
+      final positions = await ref.read(positionsRepositoryProvider).list();
+      final matches = positions.where((position) =>
+          position.accountId == widget.position.accountId &&
+          position.marketId == widget.position.marketId &&
+          position.positionId == widget.position.positionId);
+      if (!mounted) return;
+      setState(() {
+        positionAvailable = matches.isNotEmpty;
+        positionRefreshFailed = false;
+        if (matches.isNotEmpty) selectedPosition = matches.first;
+      });
+    } catch (_) {
+      if (mounted) setState(() => positionRefreshFailed = true);
+    }
+  }
 
   @override
   void dispose() {
+    telemetryTimer?.cancel();
     floor.dispose();
     cap.dispose();
     reserve.dispose();
@@ -48,15 +89,18 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
         automation: automation,
       );
 
-  void review() {
+  Future<void> review() async {
     final config = readConfig();
     final validation = config.validate();
     setState(() => error = validation);
-    if (validation == null) {
+    if (validation != null) return;
+    await refreshPosition();
+    if (!mounted) return;
+    if (telemetryReady && selectedPosition.status == 'OPEN') {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) =>
-              BookReviewScreen(position: widget.position, config: config),
+              BookReviewScreen(position: selectedPosition, config: config),
         ),
       );
     }
@@ -71,9 +115,9 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
         children: [
           Card(
             child: ListTile(
-              title: Text(widget.position.market),
+              title: Text(selectedPosition.market),
               subtitle: Text(
-                '${widget.position.side} / size ${widget.position.size} / entry ${widget.position.entryPrice} / mark ${widget.position.markPrice} / ${widget.position.status}',
+                '${selectedPosition.side} / size ${selectedPosition.size} / entry ${selectedPosition.entryPrice} / mark ${selectedPosition.markPrice} / ${selectedPosition.status}',
               ),
             ),
           ),

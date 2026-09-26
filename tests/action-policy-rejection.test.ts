@@ -30,7 +30,7 @@ async function setup(options: SetupOptions = {}) {
     initialTelemetry: { mark, oracle: mark, bid: mark - .1, ask: mark + .1, mid: mark, spreadBps: 20, fundingRate: 0, depthNotional: 100_000, volatility: 0, volume24h: 1, openInterest: 1, block: 1, timestamp: telemetryAt, source: 'replay', freshnessMs: options.stale || options.marketStale ? 20_000 : 0, freshness },
   })
   const request = () => app.inject({ method: 'POST', url: `/books/${book.id}/actions`, headers: { authorization: 'Bearer test-policy-session' }, payload: { kind: 'DEFEND' } })
-  return { app, calls, db, request, submit, reconcile }
+  return { app, calls, db, request, submit, reconcile, store, user, book }
 }
 
 async function close(value: Awaited<ReturnType<typeof setup>>) { await value.app.close(); await value.db.close() }
@@ -103,6 +103,23 @@ describe('manual action policy', () => {
       const response = await value.request()
       expect(response.statusCode).toBe(409)
       expect(response.json()).toMatchObject({ error: 'POLICY_REJECTED', details: { reasonCodes: ['MARKET_STALE'] } })
+      expect(value.submit).not.toHaveBeenCalled()
+    } finally { await close(value) }
+  }, 15_000)
+
+  it('blocks a second Book on the same position while another execution is UNKNOWN', async () => {
+    const value = await setup()
+    try {
+      const decision = await value.store.pool.query("INSERT INTO decisions(book_id,state,action,reason_codes,human_readable_reasons,risk_features) VALUES($1,'DEFEND','DEFEND','[]','[]','{}') RETURNING id", [value.book.id])
+      await value.store.pool.query("INSERT INTO actions(book_id,decision_id,kind,amount,status,idempotency_key,venue_reference) VALUES($1,$2,'DEFEND',0.0294,'UNKNOWN','prior-ambiguous','642:1')", [value.book.id, decision.rows[0].id])
+      const second = await value.store.createBook(value.user, {
+        market: 'BTC', marketId: 16, venueAccountId: 642, venuePositionId: 77, side: 'LONG', stance: 'DEFEND', status: 'ACTIVE', liquidationFloor: 6, defenseCap: 5, reserveAvailable: 10, timeLimitMs: 86_400_000, automationEnabled: false,
+        initialPosition: { side: 'LONG', status: 'OPEN', size: 1, entryPrice: 100, markPrice: 98, liquidationPrice: 95, margin: 20, leverage: 5, unrealizedPnl: 0, timestamp: Date.now() },
+        initialTelemetry: { mark: 98, oracle: 98, bid: 97.9, ask: 98.1, mid: 98, spreadBps: 20, fundingRate: 0, depthNotional: 100_000, volatility: 0, volume24h: 1, openInterest: 1, block: 1, timestamp: Date.now(), source: 'replay', freshnessMs: 0, freshness: buildTelemetryFreshness({ marketUpdatedAt: Date.now(), positionUpdatedAt: Date.now(), fundingUpdatedAt: Date.now(), orderbookUpdatedAt: Date.now() }) },
+      })
+      const response = await value.app.inject({ method: 'POST', url: `/books/${second.id}/actions`, headers: { authorization: 'Bearer test-policy-session' }, payload: { kind: 'DEFEND' } })
+      expect(response.statusCode).toBe(409)
+      expect(response.json()).toMatchObject({ error: 'POLICY_REJECTED', details: { reasonCodes: ['POSITION_EXECUTION_UNRESOLVED'] } })
       expect(value.submit).not.toHaveBeenCalled()
     } finally { await close(value) }
   }, 15_000)

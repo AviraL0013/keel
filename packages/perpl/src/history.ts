@@ -1,8 +1,9 @@
 import type { ApiKeySigner } from './index.js'
 import type { WireFill, WireOrder, WirePosition, Stamp } from './decoder.js'
 import { createNonce } from './signer.js'
+import { parsePerplRequestIds } from './request-id.js'
 
-export type AccountEvent = { id: number; m?: number; p?: number; r?: number; o?: number; et: number; a: string; at: Stamp }
+export type AccountEvent = { id: number; m?: number; p?: number; r?: string | number; o?: number; et: number; a: string; at: Stamp }
 export class PerplHistory {
   constructor(private readonly baseUrl: string, private readonly signer: ApiKeySigner, private readonly transport: typeof fetch = fetch) {}
   async read<T>(resource: 'account-history' | 'order-history' | 'position-history' | 'fills', predicate: (item: T) => boolean): Promise<T[]> {
@@ -20,7 +21,7 @@ export class PerplHistory {
         headers: { 'X-API-Key': this.signer.apiKey, 'X-API-Timestamp': timestamp, 'X-API-Nonce': nonce, 'X-API-Signature': signature },
       })
       if (!response.ok) throw new Error(`PERPL_HISTORY_HTTP_${response.status}`)
-      const data = await response.json() as { d?: T[]; np?: string }
+      const data = parsePerplRequestIds(await response.text()) as { d?: T[]; np?: string }
       if (!Array.isArray(data.d)) throw new Error('PERPL_HISTORY_INVALID')
       result.push(...data.d.filter(predicate))
       if (!data.np) return result
@@ -29,11 +30,11 @@ export class PerplHistory {
     }
     throw new Error('PERPL_HISTORY_SCAN_LIMIT')
   }
-  async evidence(accountId: number, requestId: number, marketId: number, positionId: number) {
+  async evidence(accountId: number, requestId: string, marketId: number, positionId: number) {
     const [orders, positions, accounts, fills] = await Promise.all([
-      this.read<WireOrder>('order-history', item => item.acc === accountId && item.rq === requestId && item.mkt === marketId),
+      this.read<WireOrder>('order-history', item => item.acc === accountId && String(item.rq) === requestId && item.mkt === marketId),
       this.read<WirePosition>('position-history', item => item.acc === accountId && item.pid === positionId && item.mkt === marketId),
-      this.read<AccountEvent>('account-history', item => item.id === accountId && item.r === requestId && item.m === marketId),
+      this.read<AccountEvent>('account-history', item => item.id === accountId && String(item.r) === requestId && item.m === marketId),
       this.read<WireFill>('fills', item => item.acc === accountId && item.mkt === marketId),
     ])
     return { orders, positions, accounts, fills: fills.filter(fill => orders.some(order => order.oid === fill.oid)) }

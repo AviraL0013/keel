@@ -26,6 +26,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
 export class KeelRuntime {
   private readonly repository: PostgresExecutionRepository
   private readonly scheduler: MonitorScheduler
+  private readonly reconciliationSchedule = new Map<string, { nextAt: number; rateLimitFailures: number }>()
   private lease?: PoolClient
   constructor(private readonly store: PostgresStore, private readonly venue?: RuntimeVenue) {
     this.repository = new PostgresExecutionRepository(store)
@@ -48,26 +49,45 @@ export class KeelRuntime {
   private async tick() {
     if (!this.lease) return
     await this.lease.query('SELECT 1')
-    const rows = await this.store.pool.query("SELECT id,user_id FROM books WHERE automation_enabled AND status!='CLOSED' ORDER BY created_at")
+    const rows = await this.store.pool.query("SELECT b.id,b.user_id FROM books b WHERE (b.automation_enabled AND b.status!='CLOSED') OR EXISTS (SELECT 1 FROM actions a WHERE a.book_id=b.id AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN')) ORDER BY b.created_at")
     for (const row of rows.rows) {
       const book = await this.store.getBook(row.user_id, row.id)
       if (!book) continue
       try {
-        if (!this.venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
-        await this.venue.refresh(book)
         const active = await this.repository.getActiveAction(book.id)
         if (active) {
           // Recovery never re-submits an existing action, including after restart.
+          if (!active.venueReference) continue // Manual submission may still be persisting its reference.
+          if (Date.now() < (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) continue
+          if (!this.venue) throw new Error('VENUE_NOT_CONFIGURED')
           const result = await this.venue.reconcile(active)
+          if (result.status === 'UNKNOWN') {
+            if (result.error === 'VENUE_REFERENCE_COLLISION' && active.error !== result.error) await this.repository.saveAction(result)
+            this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })
+            continue
+          }
           if (result.status === 'CONFIRMED') await this.venue.refresh(book)
-          await this.repository.finalize(result.status === 'CONFIRMED' || result.status === 'FAILED' ? result : { ...result, status: 'UNKNOWN' })
+          await this.repository.finalize(result)
+          this.reconciliationSchedule.delete(book.id)
           continue
         }
+        this.reconciliationSchedule.delete(book.id)
+        if (!book.automationEnabled || book.status !== 'ACTIVE') continue
+        if (!this.venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
+        await this.venue.refresh(book)
         const context = await this.repository.getBookContext(book.id)
         const decision = { ...evaluate(context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, Date.now()), id: randomUUID() }
         const isNew = await this.recordDecision(decision)
         if (isNew && !['HOLD','SAFE_MODE'].includes(decision.action)) await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current)).execute(decision)
       } catch (error) {
+        if (await this.repository.getActiveAction(book.id)) {
+          const priorFailures = this.reconciliationSchedule.get(book.id)?.rateLimitFailures ?? 0
+          const rateLimited = error instanceof Error && error.message === 'VENUE_HTTP_429'
+          const retryMs = rateLimited ? Math.min(300_000, 60_000 * 2 ** Math.min(priorFailures, 3)) : 30_000
+          this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + retryMs, rateLimitFailures: rateLimited ? priorFailures + 1 : 0 })
+          logger.warn({ bookId: book.id, error: error instanceof Error ? error.message : 'RECONCILIATION_FAILED', retryMs }, 'Existing execution reconciliation deferred')
+          continue
+        }
         await this.safeMode(book, error instanceof Error ? error.message : 'RUNTIME_FAILURE')
       }
     }
@@ -117,6 +137,7 @@ export class KeelRuntime {
     if (!book) throw new Error('BOOK_NOT_FOUND')
     if (!this.venue?.ready()) throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, 'VENUE_UNAVAILABLE', 'Venue authority is unavailable; manual action is blocked.'))
     if (await this.repository.getActiveAction(bookId)) throw new Error('ACTION_ALREADY_ACTIVE')
+    if (await this.repository.getConflictingPositionAction(bookId)) throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, 'POSITION_EXECUTION_UNRESOLVED', 'Another Book has an unresolved execution for this Perpl position.'))
     try { await this.venue.refresh(book) } catch { throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, 'VENUE_UNAVAILABLE', 'Venue authority could not refresh the current state.')) }
     const context = await this.repository.getBookContext(bookId)
     const now = Date.now()
@@ -131,7 +152,7 @@ export class KeelRuntime {
     } catch (error) {
       const code = error instanceof Error ? error.message : 'MANUAL_POLICY_REEVALUATION_FAILED'
       const codes = code.split(',').filter(Boolean)
-      if (['STALE_STATE', 'DECISION_SUPERSEDED', 'BOOK_NOT_ACTIVE', 'RESERVE_CAP_EXCEEDED', 'INVALID_ACTION_AMOUNT', 'TELEMETRY_INVALID'].includes(code) || codes.every(value => /^(MARKET|POSITION|FUNDING|DEPTH)_(STALE|UNKNOWN)$|^BOTH_STALE$/.test(value))) {
+      if (['STALE_STATE', 'DECISION_SUPERSEDED', 'BOOK_NOT_ACTIVE', 'RESERVE_CAP_EXCEEDED', 'INVALID_ACTION_AMOUNT', 'TELEMETRY_INVALID', 'POSITION_EXECUTION_UNRESOLVED'].includes(code) || codes.every(value => /^(MARKET|POSITION|FUNDING|DEPTH)_(STALE|UNKNOWN)$|^BOTH_STALE$/.test(value))) {
         throw new PolicyRejectedError(kind, this.manualAuthorityRejected(bookId, codes, 'Current Book telemetry or state changed before manual action could be submitted.'))
       }
       throw error

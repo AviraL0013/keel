@@ -1,8 +1,9 @@
 // Wire shapes follow bundled Perpl types.md and websocket.md.
 export type Stamp = { b?: number; t?: number; tx?: number; txid?: string; l?: number }
-export type WireAccount = { id: number; in: number; fr: boolean; fw: boolean; ft: number; lfr: number; b: string; lb: string }
+import { requestId } from './request-id.js'
+export type WireAccount = { id: number; in: number; fr: boolean; fw: boolean; ft: number; lfr: string | number; b: string; lb: string }
 export type WirePosition = { acc: number; mkt: number; pid: number; st: number; sd: number; c: string; ep: number; s: number; lv: number; at: Stamp; efs: number; xfs: number; fee: string }
-export type WireOrder = { acc: number; mkt: number; oid: number; rq: number; st: number; sr: number; t: number; os: number; fs: number; at: Stamp; r?: boolean }
+export type WireOrder = { acc: number; mkt: number; oid: number; rq: string | number; st: number; sr: number; t: number; os: number; fs: number; at: Stamp; r?: boolean }
 export type WireFill = { acc: number; mkt: number; oid: number; t: number; p?: number; s: number; at: Stamp; f: string }
 export type PerplMessage = Record<string, unknown> & { mt: number; sn?: number }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -50,7 +51,7 @@ export class PerplStateStore {
       if(message.mt===26) { this.positions.clear(); this.positionObservedAt.clear() }
       for(const raw of message.d) {
         requireFields(raw,['acc','mkt']); if(!object(raw.at)) throw new Error('PERPL_TIMESTAMP_REQUIRED')
-        if(message.mt===23 || message.mt===24) { requireFields(raw,['oid','rq','st','t','os','fs']); const value=raw as unknown as WireOrder; const previous=this.orders.get(value.oid); if(!previous || !older(value,previous)) this.orders.set(value.oid,value) }
+        if(message.mt===23 || message.mt===24) { requireFields(raw,['oid','st','t','os','fs']); requestId(raw.rq); const value=raw as unknown as WireOrder; const previous=this.orders.get(value.oid); if(!previous || !older(value,previous)) this.orders.set(value.oid,value) }
         else if(message.mt===26 || message.mt===27) { requireFields(raw,['pid','st','sd','ep','s','lv']); if(typeof raw.c!=='string' || !/^\d+$/.test(raw.c)) throw new Error('PERPL_COLLATERAL_INVALID'); const value=raw as unknown as WirePosition; const previous=this.positions.get(value.pid); if(!previous || !older(value,previous)) { this.positions.set(value.pid,value); this.positionObservedAt.set(value.pid,receivedAt) } }
         else { requireFields(raw,['oid','s','t']); const value=raw as unknown as WireFill; const key=JSON.stringify([value.acc,value.oid,value.at]); this.fills.set(key,value) }
       }
@@ -58,8 +59,8 @@ export class PerplStateStore {
     }
     return {accepted:true,state:this.snapshot()}
   }
-  private account(raw:unknown) { requireFields(raw,['id','in','lfr','ft']); if(typeof raw.b!=='string' || typeof raw.lb!=='string' || !/^\d+$/.test(raw.b) || !/^\d+$/.test(raw.lb) || typeof raw.fr!=='boolean' || typeof raw.fw!=='boolean') throw new Error('PERPL_ACCOUNT_INVALID'); this.accounts.set(raw.id as number,raw as unknown as WireAccount) }
+  private account(raw:unknown) { requireFields(raw,['id','in','ft']); if (!object(raw)) throw new Error('PERPL_ACCOUNT_INVALID'); requestId(raw.lfr); if(typeof raw.b!=='string' || typeof raw.lb!=='string' || !/^\d+$/.test(raw.b) || !/^\d+$/.test(raw.lb) || typeof raw.fr!=='boolean' || typeof raw.fw!=='boolean') throw new Error('PERPL_ACCOUNT_INVALID'); this.accounts.set(raw.id as number,raw as unknown as WireAccount) }
   snapshot() { return {wallet:this.wallet ? {...this.wallet,as:[...this.accounts.values()]} : undefined,accounts:[...this.accounts.values()],positions:[...this.positions.values()],orders:[...this.orders.values()],fills:[...this.fills.values()]} }
   positionSnapshot(accountId: number, marketId: number, positionId?: number) { const position = [...this.positions.values()].find(value => value.acc === accountId && value.mkt === marketId && (positionId === undefined || value.pid === positionId)); if (!position) return undefined; return { position, observedAt: this.positionObservedAt.get(position.pid) } }
-  requestIdBaseline(accountId?:number) { const account=accountId===undefined ? [...this.accounts.values()][0] : this.accounts.get(accountId); if(!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED'); return account.lfr }
+  requestIdBaseline(accountId?:number) { const account=accountId===undefined ? [...this.accounts.values()][0] : this.accounts.get(accountId); if(!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED'); return requestId(account.lfr).toString() }
 }
