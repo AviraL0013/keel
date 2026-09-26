@@ -9,7 +9,9 @@ export function buildPerplOrder(action: Action, context: OrderContext): PerplOrd
   const expiry = context.headBlock + context.orderTtlBlocks
   if (action.kind === 'DEFEND') {
     if (!Number.isSafeInteger(context.positionId) || context.positionId <= 0 || action.amount <= 0) throw new Error('PERPL_DEFEND_CONTEXT_INVALID')
-    return { mkt: context.marketId, acc: context.accountId, t: 6, s: 0, a: encodeAmount(new Decimal(action.amount).toFixed(), context.collateralDecimals), lp: context.positionId, lv: context.leverageHundredths, lb: expiry }
+    // Signed baseline reads can outlast the market's block TTL. Perpl assigns
+    // its current maximum execution window when lb is zero at admission.
+    return { mkt: context.marketId, acc: context.accountId, t: 6, s: 0, a: encodeAmount(new Decimal(action.amount).toFixed(), context.collateralDecimals), lp: context.positionId, lv: context.leverageHundredths, lb: 0 }
   }
   if (context.position.status !== 'OPEN' || context.position.size <= 0) throw new Error('PERPL_POSITION_NOT_OPEN')
   const size = encodeSize(context.position.size, context.sizeDecimals)

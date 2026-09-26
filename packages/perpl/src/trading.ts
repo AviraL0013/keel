@@ -3,7 +3,7 @@ import { createNonce, type Ed25519PerplSigner } from './signer.js'
 import type { Action } from '../../domain/src/index.js'
 import type { PerplConfig } from './index.js'
 import { PerplStateStore } from './decoder.js'
-import { orderFrameWithRequestId, parsePerplRequestIds, requestId } from './request-id.js'
+import { forwardedRequestDelta, orderFrameWithRequestId, parsePerplRequestIds, requestId, validForwardedRequestId } from './request-id.js'
 
 export type PerplOrder = { mkt: number; acc: number; t: number; s: number; lv: number; a?: string; lb?: number; p?: number; ms?: number; lp?: number }
 export type PerplSubmitStatus = 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'FAILED' | 'UNKNOWN'
@@ -46,7 +46,7 @@ export class PerplTradingClient {
   private lastHeartbeatDiagnosticAt = 0
   private readyWaiter?: { resolve: () => void; reject: (error: Error) => void }
   private readonly diagnostic: (line: string) => void
-  constructor(private readonly config: PerplConfig, private readonly signer: Ed25519PerplSigner, diagnostic: (line: string) => void = line => console.info(line), private readonly allocateRequestId: (accountId: number, lfr: string, actionId: string) => Promise<string> = async () => { throw new Error('PERPL_REQUEST_ID_ALLOCATOR_UNCONFIGURED') }, private readonly authoritativeBaseline: (accountId: number) => Promise<ForwardedRequestBaseline> = accountId => this.readAuthoritativeBaseline(accountId)) { this.diagnostic = diagnostic }
+  constructor(private readonly config: PerplConfig, private readonly signer: Ed25519PerplSigner, diagnostic: (line: string) => void = line => console.info(line), private readonly allocateRequestId: (accountId: number, lfr: string, actionId: string, rejectedForwardedRq: string) => Promise<string> = async () => { throw new Error('PERPL_REQUEST_ID_ALLOCATOR_UNCONFIGURED') }, private readonly authoritativeBaseline: (accountId: number) => Promise<ForwardedRequestBaseline> = accountId => this.readAuthoritativeBaseline(accountId)) { this.diagnostic = diagnostic }
   async connect(): Promise<void> {
     if (this.connecting) return this.connecting
     this.stopped = false
@@ -69,21 +69,30 @@ export class PerplTradingClient {
     try { lfr = requestId(baseline.lfr); requestId(baseline.rejectedForwardedRq) }
     catch { throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_INVALID') }
     this.diagnostic(`PERPL_RQ_BASELINE account=${order.acc} lfr=${lfr}`)
-    if (requestId(this.state.requestIdBaseline(order.acc)) > lfr) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CONTRADICTORY')
-    // Direct on-chain orders carry rq too, but do not advance the API forwarding counter.
-    // A forwarded sr:32 with rq above fresh lfr is different: the venue rejected a value
-    // that its published rule says should pass. Keep new submissions blocked until resolved.
+    const streamLfr = this.state.requestIdBaseline(order.acc)
+    const baselineDelta = forwardedRequestDelta(lfr.toString(), streamLfr)
+    if (BigInt.asUintN(32, requestId(streamLfr)) !== BigInt.asUintN(32, lfr) && baselineDelta <= 0n) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CONTRADICTORY')
+    // A numerically larger ID can still fail the contract's signed-32 serial comparison.
+    // Only that explained rejection may be superseded. A serial-valid rejected ID stays blocked.
     if (requestId(baseline.rejectedForwardedRq) > lfr) {
-      this.diagnostic(`PERPL_RQ_REJECTION_UNRESOLVED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq}`)
-      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_FORWARDED_REJECTION_UNRESOLVED')
+      if (forwardedRequestDelta(baseline.rejectedForwardedRq, lfr.toString()) > 0n) {
+        this.diagnostic(`PERPL_RQ_REJECTION_UNRESOLVED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq}`)
+        throw new PerplPreSubmissionError('PERPL_REQUEST_ID_FORWARDED_REJECTION_UNRESOLVED')
+      }
+      this.diagnostic(`PERPL_RQ_REJECTION_EXPLAINED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq} reason=SIGNED_32_WINDOW`)
     }
     let rq: string
-    try { rq = await this.allocateRequestId(order.acc, lfr.toString(), action.id) }
+    try { rq = await this.allocateRequestId(order.acc, lfr.toString(), action.id, baseline.rejectedForwardedRq) }
     catch { throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_FAILED') }
-    if (requestId(rq) <= lfr) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_INVALID')
-    this.diagnostic(`PERPL_RQ_ALLOCATED account=${order.acc} rq=${rq}`)
+    if (!validForwardedRequestId(rq, lfr.toString()) || requestId(rq) <= requestId(baseline.rejectedForwardedRq)) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_INVALID')
+    this.diagnostic(`PERPL_RQ_ALLOCATED account=${order.acc} rq=${rq} serialDelta=${forwardedRequestDelta(rq, lfr.toString())}`)
     const sn = ++this.sequence, reference = `${order.acc}:${rq}`
     await beforeSend(reference)
+    // REST/history reads and durable persistence may outlast WS authority.
+    if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
+    const latestAccount = this.state.snapshot().accounts.find(item => item.id === order.acc)
+    if (!latestAccount || latestAccount.fr || !latestAccount.fw) throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
+    if (!validForwardedRequestId(rq, String(latestAccount.lfr))) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
     return await new Promise(resolve => {
       const timer = setTimeout(() => { this.pending.delete(sn); this.diagnostic(`PERPL_WS_ORDER_TIMEOUT actionId=${action.id} rq=${rq} sn=${sn}`); resolve({ venueReference: reference, status: 'UNKNOWN', reason: 'PERPL_ORDER_RESPONSE_TIMEOUT' }) }, 15_000)
       this.pending.set(sn, { rq, accountId: order.acc, action, timer, resolve })
@@ -209,7 +218,7 @@ export class PerplTradingClient {
       return
     }
     if (message.mt !== 24 || !message.d) return
-    for (const order of message.d) { const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq)); if (!entry) continue; const [sn, pending] = entry; const status = mapPerplOrderStatus(order.st ?? 0); if (status === 'SUBMITTED') continue; clearTimeout(pending.timer); this.pending.delete(sn); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`, status, reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined }) }
+    for (const order of message.d) { const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq)); if (!entry) continue; const [sn, pending] = entry; const status = mapPerplOrderStatus(order.st ?? 0); if (status === 'SUBMITTED') continue; clearTimeout(pending.timer); this.pending.delete(sn); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`, status: status === 'FAILED' && pending.action.kind === 'DEFEND' ? 'UNKNOWN' : status, reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined }) }
   }
   private failPending(status: PerplSubmitStatus) { for (const [sn, pending] of this.pending) { clearTimeout(pending.timer); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}`, status, reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS' }); this.pending.delete(sn) } }
 }

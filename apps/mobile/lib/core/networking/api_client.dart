@@ -24,7 +24,7 @@ class KeelApiClient {
       {Object? body}) async {
     final token = await _storage.readToken();
     final headers = <String, String>{
-      'content-type': 'application/json',
+      if (body != null) 'content-type': 'application/json',
       if (token != null) 'authorization': 'Bearer $token'
     };
     final uri = Uri.parse('${_config.apiBaseUrl}$path');

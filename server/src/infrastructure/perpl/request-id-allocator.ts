@@ -1,12 +1,13 @@
 import type { Pool } from 'pg'
-import { requestId } from '../../../../packages/perpl/src/request-id.js'
+import { nextForwardedRequestId, requestId } from '../../../../packages/perpl/src/request-id.js'
 
 /** PostgreSQL row lock serializes reservations for one Perpl account across workers. */
 export class PerplRequestIdAllocator {
   constructor(private readonly pool: Pool) {}
 
-  async allocate(accountId: number, venueLfr: string): Promise<string> {
+  async allocate(accountId: number, venueLfr: string, rejectedForwardedRq = '0'): Promise<string> {
     const lfr = requestId(venueLfr)
+    const rejected = requestId(rejectedForwardedRq)
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
@@ -14,6 +15,9 @@ export class PerplRequestIdAllocator {
       const counter = await client.query('SELECT last_rq FROM perpl_request_ids WHERE account_id=$1 FOR UPDATE', [accountId])
       const actions = await client.query('SELECT venue_reference FROM actions WHERE venue_reference LIKE $1', [`${accountId}:%`])
       let highest = lfr
+      // Preserve a known forwarded rejection even after a local database reset.
+      // Direct/on-chain order-history IDs are never used as an API high-water mark.
+      if (rejected > highest) highest = rejected
       const durable = requestId(String(counter.rows[0].last_rq))
       if (durable > highest) highest = durable
       for (const row of actions.rows as Array<{ venue_reference: string }>) {
@@ -22,8 +26,7 @@ export class PerplRequestIdAllocator {
         const prior = requestId(rq)
         if (prior > highest) highest = prior
       }
-      const next = highest + 1n
-      const selected = requestId(next.toString()).toString()
+      const selected = nextForwardedRequestId(lfr.toString(), highest.toString())
       await client.query('UPDATE perpl_request_ids SET last_rq=$2 WHERE account_id=$1', [accountId, selected])
       await client.query('COMMIT')
       return selected

@@ -184,7 +184,8 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       if (frame.mt === 22) { frames.push(frame); socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 403, error: 'test rejection' } })) }
     }))
     const port = await listen(server)
-    const floor = Date.now() + 100_000
+    // A full uint64 high-water mark whose next low word is newer than lfr=44.
+    const floor = 4294967340
     const first = new PerplTradingClient(config(port), signer, () => undefined, async () => String(floor + 1), currentBaseline)
     const second = new PerplTradingClient(config(port), signer, () => undefined, async () => { throw new Error('DB_UNAVAILABLE') }, currentBaseline)
     try {
@@ -216,7 +217,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     } finally { client.close() }
   })
 
-  it('blocks an unresolved forwarded sr:32 above fresh lfr before allocation or mt:22', async () => {
+  it('still blocks a serial-valid forwarded sr:32 above fresh lfr before allocation or mt:22', async () => {
     server = new WebSocketServer({ port: 0 })
     let orders = 0, allocations = 0
     server.on('connection', socket => socket.on('message', raw => {
@@ -225,11 +226,95 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       if (frame.mt === 22) orders++
     }))
     const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined,
-      async () => { allocations++; return '46' }, async () => ({ lfr: '44', rejectedForwardedRq: '1790412137977' }))
+      async () => { allocations++; return '47' }, async () => ({ lfr: '44', rejectedForwardedRq: '46' }))
     try {
       await client.connect()
       await expect(client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).rejects.toThrow('PERPL_REQUEST_ID_FORWARDED_REJECTION_UNRESOLVED')
       expect({ orders, allocations }).toEqual({ orders: 0, allocations: 0 })
+    } finally { client.close() }
+  })
+
+  it('sends a contract-valid DEFEND after the explained historical signed-window rejection', async () => {
+    server = new WebSocketServer({ port: 0 })
+    const sent: Array<{ mt: number; rq: number; sn: number; t: number; acc: number }> = []
+    const zeroWallet = { ...wallet, as: [{ ...wallet.as[0], lfr: 0 }] }
+    server.on('connection', socket => socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as typeof sent[number]
+      if (frame.mt === 29) snapshotsWithWallet(socket, zeroWallet)
+      if (frame.mt === 22) {
+        sent.push(frame)
+        const low = Number(BigInt(frame.rq) & 0xffffffffn)
+        expect(low > 0 && low < 2147483648).toBe(true)
+        socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 0 } }))
+        socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 10, t: 6, os: 0, fs: 0, at: { b: 1 } }] }))
+      }
+    }))
+    let allocationInputs: unknown[] = []
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined,
+      async (...args) => { allocationInputs = args; return '1791001362433' },
+      async () => ({ lfr: '0', rejectedForwardedRq: '1790412137977' }))
+    try {
+      await client.connect()
+      const result = await client.submit({ id: 'manual-defend' } as never, { mkt: 16, acc: 642, t: 6, s: 0, a: '11321', lp: 4206532886529, lv: 1500 })
+      expect(allocationInputs).toEqual([642, '0', 'manual-defend', '1790412137977'])
+      expect(sent).toHaveLength(1)
+      expect(sent[0]).toMatchObject({ mt: 22, rq: 1791001362433, t: 6, acc: 642 })
+      expect(result).toMatchObject({ status: 'CONFIRMED', venueReference: '642:1791001362433:3' })
+    } finally { client.close() }
+  })
+
+  it.each(['1790412137978', '1'])('blocks an allocator returning unsafe or reused rq=%s before mt:22', async rq => {
+    server = new WebSocketServer({ port: 0 })
+    let orders = 0
+    server.on('connection', socket => socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as { mt: number }
+      if (frame.mt === 29) snapshotsWithWallet(socket, { ...wallet, as: [{ ...wallet.as[0], lfr: 0 }] })
+      if (frame.mt === 22) orders++
+    }))
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined,
+      async () => rq, async () => ({ lfr: '0', rejectedForwardedRq: '1790412137977' }))
+    try {
+      await client.connect()
+      await expect(client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).rejects.toThrow('PERPL_REQUEST_ID_ALLOCATION_INVALID')
+      expect(orders).toBe(0)
+    } finally { client.close() }
+  })
+
+  it.each([
+    { streamLfr: 4294967295, restLfr: '0', rq: '4294967297', allowed: true },
+    { streamLfr: 45, restLfr: '44', rq: '46', allowed: false },
+  ])('distinguishes a wrapped baseline from stale REST ($streamLfr to $restLfr)', async test => {
+    server = new WebSocketServer({ port: 0 })
+    let orders = 0
+    server.on('connection', socket => socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as { mt: number; sn: number }
+      if (frame.mt === 29) snapshotsWithWallet(socket, { ...wallet, as: [{ ...wallet.as[0], lfr: test.streamLfr }] })
+      if (frame.mt === 22) { orders++; socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 403 } })) }
+    }))
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined,
+      async () => test.rq, async () => ({ lfr: test.restLfr, rejectedForwardedRq: '0' }))
+    try {
+      await client.connect()
+      const result = client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })
+      if (test.allowed) await expect(result).resolves.toMatchObject({ reason: 'PERPL_ORDER_REJECTED_403' })
+      else await expect(result).rejects.toThrow('PERPL_REQUEST_ID_BASELINE_CONTRADICTORY')
+      expect(orders).toBe(test.allowed ? 1 : 0)
+    } finally { client.close() }
+  })
+
+  it('does not send if authority disconnects while persisting the allocated reference', async () => {
+    server = new WebSocketServer({ port: 0 })
+    let orders = 0
+    server.on('connection', socket => socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as { mt: number }
+      if (frame.mt === 29) snapshots(socket)
+      if (frame.mt === 22) orders++
+    }))
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
+    try {
+      await client.connect()
+      await expect(client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 }, async () => { client.close() })).rejects.toThrow('PERPL_TRADING_STATE_UNTRUSTED')
+      expect(orders).toBe(0)
     } finally { client.close() }
   })
 
@@ -291,7 +376,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     } finally { client.close() }
   })
 
-  it('classifies venue sr:32 as ORDER_REQUEST_ID_TOO_LOW', async () => {
+  it('keeps a forwarded DEFEND sr:32 unresolved until collateral reconciliation', async () => {
     server = new WebSocketServer({ port: 0 })
     server.on('connection', socket => socket.on('message', raw => {
       const frame = JSON.parse(String(raw)) as { mt: number; sn: number; rq: number }
@@ -301,7 +386,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
     try {
       await client.connect()
-      expect(await client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).toMatchObject({ status: 'FAILED', reason: 'ORDER_REQUEST_ID_TOO_LOW' })
+      expect(await client.submit({ id: 'manual-action', kind: 'DEFEND' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).toMatchObject({ status: 'UNKNOWN', reason: 'ORDER_REQUEST_ID_TOO_LOW' })
     } finally { client.close() }
   })
 

@@ -29,9 +29,14 @@ export class PostgresExecutionRepository implements ExecutionRepository { constr
       if (after && action.beforeState) {
         await settleDefense(client, action.bookId, action.amount, action.id, action.decisionId)
         const observation = (position: Position, telemetry: NormalizedTelemetry) => ({ liquidationDistance: liquidationDistance(position, telemetry.mark), funding: telemetry.fundingRate, depth: telemetry.depthNotional, volatility: telemetry.volatility, timestamp: telemetry.timestamp })
-        const measurement = measureDefense(observation(action.beforeState.position, action.beforeState.telemetry), observation(after.position, after.telemetry), action.amount)
-        await client.query('INSERT INTO defense_performance(action_id,book_id,amount,efficiency,measurement) VALUES($1,$2,$3,$4,$5) ON CONFLICT(action_id) DO NOTHING', [action.id, action.bookId, action.amount, measurement.efficiency, JSON.stringify(measurement)])
-        await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DEFENSE_EFFICIENCY_UPDATED',$2)", [action.bookId, JSON.stringify(measurement)])
+        try {
+          const measurement = measureDefense(observation(action.beforeState.position, action.beforeState.telemetry), observation(after.position, after.telemetry), action.amount)
+          await client.query('INSERT INTO defense_performance(action_id,book_id,amount,efficiency,measurement) VALUES($1,$2,$3,$4,$5) ON CONFLICT(action_id) DO NOTHING', [action.id, action.bookId, action.amount, measurement.efficiency, JSON.stringify(measurement)])
+          await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DEFENSE_EFFICIENCY_UPDATED',$2)", [action.bookId, JSON.stringify(measurement)])
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== 'INVALID_DEFENSE_MEASUREMENT') throw error
+          await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DEFENSE_MEASUREMENT_UNAVAILABLE',$2)", [action.bookId, JSON.stringify({ actionId: action.id, reason: error.message })])
+        }
       } else if (action.kind === 'DEFEND' && action.status === 'CONFIRMED') throw new Error('DEFENSE_BASELINE_REQUIRED')
       await client.query('INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)', [action.bookId, `${action.kind}_${action.status}`, JSON.stringify({ actionId: action.id, amount: action.amount, venueReference: action.venueReference, error: action.error })])
       await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,$2,$3,$4,$5 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [action.bookId, `ACTION_${action.status}`, `${action.kind}: ${action.status}`, action.error ?? 'Venue state reconciled.', `${action.id}:${action.status}`])

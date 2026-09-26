@@ -34,7 +34,12 @@ export class PerplLiveAdapter {
     if (account !== context.accountId || !rq) return unknown('MISSING_DURABLE_VENUE_REFERENCE')
     try { if (requestId(rq) === 0n) return unknown('MISSING_DURABLE_VENUE_REFERENCE') }
     catch { return unknown('MISSING_DURABLE_VENUE_REFERENCE') }
-    const evidence = await this.history.evidence(account, rq, context.marketId, context.positionId)
+    const evidence = await this.history.evidence(account, rq, context.marketId, context.positionId, action.kind === 'DEFEND' ? { amount: action.amount, decimals: context.collateralDecimals, minBlock: action.beforeState?.telemetry.block ?? 0 } : undefined)
+    if (action.kind === 'DEFEND' && evidence.collateralSuccess) {
+      await this.persistEvidence(action, evidence)
+      return { ...action, venueReference: `${account}:${rq}:${evidence.collateralSuccess.txHash}`, status: 'CONFIRMED', error: undefined, failedAt: undefined, confirmedAt: new Date().toISOString() }
+    }
+    if (action.kind === 'DEFEND' && evidence.orders.length && evidence.orders.every(order => order.st === 7)) return unknown('COLLATERAL_OUTCOME_UNVERIFIED')
     const orders = evidence.orders
     const terminal = orders.find(order => [2,3,4,5,6,8,9,10].includes(order.st))
     const executed = terminal && [2,3,4,8,9,10].includes(terminal.st) ? terminal : undefined

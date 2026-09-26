@@ -11,7 +11,7 @@ const context: OrderContext = {
 describe('Perpl collateral order', () => {
   it('encodes human AUSD into base units and binds the existing position', () => {
     expect(buildPerplOrder({ kind: 'DEFEND', amount: 0.0294 } as Action, context)).toMatchObject({
-      mkt: 16, acc: 642, t: 6, s: 0, a: '29400', lp: 4206532886529, lb: 120,
+      mkt: 16, acc: 642, t: 6, s: 0, a: '29400', lp: 4206532886529, lb: 0,
     })
   })
 
