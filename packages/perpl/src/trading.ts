@@ -29,7 +29,7 @@ export function mapPerplOrderStatus(status: number): PerplSubmitStatus {
   if (status === 3) return 'PARTIAL'
   if (status === 5) return 'CANCELED'
   if (status === 6) return 'EXPIRED'
-  if ([2, 4, 8, 9, 10].includes(status)) return 'CONFIRMED'
+  if ([4, 10].includes(status)) return 'CONFIRMED'
   return 'SUBMITTED'
 }
 export class PerplTradingClient {
@@ -55,7 +55,7 @@ export class PerplTradingClient {
     this.connecting = this.openAndAuthenticate().finally(() => { this.connecting = undefined })
     return this.connecting
   }
-  async submit(action: Action, order: PerplOrder, beforeSend: (reference: string) => Promise<void> = async () => undefined): Promise<PerplSubmitResult> {
+  async submit(action: Action, order: PerplOrder, beforeSend: (reference: string) => Promise<void> = async () => undefined, verifyBeforeSend: () => Promise<void> = async () => undefined): Promise<PerplSubmitResult> {
     if (!this.socket || this.socket.readyState !== WS.OPEN) throw new PerplPreSubmissionError('PERPL_TRADING_NOT_CONNECTED')
     if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
     const account = this.state.snapshot().accounts.find(item => item.id === order.acc)
@@ -93,6 +93,12 @@ export class PerplTradingClient {
     const latestAccount = this.state.snapshot().accounts.find(item => item.id === order.acc)
     if (!latestAccount || latestAccount.fr || !latestAccount.fw) throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
     if (!validForwardedRequestId(rq, String(latestAccount.lfr))) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
+    try { await verifyBeforeSend() }
+    catch (error) { throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PERPL_PRE_SEND_VERIFICATION_FAILED') }
+    if (!this.socket || this.socket.readyState !== WS.OPEN || !this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
+    const sendAccount = this.state.snapshot().accounts.find(item => item.id === order.acc)
+    if (!sendAccount || sendAccount.fr || !sendAccount.fw) throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
+    if (!validForwardedRequestId(rq, String(sendAccount.lfr))) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
     return await new Promise(resolve => {
       const timer = setTimeout(() => { this.pending.delete(sn); this.diagnostic(`PERPL_WS_ORDER_TIMEOUT actionId=${action.id} rq=${rq} sn=${sn}`); resolve({ venueReference: reference, status: 'UNKNOWN', reason: 'PERPL_ORDER_RESPONSE_TIMEOUT' }) }, 15_000)
       this.pending.set(sn, { rq, accountId: order.acc, action, timer, resolve })
@@ -218,7 +224,7 @@ export class PerplTradingClient {
       return
     }
     if (message.mt !== 24 || !message.d) return
-    for (const order of message.d) { const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq)); if (!entry) continue; const [sn, pending] = entry; const status = mapPerplOrderStatus(order.st ?? 0); if (status === 'SUBMITTED') continue; clearTimeout(pending.timer); this.pending.delete(sn); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`, status: status === 'FAILED' && pending.action.kind === 'DEFEND' ? 'UNKNOWN' : status, reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined }) }
+    for (const order of message.d) { const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq)); if (!entry) continue; const [sn, pending] = entry; const status = mapPerplOrderStatus(order.st ?? 0); if (status === 'SUBMITTED') continue; clearTimeout(pending.timer); this.pending.delete(sn); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`, status: status === 'FAILED' ? 'UNKNOWN' : status, reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined }) }
   }
   private failPending(status: PerplSubmitStatus) { for (const [sn, pending] of this.pending) { clearTimeout(pending.timer); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}`, status, reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS' }); this.pending.delete(sn) } }
 }

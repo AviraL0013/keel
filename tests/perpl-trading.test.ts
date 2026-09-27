@@ -206,6 +206,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       if (frame.mt === 22) {
         socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 0 } }))
         socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 2, t: 6, os: 0, fs: 0, at: { b: 1 } }] }))
+        setTimeout(() => socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 4, t: 6, os: 0, fs: 0, at: { b: 2 } }] })), 30)
       }
     }))
     const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
@@ -387,6 +388,36 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     try {
       await client.connect()
       expect(await client.submit({ id: 'manual-action', kind: 'DEFEND' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).toMatchObject({ status: 'UNKNOWN', reason: 'ORDER_REQUEST_ID_TOO_LOW' })
+    } finally { client.close() }
+  })
+
+  it.each(['REDUCE', 'EXIT'] as const)('keeps a forwarded %s sr:32 unresolved until close reconciliation', async kind => {
+    server = new WebSocketServer({ port: 0 })
+    server.on('connection', socket => socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as { mt: number; sn: number; rq: number }
+      if (frame.mt === 29) snapshots(socket)
+      if (frame.mt === 22) socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 7, sr: 32, t: 3, os: 2, fs: 0, at: { b: 1 } }] }))
+    }))
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
+    try {
+      await client.connect()
+      expect(await client.submit({ id: 'manual-action', kind } as never, { mkt: 16, acc: 642, t: 3, s: 2, lv: 1500 })).toMatchObject({ status: 'UNKNOWN', reason: 'ORDER_REQUEST_ID_TOO_LOW' })
+    } finally { client.close() }
+  })
+
+  it('blocks a changed close position at the last pre-send boundary without emitting mt:22', async () => {
+    server = new WebSocketServer({ port: 0 })
+    let sent = 0
+    server.on('connection', socket => socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as { mt: number }
+      if (frame.mt === 29) snapshots(socket)
+      if (frame.mt === 22) sent++
+    }))
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
+    try {
+      await client.connect()
+      await expect(client.submit({ id: 'close-action' } as never, { mkt: 16, acc: 642, t: 3, s: 2, lp: 123, lv: 0 }, async () => undefined, async () => { throw new Error('CLOSE_POSITION_CHANGED_BEFORE_SEND') })).rejects.toThrow('CLOSE_POSITION_CHANGED_BEFORE_SEND')
+      expect(sent).toBe(0)
     } finally { client.close() }
   })
 

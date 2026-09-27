@@ -25,6 +25,18 @@ class KeelException implements Exception {
           ? 'Action not submitted. $reason'
           : 'Action refused by the current backend risk policy. Review the live risk state.';
     }
+    if (message == 'BOOK_RECOVERY_REJECTED') {
+      final reason = policyRejection?.reason;
+      return reason != null && reason.isNotEmpty
+          ? 'Book not recovered. $reason'
+          : 'Book not recovered. Review current risk state.';
+    }
+    if (message == 'POSITION_EXECUTION_UNRESOLVED') {
+      return 'Book not recovered. An execution for this position still needs reconciliation.';
+    }
+    if (message == 'VENUE_UNAVAILABLE' || message == 'VENUE_STATE_UNAVAILABLE') {
+      return 'Book not recovered. Live Perpl state is unavailable.';
+    }
     if (statusCode != null && statusCode! >= 500) {
       return 'KEEL server unavailable. Check the backend and retry.';
     }

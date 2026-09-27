@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { mapPerplPositionStatus, normalizePerplPosition } from '../packages/perpl/src/index.js'
 import { buildTelemetryFreshness } from '../packages/domain/src/index.js'
-import { assertPerplBookSetupReady, perplBookCreationReadiness } from '../server/src/infrastructure/perpl/runtime.js'
+import { assertPerplBookSetupReady, perplBookCreationReadiness, verifiedCloseSnapshotValues } from '../server/src/infrastructure/perpl/runtime.js'
 
 describe('Perpl position normalization', () => {
+  it('reconciles close from current collateral, never signed history delta', () => {
+    const at = Date.now() - 1000
+    const event = { acc: 642, mkt: 32, pid: 4320379535360, rq: '1791001362442', oid: 4331097489424,
+      st: 1, sd: 1, c: '-2421846', ep: 268390, s: 10, lv: 1200,
+      at: { t: at }, efs: 0, xfs: 0, fee: '0' }
+    const snapshot = { ...event, c: '2421847', rq: '0', oid: 0 }
+    const context = { accountId: 642, marketId: 32, positionId: 4320379535360,
+      sizeDecimals: 3, priceDecimals: 2, collateralDecimals: 6 } as const
+    expect(verifiedCloseSnapshotValues({ position: snapshot, observedAt: at + 1 }, event, context as never))
+      .toEqual({ size: 0.01, entry: 2683.9, margin: '2.421847', status: 'OPEN' })
+    expect(() => verifiedCloseSnapshotValues({ position: { ...snapshot, s: 20 }, observedAt: at + 1 }, event, context as never))
+      .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
+    expect(() => verifiedCloseSnapshotValues({ position: snapshot, observedAt: at - 1 }, event, context as never))
+      .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
+  })
   it.each([
     [1, 'OPEN'], [2, 'CLOSED'], [3, 'LIQUIDATED'], [4, 'DELEVERAGED'], [5, 'UNWOUND'], [6, 'FAILED'], [0, 'FAILED'], [99, 'FAILED'],
   ] as const)('maps vendor status %s to %s', (vendor, expected) => expect(mapPerplPositionStatus(vendor)).toBe(expected))

@@ -17,7 +17,7 @@ describe('Perpl scaled numeric units', () => {
     expect(decodeAmount('1234567', 6)).toBe('1.234567')
     expect(encodeAmount('1.234567', 6)).toBe('1234567')
   })
-  it.each([[1, 'SUBMITTED'], [2, 'CONFIRMED'], [3, 'PARTIAL'], [4, 'CONFIRMED'], [5, 'CANCELED'], [6, 'EXPIRED'], [7, 'FAILED'], [8, 'CONFIRMED'], [9, 'CONFIRMED'], [10, 'CONFIRMED']] as const)('maps vendor order status %s', (wire, expected) => {
+  it.each([[1, 'SUBMITTED'], [2, 'SUBMITTED'], [3, 'PARTIAL'], [4, 'CONFIRMED'], [5, 'CANCELED'], [6, 'EXPIRED'], [7, 'FAILED'], [8, 'SUBMITTED'], [9, 'SUBMITTED'], [10, 'CONFIRMED']] as const)('maps vendor order status %s', (wire, expected) => {
     expect(mapPerplOrderStatus(wire)).toBe(expected)
   })
 })

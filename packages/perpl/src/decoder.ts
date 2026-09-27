@@ -2,8 +2,8 @@
 export type Stamp = { b?: number; t?: number; tx?: number; txid?: string; l?: number }
 import { requestId } from './request-id.js'
 export type WireAccount = { id: number; in: number; fr: boolean; fw: boolean; ft: number; lfr: string | number; b: string; lb: string }
-export type WirePosition = { acc: number; mkt: number; pid: number; st: number; sd: number; c: string; ep: number; s: number; lv: number; at: Stamp; efs: number; xfs: number; fee: string }
-export type WireOrder = { acc: number; mkt: number; oid: number; rq: string | number; st: number; sr: number; t: number; os: number; fs: number; at: Stamp; r?: boolean }
+export type WirePosition = { acc: number; mkt: number; pid: number; rq?: string | number; oid?: number; st: number; sd: number; c: string; ep: number; s: number; lv: number; at: Stamp; efs: number; xfs: number; fee: string }
+export type WireOrder = { acc: number; mkt: number; oid: number; rq: string | number; st: number; sr: number; t: number; os: number; fs: number; at: Stamp; lp?: number; r?: boolean }
 export type WireFill = { acc: number; mkt: number; oid: number; t: number; p?: number; s: number; at: Stamp; f: string }
 export type PerplMessage = Record<string, unknown> & { mt: number; sn?: number }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -61,6 +61,6 @@ export class PerplStateStore {
   }
   private account(raw:unknown) { requireFields(raw,['id','in','ft']); if (!object(raw)) throw new Error('PERPL_ACCOUNT_INVALID'); requestId(raw.lfr); if(typeof raw.b!=='string' || typeof raw.lb!=='string' || !/^\d+$/.test(raw.b) || !/^\d+$/.test(raw.lb) || typeof raw.fr!=='boolean' || typeof raw.fw!=='boolean') throw new Error('PERPL_ACCOUNT_INVALID'); this.accounts.set(raw.id as number,raw as unknown as WireAccount) }
   snapshot() { return {wallet:this.wallet ? {...this.wallet,as:[...this.accounts.values()]} : undefined,accounts:[...this.accounts.values()],positions:[...this.positions.values()],orders:[...this.orders.values()],fills:[...this.fills.values()]} }
-  positionSnapshot(accountId: number, marketId: number, positionId?: number) { const position = [...this.positions.values()].find(value => value.acc === accountId && value.mkt === marketId && (positionId === undefined || value.pid === positionId)); if (!position) return undefined; return { position, observedAt: this.positionObservedAt.get(position.pid) } }
+  positionSnapshot(accountId: number, marketId: number, positionId?: number, now = Date.now()) { const position = [...this.positions.values()].find(value => value.acc === accountId && value.mkt === marketId && (positionId === undefined || value.pid === positionId)); if (!position) return undefined; const receivedAt = this.positionObservedAt.get(position.pid); return { position, observedAt: this.ready(now) ? Math.max(receivedAt ?? 0, this.lastHeartbeatAt) : receivedAt } }
   requestIdBaseline(accountId?:number) { const account=accountId===undefined ? [...this.accounts.values()][0] : this.accounts.get(accountId); if(!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED'); return requestId(account.lfr).toString() }
 }

@@ -11,6 +11,17 @@ describe('execution worker safety', () => { it('does not duplicate an idempotent
  it('keeps timeout unknown and does not treat it as failure', async () => { const r=repo(); const venue={ submit: async () => ({ venueReference: 'unknown', status: 'UNKNOWN' as const }), reconcile: async (a: Action) => a }; const worker=new ExecutionWorker(r, venue); const decision=await worker.evaluate('b'); const action=await worker.execute(decision); expect(action.status).toBe('UNKNOWN'); expect(action.error).toBe('VENUE_OUTCOME_UNKNOWN') }) })
 
 describe('execution submission boundary', () => {
+  it('keeps a reconciled close CONFIRMED when the subsequent refresh is rate limited', async () => {
+    const r = repo()
+    const worker = new ExecutionWorker(r, {
+      submit: async () => ({ venueReference: '642:51:77', status: 'SUBMITTED' as const }),
+      reconcile: async action => ({ ...action, status: 'CONFIRMED' as const, confirmedAt: new Date().toISOString() }),
+    }, async () => { throw new Error('VENUE_HTTP_429') })
+    const action = await worker.execute(await worker.evaluate('b'))
+    expect(action.status).toBe('CONFIRMED')
+    expect(r.actions[0].status).toBe('CONFIRMED')
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'POST_CONFIRMATION_REFRESH_DEFERRED' }))
+  })
   it('records a failure before venue adapter invocation as FAILED', async () => {
     const r = repo()
     const original = r.saveAction
@@ -26,11 +37,12 @@ describe('execution submission boundary', () => {
   })
   it('records pre-venue refusal as FAILED and never calls reconciliation', async () => {
     const r = repo(); const reconcile = async (_action: Action) => { throw new Error('RECONCILIATION_MUST_NOT_RUN') }
-    const worker = new ExecutionWorker(r, { submit: async () => { throw new PerplPreSubmissionError('PERPL_ORDER_CONTEXT_INVALID') }, reconcile })
+    const worker = new ExecutionWorker(r, { submit: async action => { action.venueReference = '642:1791001362441'; throw new PerplPreSubmissionError('MARKET_TELEMETRY_STALE') }, reconcile })
     const decision = await worker.evaluate('b')
     const action = await worker.execute(decision)
-    expect(action).toMatchObject({ status: 'FAILED', error: 'PERPL_ORDER_CONTEXT_INVALID' })
+    expect(action).toMatchObject({ status: 'FAILED', error: 'MARKET_TELEMETRY_STALE' })
     expect(action.venueReference).toBeUndefined()
+    expect(r.actions[0].venueReference).toBeUndefined()
   })
   it('keeps ambiguous transport errors UNKNOWN after submission attempt', async () => {
     const r = repo()

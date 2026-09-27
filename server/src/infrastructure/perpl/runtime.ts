@@ -1,10 +1,11 @@
 import type { PostgresStore } from '../database/postgres-store.js'
 import type { RuntimeVenue } from '../../runtime.js'
-import { PerplAdapter, perplNetworks, decodeAmount, normalizePerplPosition } from '../../../../packages/perpl/src/index.js'
+import { PerplAdapter, perplNetworks, decodeAmount, decodePrice, decodeSize, normalizePerplPosition } from '../../../../packages/perpl/src/index.js'
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
+import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
 import { PerplRequestIdAllocator } from './request-id-allocator.js'
 import { buildTelemetryFreshness, defaultFreshnessThresholds, freshnessPoint, type Action, type Book, type BookCreationReadiness, type CapitalAmount, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
 import { ChainAdapter } from '../../../../packages/chain/src/index.js'
@@ -38,6 +39,18 @@ export function assertPerplBookSetupReady(position: Position, telemetry: Normali
   if (!readiness.allowed) throw Object.assign(new Error(readiness.code), { statusCode: 409, details: readiness })
 }
 
+export function verifiedCloseSnapshotValues(current: { position: WirePosition; observedAt?: number } | undefined, event: WirePosition, context: ReconciliationContext) {
+  // History `c` is a signed event delta; the authenticated snapshot holds current collateral.
+  const position = current?.position
+  if (!position || position.acc !== context.accountId || position.mkt !== context.marketId || position.pid !== context.positionId ||
+      position.s !== event.s || position.st !== event.st || position.sd !== event.sd ||
+      !current.observedAt || current.observedAt < (event.at.t ?? 0)) throw new Error('CLOSE_CURRENT_POSITION_UNVERIFIED')
+  const status = position.st === 1 ? 'OPEN' : position.st === 2 ? 'CLOSED' : 'UNKNOWN'
+  if (status === 'UNKNOWN') throw new Error('CLOSE_POSITION_STATUS_UNVERIFIABLE')
+  return { size: decodeSize(position.s, context.sizeDecimals), entry: decodePrice(position.ep, context.priceDecimals),
+    margin: decodeAmount(position.c, context.collateralDecimals), status }
+}
+
 export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefined {
   const env = process.env
   if (!env.PERPL_API_KEY || !env.PERPL_API_KEY_SECRET || !env.PERPL_ACCOUNT_ID) return undefined
@@ -58,15 +71,10 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     if (telemetry.freshness?.funding.effectiveAt !== undefined) freshness.funding.effectiveAt = telemetry.freshness.funding.effectiveAt
     return { ...telemetry, positionTimestamp: positionUpdatedAt, positionFreshnessMs: positionUpdatedAt === undefined ? undefined : now - positionUpdatedAt, freshness }
   }
-  /** Trading WS mt:26/27 is primary account position source. Signed REST history only replaces an aged WS observation. */
+  /** mt:26/27 is the current position state. Signed position-history is an event log, not a current-state fallback. */
   const currentPosition = async (accountId: number, marketId: number, positionId?: number): Promise<Position | null> => {
     const stream = trading.isReady() ? trading.positionSnapshot(accountId, marketId, positionId) : undefined
-    const streamFresh = stream?.observedAt !== undefined && Date.now() - stream.observedAt <= freshnessThresholds.positionMs
-    if (!stream || !streamFresh) {
-      const fallback = await adapter.getPosition(accountId, marketId, positionId)
-      if (fallback) return fallback
-      if (!stream) return null
-    }
+    if (!stream) return null
     const protocol = await adapter.getProtocolContext()
     const market = protocol.markets.find(item => item.id === marketId)
     if (!market) throw new Error('PERPL_MARKET_NOT_FOUND')
@@ -75,23 +83,40 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     return normalizePerplPosition(stream.position, market, token?.decimals ?? 6, stream.observedAt ?? Date.now())
   }
   const contextFor = async (action: Action): Promise<ReconciliationContext> => {
-    const row = (await store.pool.query('SELECT b.market_id,b.venue_account_id,b.venue_position_id,p.* FROM books b JOIN positions p ON p.book_id=b.id WHERE b.id=$1', [action.bookId])).rows[0]
-    if (!row || !row.market_id || !row.venue_account_id || !row.venue_position_id) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
+    const row = (await store.pool.query('SELECT b.market_id,b.venue_account_id,b.venue_position_id,b.side AS book_side,p.* FROM books b JOIN positions p ON p.book_id=b.id WHERE b.id=$1', [action.bookId])).rows[0]
+    if (!row || !row.market_id || !row.venue_account_id || !row.venue_position_id || !['LONG', 'SHORT'].includes(row.book_side)) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
     const market = await adapter.getMarket(Number(row.market_id)) as { instance_id?: number; order_ttl_blocks?: number; config?: { size_decimals?: number; price_decimals?: number } } | null
     const protocol = await adapter.getProtocolContext()
     const chain = protocol.chain as { gas?: { h?: number } } | undefined
     const token = protocol.tokens.find(item => item.id === protocol.instances.find(instance => instance.id === market?.instance_id)?.collateral_token_id)
-    return { marketId: Number(row.market_id), accountId: Number(row.venue_account_id), positionId: Number(row.venue_position_id), position: { bookId: action.bookId, side: row.side as 'LONG' | 'SHORT', size: Number(row.size), entryPrice: Number(row.entry_price), markPrice: Number(row.mark_price), liquidationPrice: Number(row.liquidation_price), leverage: Number(row.leverage), unrealizedPnl: Number(row.unrealized_pnl), margin: Number(row.margin), status: row.status as Position['status'] }, headBlock: Number(chain?.gas?.h ?? 0), orderTtlBlocks: market?.order_ttl_blocks ?? 20, sizeDecimals: market?.config?.size_decimals ?? 0, priceDecimals: market?.config?.price_decimals ?? 0, leverageHundredths: Math.round(Number(row.leverage) * 100), collateralDecimals: token?.decimals ?? 6 }
+    return { marketId: Number(row.market_id), accountId: Number(row.venue_account_id), positionId: Number(row.venue_position_id), position: { bookId: action.bookId, side: row.book_side as 'LONG' | 'SHORT', size: Number(row.size), entryPrice: Number(row.entry_price), markPrice: Number(row.mark_price), liquidationPrice: Number(row.liquidation_price), leverage: Number(row.leverage), unrealizedPnl: Number(row.unrealized_pnl), margin: Number(row.margin), status: row.status as Position['status'] }, headBlock: Number(chain?.gas?.h ?? 0), orderTtlBlocks: market?.order_ttl_blocks ?? 20, sizeDecimals: market?.config?.size_decimals ?? 0, priceDecimals: market?.config?.price_decimals ?? 0, leverageHundredths: Math.round(Number(row.leverage) * 100), collateralDecimals: token?.decimals ?? 6 }
   }
   const live = new PerplLiveAdapter(trading, contextFor, history,
     async action => { await store.pool.query('UPDATE actions SET venue_reference=$2 WHERE id=$1', [action.id, action.venueReference]) },
-    async () => undefined,
+    async (action, _evidence, verifiedPosition, context) => {
+      if (!verifiedPosition || !context || (action.kind !== 'REDUCE' && action.kind !== 'EXIT')) return
+      const current = trading.positionSnapshot(context.accountId, context.marketId, context.positionId)
+      const { size, entry, margin, status } = verifiedCloseSnapshotValues(current, verifiedPosition, context)
+      await store.pool.query(`UPDATE positions SET size=$2,entry_price=$3,leverage=$4,margin=$5,status=$6,unrealized_pnl=(mark_price-$3)*$2*CASE WHEN $7='LONG' THEN 1 ELSE -1 END,observed_at=now() WHERE book_id=$1`, [action.bookId, size, entry, verifiedPosition.lv / 100, margin, status, context.position.side])
+    },
     async action => {
       if (!action.venueReference) return false
       const result = await store.pool.query(`SELECT 1 FROM actions WHERE id<>$1
         AND split_part(venue_reference, ':', 1)=split_part($2, ':', 1)
         AND split_part(venue_reference, ':', 2)=split_part($2, ':', 2) LIMIT 1`, [action.id, action.venueReference])
       return result.rows.length > 0
+    },
+    async (action, order) => {
+      if (action.kind !== 'REDUCE' && action.kind !== 'EXIT') return
+      const before = action.beforeState?.position
+      if (!before || !order.lp) throw new Error('CLOSE_BASELINE_UNAVAILABLE')
+      const position = await currentPosition(order.acc, order.mkt, order.lp)
+      const market = await adapter.getNormalizedMarket(order.mkt)
+      if (!position || !market) throw new Error('CLOSE_LIVE_TELEMETRY_UNAVAILABLE')
+      const readiness = perplBookCreationReadiness(position, telemetryForPosition(market, position), Date.now(), freshnessThresholds.marketMs)
+      if (!readiness.allowed) throw new Error(readiness.code)
+      if (position.side !== before.side || !new Decimal(position.size).eq(before.size)) throw new Error('CLOSE_POSITION_CHANGED_BEFORE_SEND')
+      if (order.t !== (position.side === 'LONG' ? 3 : 4)) throw new Error('CLOSE_DIRECTION_MISMATCH_BEFORE_SEND')
     })
   return {
     accountId: Number(env.PERPL_ACCOUNT_ID),
@@ -121,7 +146,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       for (const market of context.markets) {
         const rows = trading.isReady()
           ? trading.stateSnapshot().positions.filter(item => item.acc === accountId && item.mkt === market.id)
-          : await adapter.getPositions(accountId, market.id)
+          : []
         for (const row of rows.filter(item => item.st === 1)) {
           const position = await currentPosition(accountId, market.id, row.pid)
           if (!position) continue

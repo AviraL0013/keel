@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { privateKeyToAccount } from 'viem/accounts'
 import { buildTelemetryFreshness, type Book, type NormalizedTelemetry, type Position } from '../packages/domain/src/index.js'
 import { PerplAdapter } from '../packages/perpl/src/index.js'
+import { PerplTradingClient } from '../packages/perpl/src/trading.js'
 import { evaluate } from '../packages/risk-engine/src/index.js'
 import { createServer } from '../server/src/index.js'
 import { MemoryStore } from '../server/src/memoryStore.js'
@@ -83,7 +84,11 @@ describe('Book telemetry refresh', () => {
       const market = snapshot(at, 105)
       market.fundingTimestamp = at - 20_000
       vi.spyOn(PerplAdapter.prototype, 'getNormalizedMarket').mockResolvedValue(market)
-      vi.spyOn(PerplAdapter.prototype, 'getPosition').mockResolvedValue(position(at))
+      vi.spyOn(PerplAdapter.prototype, 'getProtocolContext').mockResolvedValue({ chain: {}, instances: [{ id: 1, collateral_token_id: 1 }], tokens: [{ id: 1, decimals: 6 }], markets: [{ id: 16, symbol: 'BTC-PERP', instance_id: 1, config: { size_decimals: 3, price_decimals: 1, maintenance_margin: 1000 }, state: { mrk: 1000 }, funding: {} }] })
+      vi.spyOn(PerplTradingClient.prototype, 'isReady').mockReturnValue(true)
+      let observedAt = at
+      vi.spyOn(PerplTradingClient.prototype, 'positionSnapshot').mockImplementation(() => ({ position: { acc: 642, mkt: 16, pid: 77, st: 1, sd: 1, c: '20000000', ep: 1000, s: 1000, lv: 500, at: { t: at }, efs: 0, xfs: 0, fee: '0' }, observedAt }))
+      const historyFallback = vi.spyOn(PerplAdapter.prototype, 'getPosition').mockRejectedValue(new Error('HISTORY_IS_NOT_CURRENT_STATE'))
       venue = createPerplRuntime(store)
       await venue!.refresh(book)
       const row = await store.getTelemetryRow(user, book.id)
@@ -98,11 +103,12 @@ describe('Book telemetry refresh', () => {
       expect(risk.telemetry.bid).toBe(dto.bid)
       expect(risk.telemetry.fundingTimestamp).toBe(at - 20_000)
       expect(risk.position.unrealizedPnl).toBe(5)
+      expect(historyFallback).not.toHaveBeenCalled()
       expect(evaluate(risk.book, risk.position, risk.reserve, risk.telemetry).state).toBe('SAFE_MODE')
 
       market.fundingTimestamp = Date.now()
       // Repeated market timestamp: the latest position observation breaks ties.
-      vi.mocked(PerplAdapter.prototype.getPosition).mockResolvedValue(position(Date.now()))
+      observedAt = Date.now()
       await venue!.refresh(book)
       const recovered = await repository.getBookContext(book.id)
       expect(recovered.telemetry.freshness?.funding.status).toBe('FRESH')

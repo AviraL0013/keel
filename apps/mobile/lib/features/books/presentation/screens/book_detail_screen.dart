@@ -83,7 +83,7 @@ class BookDetailScreen extends ConsumerWidget {
                       child: Text(friendlyError(action.error!),
                           style: const TextStyle(color: KeelColors.exit))),
                 ActionButtonRow(
-                    disabled: action.isLoading || dashboard.telemetry.stale || dashboard.telemetry.freshnessUnknown,
+                    disabled: action.isLoading || dashboard.book.status != 'ACTIVE' || dashboard.telemetry.stale || dashboard.telemetry.freshnessUnknown,
                     onDefend: () =>
                         _confirmAction(context, ref, 'DEFEND', dashboard.telemetry),
                     onReduce: () =>
@@ -134,9 +134,13 @@ class BookDetailScreen extends ConsumerWidget {
         builder: (_) => AlertDialog(
                 title: Text(control == 'kill'
                     ? 'Enable kill switch?'
+                    : control == 'recover'
+                        ? 'Recover Book for manual actions?'
                     : 'Pause automation?'),
                 content: Text(control == 'kill'
                     ? 'Automation will be blocked by the backend until recovery is explicit.'
+                    : control == 'recover'
+                        ? 'KEEL will verify the live position, telemetry, and unresolved executions. Automation stays off. No order is submitted.'
                     : 'This Book will stop automated actions.'),
                 actions: [
                   TextButton(
@@ -145,7 +149,7 @@ class BookDetailScreen extends ConsumerWidget {
                   FilledButton(
                       onPressed: () => Navigator.pop(context, true),
                       child: Text(
-                          control == 'kill' ? 'ENABLE KILL SWITCH' : 'CONFIRM'))
+                          control == 'kill' ? 'ENABLE KILL SWITCH' : control == 'recover' ? 'RECOVER' : 'CONFIRM'))
                 ]));
     if (confirmed == true) {
       await ref.read(bookActionProvider.notifier).run(book.id, control);
@@ -198,7 +202,7 @@ class _ExecutionCard extends StatelessWidget {
                     const Text('EXECUTION', style: KeelTypography.label),
                     const SizedBox(height: 4),
                     Text(status, style: KeelTypography.section),
-                    if (none || unknown)
+                    if (none || unknown || status == 'FAILED')
                       Text(
                           state.executionReason ?? (unknown ? 'Authoritative venue outcome is not established yet.' : 'No KEEL action is active for this Book.'),
                           style: KeelTypography.body.copyWith(
@@ -243,6 +247,8 @@ class _ControlCard extends StatelessWidget {
                     ? 'KEEL may act within this Book policy.'
                     : book.status == 'PAUSED'
                         ? 'Book is paused. Automation is off; manual controls remain explicit.'
+                        : book.status == 'SAFE_MODE'
+                            ? 'Book is in safe mode. Recover manual access after backend checks; automation stays off.'
                         : 'Automation is off; manual controls remain explicit.',
                 style: KeelTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color)),
@@ -251,6 +257,11 @@ class _ControlCard extends StatelessWidget {
                 spacing: KeelSpacing.sm,
                 runSpacing: KeelSpacing.sm,
                 children: [
+                  if (book.status == 'SAFE_MODE')
+                    OutlinedButton.icon(
+                        onPressed: disabled ? null : () => onControl('recover'),
+                        icon: const Icon(Icons.health_and_safety_outlined),
+                        label: const Text('RECOVER MANUAL ONLY')),
                   OutlinedButton.icon(
                       onPressed: disabled ? null : () => onControl('pause'),
                       icon: const Icon(Icons.pause),

@@ -35,7 +35,13 @@ export function toBookRiskDto(row: Record<string, unknown> | null): BookRiskDto 
 export function toExecutionSummaryDto(row: Record<string, unknown> | null): ExecutionSummaryDto {
   if (!row) return { status: 'NO_ACTIVE_EXECUTION', actionId: null, kind: null, amount: null, venueReference: null, error: null, reason: 'No KEEL execution has been submitted for this Book.' }
   const status = String(row.status)
-  return { status, actionId: text(row.id), kind: text(row.kind), amount: number(row.amount), venueReference: text(row.venue_reference), error: text(row.error), reason: text(row.error) ?? `Execution is ${status.toLowerCase()}.` }
+  const error = text(row.error)
+  const reason = status === 'FAILED' && !row.submitted_at && error === 'MARKET_TELEMETRY_STALE'
+    ? 'Market telemetry became stale before submission. No Perpl order was sent.'
+    : status === 'FAILED' && !row.submitted_at && error === 'POSITION_TELEMETRY_STALE'
+      ? 'Position telemetry became stale before submission. No Perpl order was sent.'
+      : error ?? `Execution is ${status.toLowerCase()}.`
+  return { status, actionId: text(row.id), kind: text(row.kind), amount: number(row.amount), venueReference: text(row.venue_reference), error, reason }
 }
 export function toAutopsyDto(row: Record<string, unknown>): AutopsyEventDto { const payload = row.payload && typeof row.payload === 'object' ? row.payload as Record<string, unknown> : {}; const reasons = Array.isArray(payload.humanReadableReasons) ? payload.humanReadableReasons.join(' ') : null; return { id: String(row.id), bookId: String(row.book_id), type: String(row.type), timestamp: String(row.timestamp), decision: text(payload.state), reason: reasons, action: text(payload.action), venueResult: text(payload.venueReference ?? payload.error), postState: text(payload.postState), reserveEffect: number(payload.amount) } }
 export function toActionDto(row: Record<string, unknown>): ExecutionDto { return { id: String(row.id), bookId: String(row.book_id), decisionId: text(row.decision_id), kind: String(row.kind), amount: number(row.amount), status: String(row.status), idempotencyKey: text(row.idempotency_key), venueReference: text(row.venue_reference), submittedAt: text(row.submitted_at), confirmedAt: text(row.confirmed_at), failedAt: text(row.failed_at), error: text(row.error) } }

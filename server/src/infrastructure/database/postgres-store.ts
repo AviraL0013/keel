@@ -68,6 +68,26 @@ export class PostgresStore implements Store {
     } catch(error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }
 
+  async recoverBookManualOnly(userId: string, bookId: string): Promise<Book | null> {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const locked = await client.query('SELECT * FROM books WHERE id=$1 AND user_id=$2 FOR UPDATE', [bookId, userId])
+      if (!locked.rows.length) { await client.query('COMMIT'); return null }
+      const book = mapBook(locked.rows[0])
+      if (book.status !== 'SAFE_MODE' || book.automationEnabled || book.stance === 'KILL') throw new Error('BOOK_RECOVERY_STATE_CHANGED')
+      const unresolved = await client.query(`SELECT 1 FROM actions a JOIN books origin ON origin.id=a.book_id
+        WHERE (a.book_id=$1 OR (origin.venue_account_id=$2 AND origin.venue_position_id=$3))
+        AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL') LIMIT 1`,
+        [bookId, book.venueAccountId, book.venuePositionId])
+      if (unresolved.rows.length) throw new Error('POSITION_EXECUTION_UNRESOLVED')
+      const result = await client.query("UPDATE books SET status='ACTIVE',automation_enabled=false,updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *", [bookId, userId])
+      await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'BOOK_RECOVERED_MANUAL_ONLY',$2)", [bookId, JSON.stringify({ automationEnabled: false })])
+      await client.query('COMMIT')
+      return mapBook(result.rows[0])
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+  }
+
   async listAutopsy(userId: string, bookId: string) { const result = await this.pool.query('SELECT e.* FROM autopsy_events e JOIN books b ON b.id=e.book_id WHERE b.user_id=$1 AND e.book_id=$2 ORDER BY e.timestamp DESC LIMIT 500', [userId, bookId]); return result.rows }
   async listDecisions(userId: string, bookId: string) { const result = await this.pool.query('SELECT d.* FROM decisions d JOIN books b ON b.id=d.book_id WHERE b.user_id=$1 AND d.book_id=$2 ORDER BY d.created_at DESC LIMIT 100', [userId, bookId]); return result.rows }
   async listActions(userId: string, bookId: string) { const result = await this.pool.query('SELECT a.* FROM actions a JOIN books b ON b.id=a.book_id JOIN decisions d ON d.id=a.decision_id WHERE b.user_id=$1 AND a.book_id=$2 ORDER BY d.created_at DESC, a.id DESC LIMIT 100', [userId, bookId]); return result.rows }

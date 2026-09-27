@@ -7,7 +7,7 @@ import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
 import { ExecutionWorker } from './workers/execution-worker.js'
 import { MonitorScheduler } from './lifecycle.js'
-import { PolicyRejectedError } from './application/errors.js'
+import { ConflictError, NotFoundError, PolicyRejectedError } from './application/errors.js'
 import { logger } from './config/index.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
@@ -49,7 +49,7 @@ export class KeelRuntime {
   private async tick() {
     if (!this.lease) return
     await this.lease.query('SELECT 1')
-    const rows = await this.store.pool.query("SELECT b.id,b.user_id FROM books b WHERE (b.automation_enabled AND b.status!='CLOSED') OR EXISTS (SELECT 1 FROM actions a WHERE a.book_id=b.id AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN')) ORDER BY b.created_at")
+    const rows = await this.store.pool.query("SELECT b.id,b.user_id FROM books b WHERE (b.automation_enabled AND b.status!='CLOSED') OR EXISTS (SELECT 1 FROM actions a WHERE a.book_id=b.id AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL')) ORDER BY b.created_at")
     for (const row of rows.rows) {
       const book = await this.store.getBook(row.user_id, row.id)
       if (!book) continue
@@ -61,12 +61,20 @@ export class KeelRuntime {
           if (Date.now() < (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) continue
           if (!this.venue) throw new Error('VENUE_NOT_CONFIGURED')
           const result = await this.venue.reconcile(active)
+          if (result.status === 'PARTIAL') {
+            await this.repository.saveAction(result)
+            this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })
+            continue
+          }
           if (result.status === 'UNKNOWN') {
             if (result.error === 'VENUE_REFERENCE_COLLISION' && active.error !== result.error) await this.repository.saveAction(result)
             this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })
             continue
           }
-          if (result.status === 'CONFIRMED') await this.venue.refresh(book)
+          if (result.status === 'CONFIRMED' && active.kind === 'DEFEND') {
+            try { await this.venue.refresh(book) }
+            catch (error) { logger.warn({ bookId: book.id, error: error instanceof Error ? error.message : 'REFRESH_FAILED' }, 'Post-confirmation venue refresh deferred') }
+          }
           await this.repository.finalize(result)
           this.reconciliationSchedule.delete(book.id)
           continue
@@ -92,7 +100,7 @@ export class KeelRuntime {
       }
     }
   }
-  private async recordDecision(decision: Decision) {
+  private async recordDecision(decision: Decision, explicitManualRequest = false) {
     const fingerprint = JSON.stringify([decision.state, decision.action, decision.amount, decision.reasonCodes])
     const client = await this.store.pool.connect()
     try {
@@ -101,7 +109,7 @@ export class KeelRuntime {
       if (!bookRow.rows.length) throw new Error('BOOK_NOT_FOUND')
       if (bookRow.rows[0].status === 'CLOSED') throw new Error('BOOK_CLOSED')
       const prior = await client.query('SELECT state,fingerprint FROM decisions WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1', [decision.bookId])
-      if (prior.rows[0]?.fingerprint === fingerprint) { await client.query('COMMIT'); return false }
+      if (!explicitManualRequest && prior.rows[0]?.fingerprint === fingerprint) { await client.query('COMMIT'); return false }
       await client.query(`INSERT INTO decisions(id,book_id,state,action,amount,reason_codes,human_readable_reasons,risk_features,fingerprint,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [decision.id, decision.bookId, decision.state, decision.action, decision.amount, JSON.stringify(decision.reasonCodes), JSON.stringify(decision.humanReadableReasons), JSON.stringify(decision.riskFeatures), fingerprint, decision.createdAt])
       const types = ['DECISION_CREATED', ...(decision.reasonCodes.includes('DEFENSE_REFUSED') ? ['DEFENSE_REFUSED'] : []), ...(decision.state === 'SAFE_MODE' ? ['SAFE_MODE_ENTERED'] : prior.rows[0]?.state === 'SAFE_MODE' ? ['SAFE_MODE_EXITED'] : [])]
       for (const type of types) await client.query('INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)', [decision.bookId,type,JSON.stringify(decision)])
@@ -115,6 +123,33 @@ export class KeelRuntime {
   }
   private manualAuthorityRejected(bookId: string, code: string | string[], reason: string): Decision {
     return { id: randomUUID(), bookId, state: 'SAFE_MODE', action: 'SAFE_MODE', amount: 0, reasonCodes: Array.isArray(code) ? code : [code], humanReadableReasons: [reason], createdAt: new Date().toISOString(), riskFeatures: { liquidationDistance: 0, fundingPressure: 0, spreadBps: 0, depthCoverage: 0, volatility: 0, reserveHeadroom: 0, capUtilization: 0, timeRemainingMs: 0, defenseEfficiency: 0, fresh: false } }
+  }
+  async recoverBook(userId: string, bookId: string): Promise<Book> {
+    const book = await this.store.getBook(userId, bookId)
+    if (!book) throw new NotFoundError('BOOK_NOT_FOUND')
+    if (book.status !== 'SAFE_MODE' || book.automationEnabled || book.stance === 'KILL') throw new ConflictError('BOOK_RECOVERY_NOT_ALLOWED')
+    if (!book.marketId || !book.venueAccountId || !book.venuePositionId) throw new ConflictError('BOOK_VENUE_BINDING_REQUIRED')
+    if (!this.venue?.ready()) throw new ConflictError('VENUE_UNAVAILABLE')
+    if (await this.repository.getActiveAction(bookId) || await this.repository.getConflictingPositionAction(bookId)) throw new ConflictError('POSITION_EXECUTION_UNRESOLVED')
+    try { await this.venue.refresh(book) } catch { throw new ConflictError('VENUE_STATE_UNAVAILABLE') }
+    let context
+    try { context = await this.repository.getBookContext(bookId) } catch { throw new ConflictError('BOOK_TELEMETRY_UNAVAILABLE') }
+    if (context.book.status !== 'SAFE_MODE' || context.book.automationEnabled || context.book.stance === 'KILL') throw new ConflictError('BOOK_RECOVERY_STATE_CHANGED')
+    if (context.position.status !== 'OPEN' || context.position.side !== book.side || context.position.size <= 0) throw new ConflictError('POSITION_NOT_OPEN')
+    const decision = evaluateManualAction({ ...context.book, status: 'ACTIVE', automationEnabled: false }, context.position, context.reserve, context.telemetry, 'REDUCE', context.priorDefenseEfficiency, Date.now())
+    if (decision.action !== 'REDUCE' || decision.riskFeatures.timeRemainingMs <= 0) {
+      const error = new ConflictError('BOOK_RECOVERY_REJECTED') as ConflictError & { details: unknown }
+      error.details = { reasonCodes: decision.reasonCodes, reasons: decision.humanReadableReasons }
+      throw error
+    }
+    try {
+      const recovered = await this.store.recoverBookManualOnly(userId, bookId)
+      if (!recovered) throw new NotFoundError('BOOK_NOT_FOUND')
+      return recovered
+    } catch (error) {
+      if (error instanceof Error && ['BOOK_RECOVERY_STATE_CHANGED', 'POSITION_EXECUTION_UNRESOLVED'].includes(error.message)) throw new ConflictError(error.message)
+      throw error
+    }
   }
   async closeBook(userId: string, bookId: string): Promise<{ actionId: string; status: string }> {
     const book = await this.store.getBook(userId,bookId)
@@ -145,7 +180,7 @@ export class KeelRuntime {
     logger.info({ bookId, action: kind, telemetry: { market: context.telemetry.freshness?.market, position: context.telemetry.freshness?.position, funding: context.telemetry.freshness?.funding, orderbook: context.telemetry.freshness?.orderbook }, failures: telemetryFailures.codes }, 'Manual action telemetry gate')
     const decision = { ...evaluateManualAction(context.book, context.position, context.reserve, context.telemetry, kind, context.priorDefenseEfficiency, now), id: randomUUID() }
     if (decision.action !== kind) throw new PolicyRejectedError(kind, decision)
-    await this.recordDecision(decision)
+    await this.recordDecision(decision, true)
     let result
     try {
       result = await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current)).execute(decision, false, true)
