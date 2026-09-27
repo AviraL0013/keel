@@ -8,10 +8,11 @@
 
 ## Verified locally
 
-- 2026-09-28: `npm test`: 248 tests passing across 42 files.
+- 2026-09-28: `npm test`: 262 tests passing across 43 files.
 - `npm run lint`: passing.
 - `npm run typecheck`: passing.
 - Flutter 3.47.5 / Dart 3.13.4: `flutter analyze` clean; `flutter test` 50 tests passing.
+- Development/testnet Perpl key enrollment is backend-only. Its keys are sealed in PostgreSQL and are not bound to Books or used by the trading runtime. Mainnet enrollment remains disabled.
 
 ## External requirements
 

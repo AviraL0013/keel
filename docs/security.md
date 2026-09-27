@@ -3,7 +3,7 @@
 - Wallet ownership verified server-side with one-time, message-bound challenge and signature.
 - Session challenge, verification, and reuse require an allowlisted wallet outside test mode; removing a wallet also invalidates its existing sessions.
 - Session cookies are HTTP-only and server-controlled; sessions persist in PostgreSQL and support revoke/expiry.
-- Perpl secrets stay server-side. Connection API stores only an approved secret-reference identifier, never raw key material.
+- Perpl secrets stay server-side. Development/testnet enrollment seals per-user Ed25519 keys and API tokens with AES-256-GCM; no credential or MAC reaches the client. This foundation does not supply keys to the trading runtime and is disabled on mainnet.
 - Per-Book action uniqueness is enforced by PostgreSQL partial unique index plus runtime advisory lock.
 - Stale or malformed telemetry produces SAFE_MODE and blocks new orders. Transient data/venue outages preserve the armed setting and resume only after consecutive fresh ticks; unresolved actions and runtime failures turn automation off.
 - UNKNOWN actions reconcile signed venue history before any retry.

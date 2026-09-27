@@ -12,6 +12,16 @@ These values activate external services; none belong in mobile bundles. Current 
 - `PERPL_WS_URL=wss://testnet.perpl.xyz` — public endpoint.
 - `PERPL_CHAIN_ID=10143` — public network value.
 
+Optional development/testnet per-user enrollment (backend foundation only; Books still use the server-wide key):
+
+- `KEEL_KEY_ENCRYPTION_KEY` — 32-byte hex AES-256-GCM key. Setting this enables the enrollment endpoints outside mainnet; keep it server-side.
+- `PERPL_ENROLLMENT_ORIGIN` — exact HTTPS origin allowlisted by Perpl for payload/enroll requests.
+- `KEEL_KEY_TTL_DAYS` — enrolled key lifetime, default 90.
+- `KEEL_EGRESS_CIDRS` — optional comma-separated CIDRs, at most four.
+- `KEEL_BUILDER_ID` and `KEEL_MAX_BUILDER_FEE_PER_100K` — optional paired builder terms; both must be set together.
+
+KEEL never revokes a key at Perpl. Disconnect shreds local credentials and directs the user to the Perpl key page for venue-side revocation. Mainnet enrollment is disabled until production custody exists.
+
 ## MONAD TESTNET — REQUIRED FOR LIVE EVIDENCE
 
 - `MONAD_RPC_URL` — reachable RPC endpoint.

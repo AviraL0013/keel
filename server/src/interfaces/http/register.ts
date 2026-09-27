@@ -4,7 +4,7 @@ import type { Config } from '../../config/index.js'
 import { logger } from '../../config/index.js'
 import type { Book } from '../../../../packages/domain/src/index.js'
 import { buildTelemetryFreshness } from '../../../../packages/domain/src/index.js'
-import { AuthenticationError, ValidationError } from '../../application/errors.js'
+import { AuthenticationError, InfrastructureError, ValidationError } from '../../application/errors.js'
 import { evaluateBookSnapshot } from '../../application/book-risk.js'
 import { PostgresExecutionRepository } from '../../infrastructure/database/execution-repository.js'
 import { BooksApplication, type CreateBookCommand } from '../../application/books.js'
@@ -15,6 +15,7 @@ import type { AuthService } from '../../auth.js'
 import type { NotificationStore } from '../../infrastructure/database/notification-store.js'
 import type { KeelRuntime, RuntimeVenue } from '../../runtime.js'
 import type { DeterministicTestRuntime } from '../../infrastructure/replay/test-runtime.js'
+import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollment-service.js'
 import { toBookDto } from './dto.js'
 import { toActionDto, toAutopsyDto, toBookRiskDto, toDecisionDto, toExecutionSummaryDto, toNotificationDto, toPositionDto, toReserveDto, toRiskDto, toTelemetryDto } from './mappers.js'
 
@@ -29,6 +30,7 @@ export type HttpContext = {
   closeBook?: (userId: string, bookId: string) => Promise<{ actionId: string; status: string }>
   executeAction?: (userId: string, bookId: string, kind: 'DEFEND' | 'REDUCE') => Promise<{ actionId: string; status: string }>
   testRuntime?: DeterministicTestRuntime
+  enrollment?: PerplEnrollmentService
 }
 
 type Session = { userId: string; walletAddress: string; expiresAt: number }
@@ -137,7 +139,10 @@ export function registerRoutes(context: HttpContext) {
   app.get<{ Params: { id: string } }>('/books/:id/reserve', async request => { const row = await persistence.getReserve((await requireSession(request)).userId, request.params.id); return row ? toReserveDto(row as Record<string, unknown>) : null })
 
   app.post('/connections/revoke', async request => { await persistence.revokeConnection((await requireSession(request)).userId); return { ok: true } })
-  app.get('/connections', async request => { const current = await requireSession(request); if (!(persistence instanceof PostgresStore)) return context.venue ? [{ id: 'test-venue', environment: 'testnet', scope: 'read,trade', status: 'VALID', walletAddress: current.walletAddress }] : []; const result = await persistence.pool.query('SELECT id,environment,scope,status,created_at,revoked_at FROM perpl_connections WHERE user_id=$1 ORDER BY created_at DESC', [current.userId]); return result.rows })
+  app.get('/connections', async request => { const current = await requireSession(request); if (!(persistence instanceof PostgresStore)) return context.venue ? [{ id: 'test-venue', environment: 'testnet', scope: 'read,trade', status: 'VALID', walletAddress: current.walletAddress }] : []; await context.enrollment?.cleanupExpired(); const result = await persistence.pool.query("SELECT id,environment,scope,CASE WHEN status='ACTIVE' AND expires_at<=now() THEN 'EXPIRED' ELSE status END AS status,created_at,revoked_at,wallet_address AS \"walletAddress\",label,expires_at AS \"expiresAt\" FROM perpl_connections WHERE user_id=$1 ORDER BY created_at DESC", [current.userId]); return result.rows })
+  app.post('/connections/perpl/enrollment', async request => { const current = await requireSession(request); if (!context.enrollment) throw new InfrastructureError('PERPL_ENROLLMENT_NOT_CONFIGURED'); return context.enrollment.start(current.userId, current.walletAddress) })
+  app.post<{ Params: { id: string }; Body: { signature?: string } }>('/connections/perpl/enrollment/:id/complete', async request => { const current = await requireSession(request); if (!context.enrollment) throw new InfrastructureError('PERPL_ENROLLMENT_NOT_CONFIGURED'); if (!/^0x(?:[0-9a-fA-F]{128}|[0-9a-fA-F]{130})$/.test(request.body?.signature ?? '')) throw new ValidationError('INVALID_WALLET_SIGNATURE'); return context.enrollment.complete(current.userId, current.walletAddress, request.params.id, request.body.signature!) })
+  app.post<{ Params: { id: string } }>('/connections/perpl/:id/disconnect', async request => { const current = await requireSession(request); if (!context.enrollment) throw new InfrastructureError('PERPL_ENROLLMENT_NOT_CONFIGURED'); return context.enrollment.disconnect(current.userId, request.params.id) })
   app.post('/connections/perpl/validate', async request => {
     const current = await requireSession(request)
     if (!(persistence instanceof PostgresStore)) {

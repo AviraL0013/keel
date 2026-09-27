@@ -44,6 +44,9 @@ Connections, capital, and notifications (authenticated):
 
 - `GET /connections`
 - `POST /connections/revoke`
+- `POST /connections/perpl/enrollment` (development/testnet key enrollment; returns typed data, never a credential)
+- `POST /connections/perpl/enrollment/:id/complete` (wallet signature)
+- `POST /connections/perpl/:id/disconnect` (shreds local credentials; Perpl web UI handles venue revocation)
 - `POST /connections/perpl/validate`
 - `GET /connections/perpl/positions`
 - `GET /capital`
@@ -56,6 +59,6 @@ Test venue (authenticated; only when the deterministic test runtime is enabled):
 
 - `POST /dev/test-venue/scenario`
 
-`POST /books/:id/close` enters the server execution worker. It never reports a position closed before venue reconciliation. Perpl key enrollment is not exposed by this API; `POST /connections/perpl` is not registered.
+`POST /books/:id/close` enters the server execution worker. It never reports a position closed before venue reconciliation. `POST /connections/perpl` is not registered. Enrollment is a backend foundation only; Books and the trading runtime still use the existing server-wide Perpl key.
 
 Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.

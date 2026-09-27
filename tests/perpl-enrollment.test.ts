@@ -1,0 +1,237 @@
+import { describe, expect, it, vi } from 'vitest'
+import Fastify from 'fastify'
+import cookie from '@fastify/cookie'
+import { verifyAsync } from '@noble/ed25519'
+import { hashTypedData } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { databaseFixture } from './helpers/database.js'
+import { loadConfig } from '../packages/shared/src/index.js'
+import { DevelopmentKeyCustody } from '../server/src/infrastructure/perpl/key-custody.js'
+import { loadEnrollmentConfig, PerplEnrollmentService } from '../server/src/infrastructure/perpl/enrollment-service.js'
+import { PerplEnrollmentClient } from '../server/src/infrastructure/perpl/enrollment-client.js'
+import { AuthService } from '../server/src/auth.js'
+import { registerRoutes } from '../server/src/interfaces/http/register.js'
+
+const wallet = privateKeyToAccount(`0x${'11'.repeat(32)}`)
+const other = privateKeyToAccount(`0x${'22'.repeat(32)}`)
+const origin = 'https://keel.example'
+
+async function fixture(enrollStatus = 200) {
+  const { db, store } = await databaseFixture()
+  const userId = await store.ensureUser(wallet.address)
+  const custody = new DevelopmentKeyCustody('33'.repeat(32))
+  const config = loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: origin }, loadConfig({ KEEL_ENV: 'test' }))
+  const requests: Array<{ path: string; headers: Headers; body: Record<string, unknown> }> = []
+  const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const path = new URL(String(input)).pathname
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    requests.push({ path, headers: new Headers(init?.headers), body })
+    if (path.endsWith('/payload')) {
+      return Response.json({ mac: 'private-mac', typed_data: {
+        domain: { name: 'Perpl', version: '1', chainId: 10143, verifyingContract: '0x0000000000000000000000000000000000000001' },
+        types: { ApiKeyEnrollment: [
+          { name: 'address', type: 'address' }, { name: 'publicKey', type: 'bytes32' },
+          { name: 'scopeMask', type: 'uint8' }, { name: 'expiresAt', type: 'uint64' }, { name: 'label', type: 'string' },
+        ] }, primaryType: 'ApiKeyEnrollment',
+        message: { address: body.address, publicKey: body.public_key, scopeMask: body.scope_mask, expiresAt: body.expires_at, label: body.label },
+      } })
+    }
+    if (enrollStatus !== 200) return Response.json({ error: 'fake venue refusal' }, { status: enrollStatus })
+    const typed = body.typed_data as Parameters<typeof hashTypedData>[0]
+    const digest = hashTypedData(typed)
+    const publicKey = String(requests[0].body.public_key)
+    expect(await verifyAsync(Buffer.from(String(body.pop_signature).slice(2), 'hex'), Buffer.from(digest.slice(2), 'hex'), Buffer.from(publicKey.slice(2), 'hex'))).toBe(true)
+    const altered = { ...typed, message: { ...typed.message, label: 'OTHER' } }
+    const alteredDigest = hashTypedData(altered)
+    expect(await verifyAsync(Buffer.from(String(body.pop_signature).slice(2), 'hex'), Buffer.from(alteredDigest.slice(2), 'hex'), Buffer.from(publicKey.slice(2), 'hex'))).toBe(false)
+    return Response.json({ api_key: { api_key: 'private-token', address: wallet.address, scope_mask: 3, label: 'KEEL', origin, expires_at: requests[0].body.expires_at } })
+  }) as typeof fetch
+  const client = new PerplEnrollmentClient('https://perpl.invalid/api', origin, fetcher)
+  const service = new PerplEnrollmentService(store, config, custody, client)
+  const sign = async (typedData: unknown) => wallet.signTypedData(typedData as Parameters<typeof wallet.signTypedData>[0])
+  return { db, store, userId, custody, service, requests, fetcher, sign, close: () => db.close() }
+}
+
+describe('development Perpl enrollment foundation', () => {
+  it('enrolls the session wallet with a sealed key and valid proof-of-possession', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      expect(Object.keys(pending).sort()).toEqual(['connectionId', 'typedData'])
+      const row = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('PENDING')
+      expect(row.sealed_private_key).not.toContain('private-token')
+      expect(row.sealed_mac).not.toContain('private-mac')
+      expect(row.credential_reference).toBe(`enrollment:${pending.connectionId}`)
+      expect(value.requests[0].headers.get('origin')).toBe(origin)
+      expect(value.requests[0].body).toMatchObject({ address: wallet.address.toLowerCase(), scope_mask: 3, label: 'KEEL', chain_id: 10143 })
+      const signature = await value.sign(pending.typedData)
+      const complete = await value.service.complete(value.userId, wallet.address, pending.connectionId, signature)
+      expect(complete).toEqual({ connectionId: pending.connectionId, status: 'ACTIVE' })
+      const active = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(active.status).toBe('ACTIVE')
+      expect(value.custody.open(active.sealed_api_token)).toBe('private-token')
+      expect(active.sealed_mac).toBeNull()
+      expect(active.typed_data).toBeNull()
+      expect(value.requests[1].headers.get('origin')).toBe(origin)
+      expect(value.requests[1].body.mac).toBe('private-mac')
+      expect(JSON.stringify([pending, complete])).not.toMatch(/private-token|private-mac|sealed_private_key|sealed_api_token/)
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('rejects a wallet mismatch before enrollment', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      const signature = await value.sign(pending.typedData)
+      await expect(value.service.complete(value.userId, other.address, pending.connectionId, signature)).rejects.toThrow('PERPL_ENROLLMENT_WALLET_MISMATCH')
+      expect(value.requests).toHaveLength(1)
+      expect((await value.db.query('SELECT status FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0].status).toBe('PENDING')
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('rejects a wrong wallet signature without contacting the enrollment endpoint', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      const signature = await other.signTypedData(pending.typedData as Parameters<typeof other.signTypedData>[0])
+      await expect(value.service.complete(value.userId, wallet.address, pending.connectionId, signature)).rejects.toThrow('WALLET_SIGNATURE_INVALID')
+      expect(value.requests).toHaveLength(1)
+      expect((await value.db.query('SELECT status FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0].status).toBe('PENDING')
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('permits only one pending or active enrollment for a wallet', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await expect(value.service.start(value.userId, wallet.address)).rejects.toThrow('PERPL_ENROLLMENT_ALREADY_PENDING')
+      await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      await expect(value.service.start(value.userId, wallet.address)).rejects.toThrow('PERPL_CONNECTION_ALREADY_ACTIVE')
+      expect(value.requests).toHaveLength(2)
+    } finally { await value.close() }
+  }, 20_000)
+
+  it.each([[400, 'PERPL_ENROLLMENT_INVALID_REQUEST'], [404, 'PERPL_ENROLLMENT_TARGET_NOT_FOUND'], [409, 'PERPL_ENROLLMENT_KEY_CONFLICT'], [423, 'PERPL_ENROLLMENT_KEY_LIMIT']] as const)('maps venue %s and shreds the failed enrollment', async (status, error) => {
+    const value = await fixture(status)
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await expect(value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))).rejects.toThrow(error)
+      const row = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('ERROR')
+      expect(row.sealed_private_key).toBeNull()
+      expect(row.sealed_api_token).toBeNull()
+      expect(row.sealed_mac).toBeNull()
+      expect(row.shredded_at).not.toBeNull()
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('expires and shreds a PENDING row after ten minutes', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await value.db.query("UPDATE perpl_connections SET pending_expires_at=now()-interval '1 second' WHERE id=$1", [pending.connectionId])
+      await expect(value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))).rejects.toThrow('PERPL_ENROLLMENT_NOT_PENDING')
+      const row = (await value.db.query('SELECT status,sealed_private_key,sealed_mac,shredded_at FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('EXPIRED')
+      expect(row.sealed_private_key).toBeNull()
+      expect(row.sealed_mac).toBeNull()
+      expect(row.shredded_at).not.toBeNull()
+      expect(value.requests).toHaveLength(1)
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('shows an expired ACTIVE key as expired and shreds it', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      await value.db.query("UPDATE perpl_connections SET expires_at=now()-interval '1 second' WHERE id=$1", [pending.connectionId])
+      await value.service.cleanupExpired()
+      const row = (await value.db.query('SELECT status,sealed_private_key,sealed_api_token,shredded_at FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('EXPIRED')
+      expect(row.sealed_private_key).toBeNull()
+      expect(row.sealed_api_token).toBeNull()
+      expect(row.shredded_at).not.toBeNull()
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('disconnects and shreds the stored key and token', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      const response = await value.service.disconnect(value.userId, pending.connectionId)
+      expect(response.perplKeyPageUrl).toBe('https://testnet.perpl.xyz/apikeys')
+      const row = (await value.db.query('SELECT status,sealed_private_key,sealed_api_token,shredded_at FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('REVOKED')
+      expect(row.sealed_private_key).toBeNull()
+      expect(row.sealed_api_token).toBeNull()
+      expect(row.shredded_at).not.toBeNull()
+      expect(JSON.stringify(response)).not.toContain('private-token')
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('also shreds enrolled credentials through the legacy revoke route', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      await value.store.revokeConnection(value.userId)
+      const row = (await value.db.query('SELECT status,sealed_private_key,sealed_api_token,shredded_at FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('REVOKED')
+      expect(row.sealed_private_key).toBeNull()
+      expect(row.sealed_api_token).toBeNull()
+      expect(row.shredded_at).not.toBeNull()
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('exposes only safe enrollment fields through authenticated HTTP routes and logs', async () => {
+    const value = await fixture()
+    const app = Fastify({ logger: false })
+    const logged = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errored = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const config = loadConfig({ KEEL_ENV: 'test' })
+      await app.register(cookie, { secret: config.sessionSecret })
+      registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: value.service })
+      await value.store.createSession('enrollment-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
+      const headers = { authorization: 'Bearer enrollment-session' }
+      const unauthenticated = await app.inject({ method: 'POST', url: '/connections/perpl/enrollment', payload: {} })
+      expect(unauthenticated.statusCode).toBe(401)
+      expect(value.requests).toHaveLength(0)
+      const start = await app.inject({ method: 'POST', url: '/connections/perpl/enrollment', headers, payload: { address: other.address } })
+      expect(start.statusCode).toBe(200)
+      expect(value.requests[0].body.address).toBe(wallet.address.toLowerCase())
+      const pending = start.json() as { connectionId: string; typedData: unknown }
+      expect(Object.keys(pending).sort()).toEqual(['connectionId','typedData'])
+      const completed = await app.inject({ method: 'POST', url: `/connections/perpl/enrollment/${pending.connectionId}/complete`, headers, payload: { signature: await value.sign(pending.typedData) } })
+      expect(completed.statusCode).toBe(200)
+      expect(completed.json()).toEqual({ connectionId: pending.connectionId, status: 'ACTIVE' })
+      const listed = await app.inject({ method: 'GET', url: '/connections', headers })
+      expect(listed.statusCode).toBe(200)
+      expect(listed.json()[0].status).toBe('ACTIVE')
+      const disconnected = await app.inject({ method: 'POST', url: `/connections/perpl/${pending.connectionId}/disconnect`, headers, payload: {} })
+      expect(disconnected.statusCode).toBe(200)
+      const visible = [start.body, completed.body, listed.body, disconnected.body, JSON.stringify(logged.mock.calls), JSON.stringify(errored.mock.calls)].join(' ')
+      for (const secret of ['private-token','private-mac','sealed_private_key','sealed_api_token', String(value.requests[1].body.pop_signature)]) expect(visible).not.toContain(secret)
+    } finally { logged.mockRestore(); errored.mockRestore(); await app.close(); await value.close() }
+  }, 20_000)
+
+  it('validates custody and enrollment settings and disables mainnet', () => {
+    expect(() => new DevelopmentKeyCustody('bad')).toThrow('INVALID_KEEL_KEY_ENCRYPTION_KEY')
+    const config = loadConfig({ KEEL_ENV: 'testnet' })
+    const base = { PERPL_ENROLLMENT_ORIGIN: origin }
+    expect(() => loadEnrollmentConfig({ ...base, KEEL_KEY_TTL_DAYS: '0' }, config)).toThrow('INVALID_KEEL_KEY_TTL_DAYS')
+    expect(() => loadEnrollmentConfig({ ...base, KEEL_EGRESS_CIDRS: 'not-a-cidr' }, config)).toThrow('INVALID_KEEL_EGRESS_CIDRS')
+    expect(() => loadEnrollmentConfig({ ...base, KEEL_EGRESS_CIDRS: '1.1.1.1/32,2.2.2.2/32,3.3.3.3/32,4.4.4.4/32,5.5.5.5/32' }, config)).toThrow('INVALID_KEEL_EGRESS_CIDRS')
+    expect(() => loadEnrollmentConfig({ ...base, KEEL_BUILDER_ID: '256', KEEL_MAX_BUILDER_FEE_PER_100K: '0' }, config)).toThrow('INVALID_KEEL_BUILDER_TERMS')
+    expect(() => loadEnrollmentConfig({ ...base, KEEL_BUILDER_ID: '1', KEEL_MAX_BUILDER_FEE_PER_100K: '101' }, config)).toThrow('INVALID_KEEL_BUILDER_TERMS')
+    expect(() => loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: 'http://insecure.example' }, config)).toThrow('INVALID_PERPL_ENROLLMENT_ORIGIN')
+    expect(() => loadEnrollmentConfig(base, loadConfig({ KEEL_ENV: 'mainnet' }))).toThrow('PERPL_CONNECTIONS_MAINNET_UNSUPPORTED')
+    const custody = new DevelopmentKeyCustody('33'.repeat(32))
+    const sealed = custody.seal('example-secret')
+    expect(custody.open(sealed)).toBe('example-secret')
+    expect(() => custody.open(`${sealed}x`)).toThrow('INVALID_SEALED_CREDENTIAL')
+  })
+})

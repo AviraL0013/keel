@@ -10,6 +10,7 @@ import { MemoryStore } from './memoryStore.js'
 import { NotificationStore } from './infrastructure/database/notification-store.js'
 import { PostgresStore, UnconfiguredStore, type Store } from './infrastructure/database/postgres-store.js'
 import { createPerplRuntime } from './infrastructure/perpl/runtime.js'
+import { createPerplEnrollmentService, type PerplEnrollmentService } from './infrastructure/perpl/enrollment-service.js'
 import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.js'
 import { registerRoutes } from './interfaces/http/register.js'
 
@@ -17,6 +18,7 @@ export type ServerServices = {
   venue?: RuntimeVenue
   closeBook?: (userId: string, bookId: string) => Promise<{ actionId: string; status: string }>
   executeAction?: (userId: string, bookId: string, kind: 'DEFEND' | 'REDUCE') => Promise<{ actionId: string; status: string }>
+  enrollment?: PerplEnrollmentService
 }
 
 export function createServer(store?: Store, services: ServerServices = {}) {
@@ -39,11 +41,12 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     try { venue = createPerplRuntime(persistence) } catch (error) { logger.warn({ error: error instanceof Error ? error.message : 'PERPL_CONFIGURATION_INVALID' }, 'Perpl live adapter unavailable; readiness will fail closed') }
   }
   const runtime = persistence instanceof PostgresStore ? new KeelRuntime(persistence, venue, Date.now, config.safeModeResumeTicks) : undefined
+  const enrollment = services.enrollment ?? (persistence instanceof PostgresStore ? createPerplEnrollmentService(persistence, config, process.env) : undefined)
   const closeBook = services.closeBook ?? (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
   const executeAction = services.executeAction ?? (runtime ? runtime.executeAction.bind(runtime) : testRuntime ? testRuntime.executeAction.bind(testRuntime) : undefined)
-  app.addHook('onReady', async () => { await runtime?.start() })
-  app.addHook('onClose', async () => { await runtime?.stop(); if (persistence instanceof PostgresStore) await persistence.pool.end() })
-  registerRoutes({ app, config, persistence, auth, notificationStore, venue, runtime, closeBook, executeAction, testRuntime })
+  app.addHook('onReady', async () => { enrollment?.startCleanup(); await runtime?.start() })
+  app.addHook('onClose', async () => { enrollment?.stopCleanup(); await runtime?.stop(); if (persistence instanceof PostgresStore) await persistence.pool.end() })
+  registerRoutes({ app, config, persistence, auth, notificationStore, venue, runtime, closeBook, executeAction, testRuntime, enrollment })
   return app
 }
 
