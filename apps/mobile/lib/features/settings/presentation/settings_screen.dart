@@ -4,6 +4,7 @@ import '../../../core/errors/keel_exception.dart';
 import '../../../core/networking/backend_status.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
+import '../../../shared/widgets/keel_widgets.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../capital/data/capital_repository.dart';
 import '../data/settings_repository.dart';
@@ -25,20 +26,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final capital = ref.watch(capitalProvider);
     final themeMode = ref.watch(themeModeProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('SETTINGS')),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
           padding: const EdgeInsets.fromLTRB(
               KeelSpacing.md, KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
           children: [
-            const Text('Control plane', style: KeelTypography.display),
+            const Text('Your KEEL settings', style: KeelTypography.display),
             const SizedBox(height: KeelSpacing.lg),
-            Card(
+            KeelPanel(
                 child: Padding(
-                    padding: const EdgeInsets.all(KeelSpacing.lg),
+                    padding: EdgeInsets.zero,
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('SESSION', style: KeelTypography.label),
+                          const Text('Account & session',
+                              style: KeelTypography.title),
                           const SizedBox(height: KeelSpacing.md),
                           _SettingRow(
                               label: 'Wallet',
@@ -84,12 +86,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   icon: Icons.link)),
                         ]))),
             const SizedBox(height: KeelSpacing.md),
-            Card(
+            KeelPanel(
                 child: SwitchListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: KeelSpacing.lg),
+                    contentPadding: EdgeInsets.zero,
                     title: Text(
-                        killEnabled ? 'AUTOMATION DISABLED' : 'KILL SWITCH',
+                        killEnabled ? 'Automation disabled' : 'Kill switch',
                         style: KeelTypography.section),
                     subtitle: Text(
                         killEnabled
@@ -102,11 +103,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onChanged: busy || killEnabled
                         ? null
                         : (_) => _confirmKillSwitch())),
-            Card(
+            KeelPanel(
                 child: SwitchListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: KeelSpacing.lg),
-                    title: const Text('BRIGHT SUNLIGHT MODE',
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Bright sunlight mode',
                         style: KeelTypography.section),
                     subtitle: Text(
                         themeMode == ThemeMode.light
@@ -123,9 +123,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 data: (value) => value.environment == 'test',
                 orElse: () => false)) ...[
               const SizedBox(height: KeelSpacing.md),
-              Card(
+              KeelPanel(
                   child: Padding(
-                      padding: const EdgeInsets.all(KeelSpacing.lg),
+                      padding: EdgeInsets.zero,
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -236,12 +236,15 @@ class _SettingRow extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.only(bottom: KeelSpacing.md),
       child: Row(children: [
-        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+        KeelIconTile(icon: icon, size: 36),
         const SizedBox(width: KeelSpacing.sm),
         Expanded(
             child: Text(label,
                 style: KeelTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color))),
-        Text(value, style: KeelTypography.section.copyWith(fontSize: 13))
+        Flexible(
+            child: Text(value,
+                textAlign: TextAlign.right,
+                style: KeelTypography.section.copyWith(fontSize: 13)))
       ]));
 }

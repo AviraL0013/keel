@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 abstract final class KeelColors {
-  static const darkBackground = Color(0xFF0B1113);
-  static const darkCanvas = Color(0xFF111C1F);
-  static const darkSurface = Color(0xFF172528);
-  static const darkElevated = Color(0xFF203438);
-  static const darkText = Color(0xFFF4F8F7);
-  static const darkMuted = Color(0xFFA4B7B8);
-  static const darkBorder = Color(0xFF2D4548);
+  static const darkBackground = Color(0xFF061012);
+  static const darkCanvas = Color(0xFF081417);
+  static const darkSurface = Color(0xFF102326);
+  static const darkElevated = Color(0xFF173137);
+  static const darkText = Color(0xFFF2F7F7);
+  static const darkMuted = Color(0xFF9FB5B8);
+  static const darkBorder = Color(0xFF245159);
   static const lightBackground = Color(0xFFEAF7FB);
   static const lightCanvas = Color(0xFFC8E6F1);
   static const lightSurface = Color(0xFFFFFFFF);
@@ -15,13 +15,13 @@ abstract final class KeelColors {
   static const lightText = Color(0xFF171717);
   static const lightMuted = Color(0xFF607078);
   static const lightBorder = Color(0xFFD6E7EC);
-  static const accent = Color(0xFF8BE0FA);
+  static const accent = Color(0xFF69E8FF);
   static const hold = Color(0xFF9AAEB0);
-  static const defend = Color(0xFF8FE3B1);
-  static const reduce = Color(0xFFF2BF75);
-  static const exit = Color(0xFFFF8A7A);
-  static const safeMode = Color(0xFFB6A0F7);
-  static const info = Color(0xFF83C9E8);
+  static const defend = Color(0xFF35E6B0);
+  static const reduce = Color(0xFFF2B84B);
+  static const exit = Color(0xFFFF6B6B);
+  static const safeMode = reduce;
+  static const info = accent;
 }
 
 abstract final class KeelSpacing {
@@ -35,19 +35,19 @@ abstract final class KeelSpacing {
 
 abstract final class KeelRadii {
   static const small = 12.0;
-  static const card = 24.0;
+  static const card = 22.0;
   static const button = 16.0;
   static const pill = 100.0;
 }
 
 abstract final class KeelTypography {
   static const display = TextStyle(
-      fontSize: 34,
+      fontSize: 38,
       height: 1.0,
       fontWeight: FontWeight.w800,
       letterSpacing: -1.4);
   static const title = TextStyle(
-      fontSize: 22,
+      fontSize: 24,
       height: 1.1,
       fontWeight: FontWeight.w800,
       letterSpacing: -.4);
@@ -131,8 +131,6 @@ class KeelTheme {
     final background =
         isDark ? KeelColors.darkBackground : KeelColors.lightBackground;
     final surface = isDark ? KeelColors.darkSurface : KeelColors.lightSurface;
-    final elevated =
-        isDark ? KeelColors.darkElevated : KeelColors.lightElevated;
     final text = isDark ? KeelColors.darkText : KeelColors.lightText;
     final muted = isDark ? KeelColors.darkMuted : KeelColors.lightMuted;
     final border = isDark ? KeelColors.darkBorder : KeelColors.lightBorder;
@@ -158,8 +156,11 @@ class KeelTheme {
           margin: EdgeInsets.zero,
           elevation: isDark ? 0 : 1,
           shadowColor: Colors.black26,
-          shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(KeelRadii.card)))),
+          shape: RoundedRectangleBorder(
+              side:
+                  BorderSide(color: border.withValues(alpha: isDark ? .7 : 1)),
+              borderRadius:
+                  const BorderRadius.all(Radius.circular(KeelRadii.card)))),
       appBarTheme: AppBarTheme(
           backgroundColor: Colors.transparent,
           foregroundColor: text,
@@ -191,12 +192,19 @@ class KeelTheme {
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               textStyle: KeelTypography.label.copyWith(color: text))),
       navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: surface,
-          indicatorColor: elevated,
+          backgroundColor: background,
+          indicatorColor: KeelColors.accent.withValues(alpha: .16),
           elevation: 8,
           labelTextStyle: WidgetStatePropertyAll(KeelTypography.label
               .copyWith(fontSize: 10, letterSpacing: .2, color: text))),
       dividerTheme: DividerThemeData(color: border, space: 1),
+      chipTheme: ChipThemeData(
+          backgroundColor: surface,
+          selectedColor: KeelColors.accent.withValues(alpha: .19),
+          side: BorderSide(color: border),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          labelStyle: KeelTypography.body.copyWith(color: text)),
       textTheme: TextTheme(
           displayLarge: KeelTypography.display.copyWith(color: text),
           displayMedium: KeelTypography.display.copyWith(color: text),

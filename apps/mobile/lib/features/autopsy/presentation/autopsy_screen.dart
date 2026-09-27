@@ -14,7 +14,7 @@ class AutopsyScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final events = ref.watch(autopsyProvider(bookId));
     return Scaffold(
-      appBar: AppBar(title: const Text('AUTOPSY'), actions: [
+      appBar: AppBar(title: const Text('Autopsy'), actions: [
         IconButton(
             onPressed: () => ref.invalidate(autopsyProvider(bookId)),
             icon: const Icon(Icons.refresh))
@@ -33,9 +33,22 @@ class AutopsyScreen extends ConsumerWidget {
             : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(KeelSpacing.md,
                     KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
-                itemCount: items.length,
-                itemBuilder: (_, index) => _TimelineEvent(
-                    event: items[index], last: index == items.length - 1)),
+                itemCount: items.length + 1,
+                itemBuilder: (_, index) => index == 0
+                    ? const Padding(
+                        padding: EdgeInsets.only(bottom: KeelSpacing.lg),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Action history',
+                                style: KeelTypography.display),
+                            SizedBox(height: KeelSpacing.xs),
+                            Text('Decisions and outcomes for this Book.'),
+                          ],
+                        ),
+                      )
+                    : _TimelineEvent(
+                        event: items[index - 1], last: index == items.length)),
       ),
     );
   }
@@ -55,13 +68,7 @@ class _TimelineEvent extends StatelessWidget {
       SizedBox(
           width: 36,
           child: Column(children: [
-            Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                    color: style.color.withValues(alpha: .18),
-                    shape: BoxShape.circle),
-                child: Icon(style.icon, size: 16, color: style.color)),
+            KeelIconTile(icon: style.icon, color: style.color, size: 30),
             if (!last)
               Expanded(
                   child: Container(
@@ -69,8 +76,9 @@ class _TimelineEvent extends StatelessWidget {
           ])),
       const SizedBox(width: KeelSpacing.sm),
       Expanded(
-          child: Card(
-              margin: const EdgeInsets.only(bottom: KeelSpacing.md),
+          child: KeelPanel(
+              tone: style.color,
+              padding: EdgeInsets.zero,
               child: Padding(
                   padding: const EdgeInsets.all(KeelSpacing.md),
                   child: Column(
@@ -83,9 +91,12 @@ class _TimelineEvent extends StatelessWidget {
                                   child: Text(_summary(event),
                                       style: KeelTypography.section)),
                               const SizedBox(width: KeelSpacing.sm),
-                              StatusPill(
-                                  label: event.type.replaceAll('_', ' '),
-                                  color: style.color)
+                              ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 124),
+                                  child: StatusPill(
+                                      label: event.type.replaceAll('_', ' '),
+                                      color: style.color))
                             ]),
                         const SizedBox(height: KeelSpacing.xs),
                         Text(

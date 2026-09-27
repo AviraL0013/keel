@@ -15,7 +15,7 @@ class PositionsScreen extends ConsumerWidget {
     final positions = ref.watch(positionsProvider);
     final connection = ref.watch(perplConnectionProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('POSITIONS'), actions: [
+      appBar: AppBar(title: const Text('Positions'), actions: [
         IconButton(
             onPressed: () {
               ref.invalidate(positionsProvider);
@@ -39,7 +39,7 @@ class PositionsScreen extends ConsumerWidget {
               children: [
                 const Text('Your positions', style: KeelTypography.display),
                 const SizedBox(height: KeelSpacing.xs),
-                Text('Choose an OPEN position to configure protection.',
+                Text('Positions connected through Perpl.',
                     style: KeelTypography.body.copyWith(
                         color: Theme.of(context).textTheme.bodyMedium?.color)),
                 const SizedBox(height: KeelSpacing.md),
@@ -86,40 +86,116 @@ class _PositionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final open = position.status == 'OPEN';
-    return Card(
-        margin: const EdgeInsets.only(bottom: KeelSpacing.md),
+    final distance = position.markPrice <= 0
+        ? null
+        : position.side == 'LONG'
+            ? (position.markPrice - position.liquidationPrice) /
+                position.markPrice *
+                100
+            : (position.liquidationPrice - position.markPrice) /
+                position.markPrice *
+                100;
+    return KeelPanel(
+        tone: open ? KeelColors.accent : KeelColors.hold,
         child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.lg),
+            padding: EdgeInsets.zero,
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(position.market, style: KeelTypography.title),
-                  const SizedBox(height: KeelSpacing.xs),
-                  Text(
-                      '${position.side} / ${position.leverage.toStringAsFixed(2)}x',
-                      style: KeelTypography.body.copyWith(
-                          color: Theme.of(context).textTheme.bodyMedium?.color))
-                ]),
-                StatusPill(
-                    label: position.status,
-                    color: open ? KeelColors.defend : KeelColors.hold,
-                    icon: open ? Icons.lock_open : Icons.lock_outline)
-              ]),
-              const SizedBox(height: KeelSpacing.lg),
-              _PositionMetricGrid(position: position),
-              const SizedBox(height: KeelSpacing.md),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                KeelIconTile(
+                    icon: position.market.toUpperCase().contains('BTC')
+                        ? Icons.currency_bitcoin
+                        : Icons.hexagon_outlined,
+                    color: position.market.toUpperCase().contains('BTC')
+                        ? KeelColors.reduce
+                        : KeelColors.info,
+                    size: 56),
+                const SizedBox(width: KeelSpacing.md),
                 Expanded(
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      TelemetryFreshness(freshness: position.freshness),
+                      Text(position.market, style: KeelTypography.title),
+                      const SizedBox(height: KeelSpacing.xs),
+                      Text(
+                          '${position.side} · ${position.leverage.toStringAsFixed(2)}x',
+                          style: KeelTypography.body.copyWith(
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color)),
                     ])),
-                const SizedBox(width: KeelSpacing.sm),
-                Text('ACCOUNT ${position.accountId}',
-                    style: KeelTypography.label)
               ]),
+              const SizedBox(height: KeelSpacing.md),
+              StatusPill(
+                  label: position.status,
+                  color: open ? KeelColors.defend : KeelColors.hold,
+                  icon: open ? Icons.lock_open : Icons.lock_outline),
+              const SizedBox(height: KeelSpacing.lg),
+              Text('Mark price',
+                  style: KeelTypography.body.copyWith(
+                      color: Theme.of(context).textTheme.bodyMedium?.color)),
+              Text(position.markPrice.toStringAsFixed(2),
+                  style: KeelTypography.display.copyWith(fontSize: 42)),
+              Text(
+                  'Unrealized P&L  ${position.pnl?.toStringAsFixed(2) ?? 'Unavailable'}',
+                  style: KeelTypography.section.copyWith(
+                      color: position.pnl == null
+                          ? KeelColors.darkMuted
+                          : position.pnl! >= 0
+                              ? KeelColors.defend
+                              : KeelColors.exit)),
+              const SizedBox(height: KeelSpacing.lg),
+              if (distance != null && distance.isFinite) ...[
+                KeelPanel(
+                    margin: EdgeInsets.zero,
+                    padding: const EdgeInsets.all(KeelSpacing.md),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Position health',
+                              style: KeelTypography.section),
+                          const SizedBox(height: KeelSpacing.xs),
+                          Text('${distance.toStringAsFixed(2)}% to liquidation',
+                              style: KeelTypography.body),
+                          const SizedBox(height: KeelSpacing.sm),
+                          LinearProgressIndicator(
+                              value: (distance / 20).clamp(0.0, 1.0),
+                              minHeight: 8,
+                              borderRadius: BorderRadius.circular(20),
+                              backgroundColor: KeelColors.darkBorder,
+                              color: distance <= 0
+                                  ? KeelColors.exit
+                                  : distance < 5
+                                      ? KeelColors.reduce
+                                      : KeelColors.defend),
+                        ])),
+                const SizedBox(height: KeelSpacing.md),
+              ],
+              Wrap(
+                  spacing: KeelSpacing.sm,
+                  runSpacing: KeelSpacing.sm,
+                  children: [
+                    _PositionFact('Size', _sizeLabel(position.size)),
+                    _PositionFact('Margin', position.margin.toStringAsFixed(2)),
+                    _PositionFact(
+                        position.liquidationEstimated
+                            ? 'Est. liquidation'
+                            : 'Liquidation',
+                        position.liquidationPrice.toStringAsFixed(2)),
+                  ]),
+              const SizedBox(height: KeelSpacing.md),
+              Text('Account ${position.accountId}',
+                  style: KeelTypography.body.copyWith(
+                      color: Theme.of(context).textTheme.bodyMedium?.color)),
+              ExpansionTile(
+                  title: const Text('Market details'),
+                  tilePadding: EdgeInsets.zero,
+                  children: [
+                    _PositionMetricGrid(position: position),
+                    const SizedBox(height: KeelSpacing.md),
+                    TelemetryFreshness(freshness: position.freshness),
+                  ]),
               if (open) ...[
                 const SizedBox(height: KeelSpacing.lg),
                 SizedBox(
@@ -135,6 +211,39 @@ class _PositionCard extends StatelessWidget {
               ],
             ])));
   }
+
+  String _sizeLabel(double value) => value.abs() < 1
+      ? value
+          .toStringAsFixed(6)
+          .replaceFirst(RegExp(r'0+$'), '')
+          .replaceFirst(RegExp(r'\.$'), '')
+      : value.toStringAsFixed(2);
+}
+
+class _PositionFact extends StatelessWidget {
+  const _PositionFact(this.label, this.value);
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(KeelSpacing.sm),
+        decoration: BoxDecoration(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? KeelColors.darkCanvas.withValues(alpha: .55)
+                : KeelColors.lightBackground,
+            border: Border.all(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? KeelColors.darkBorder
+                    : KeelColors.lightBorder),
+            borderRadius: BorderRadius.circular(14)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: KeelTypography.body.copyWith(
+                  fontSize: 11,
+                  color: Theme.of(context).textTheme.bodyMedium?.color)),
+          Text(value, style: KeelTypography.section),
+        ]),
+      );
 }
 
 class _PositionMetricGrid extends StatelessWidget {
@@ -191,18 +300,19 @@ class _ConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final valid = status == 'VALID';
-    return Card(
+    return KeelPanel(
         child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.md),
+            padding: EdgeInsets.zero,
             child: Row(children: [
-              Icon(valid ? Icons.link : Icons.link_off,
+              KeelIconTile(
+                  icon: valid ? Icons.link : Icons.link_off,
                   color: valid ? KeelColors.defend : KeelColors.reduce),
-              const SizedBox(width: KeelSpacing.sm),
+              const SizedBox(width: KeelSpacing.md),
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text(valid ? 'PERPL CONNECTED' : 'PERPL $status',
+                    Text(valid ? 'Perpl Connected' : 'Perpl $status',
                         style: KeelTypography.section),
                     Text(
                         '${environment?.toUpperCase() ?? 'SERVER-SIDE'}${accountId == null ? '' : ' / ACCOUNT $accountId'}',
@@ -210,6 +320,8 @@ class _ConnectionCard extends StatelessWidget {
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color))
                   ])),
+              if (valid)
+                const StatusPill(label: 'Connected', color: KeelColors.info),
               if (onRetry != null)
                 TextButton(onPressed: onRetry, child: const Text('RETRY'))
             ])));

@@ -33,7 +33,7 @@ class AuthScreen extends ConsumerWidget {
                       padding: const EdgeInsets.fromLTRB(KeelSpacing.lg,
                           KeelSpacing.lg, KeelSpacing.lg, KeelSpacing.xl),
                       children: [
-                        const _BrandHeader(),
+                        _BrandHeader(status: backend),
                         const SizedBox(height: KeelSpacing.xl),
                         Text('Protect positions\nwith confidence.',
                             style:
@@ -49,9 +49,9 @@ class AuthScreen extends ConsumerWidget {
                         const SizedBox(height: KeelSpacing.lg),
                         _EnvironmentCard(status: backend),
                         const SizedBox(height: KeelSpacing.md),
-                        Card(
+                        KeelPanel(
                             child: Padding(
-                                padding: const EdgeInsets.all(KeelSpacing.lg),
+                                padding: EdgeInsets.zero,
                                 child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
@@ -241,16 +241,11 @@ class _Step extends StatelessWidget {
 }
 
 class _BrandHeader extends StatelessWidget {
-  const _BrandHeader();
+  const _BrandHeader({required this.status});
+  final AsyncValue<BackendStatus> status;
   @override
   Widget build(BuildContext context) => Row(children: [
-        Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-                color: KeelColors.accent,
-                borderRadius: BorderRadius.circular(14)),
-            child: const Icon(Icons.sailing, color: Colors.black)),
+        const KeelIconTile(icon: Icons.sailing, size: 44),
         const SizedBox(width: 12),
         const Expanded(
             child: Text('KEEL',
@@ -258,7 +253,21 @@ class _BrandHeader extends StatelessWidget {
                     fontSize: 24,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 1.5))),
-        const StatusPill(label: 'DEV / TEST VENUE', color: KeelColors.info)
+        status.when(
+          data: (value) => StatusPill(
+              label: value.state == BackendState.live
+                  ? value.environment == 'test'
+                      ? 'TEST VENUE'
+                      : (value.environment?.toUpperCase() ?? 'CONNECTED')
+                  : 'OFFLINE',
+              color: value.state == BackendState.live
+                  ? KeelColors.defend
+                  : KeelColors.reduce),
+          loading: () =>
+              const StatusPill(label: 'CHECKING', color: KeelColors.reduce),
+          error: (_, __) =>
+              const StatusPill(label: 'OFFLINE', color: KeelColors.reduce),
+        )
       ]);
 }
 
@@ -267,11 +276,11 @@ class _EnvironmentCard extends StatelessWidget {
   final AsyncValue<BackendStatus> status;
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return KeelPanel(
         child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.md),
+            padding: EdgeInsets.zero,
             child: Row(children: [
-              const Icon(Icons.dns_outlined, color: KeelColors.info),
+              const KeelIconTile(icon: Icons.dns_outlined, size: 40),
               const SizedBox(width: KeelSpacing.sm),
               Expanded(
                   child: status.when(

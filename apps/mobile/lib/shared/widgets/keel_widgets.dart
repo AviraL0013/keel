@@ -12,7 +12,7 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final tone = color ?? Theme.of(context).colorScheme.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: tone.withValues(alpha: .18),
         borderRadius: BorderRadius.circular(KeelRadii.pill),
@@ -29,8 +29,80 @@ class StatusPill extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 softWrap: true,
                 style: KeelTypography.label
-                    .copyWith(color: tone, fontSize: 10, letterSpacing: .6))),
+                    .copyWith(color: tone, fontSize: 11, letterSpacing: .35))),
       ]),
+    );
+  }
+}
+
+class KeelIconTile extends StatelessWidget {
+  const KeelIconTile(
+      {super.key,
+      required this.icon,
+      this.color = KeelColors.accent,
+      this.size = 48});
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(size * .27),
+          border: Border.all(color: color.withValues(alpha: .18)),
+          gradient: LinearGradient(colors: [
+            color.withValues(alpha: .23),
+            color.withValues(alpha: .07)
+          ], begin: Alignment.topLeft, end: Alignment.bottomRight)),
+      child: Icon(icon, color: color, size: size * .48));
+}
+
+class KeelPanel extends StatelessWidget {
+  const KeelPanel(
+      {super.key,
+      required this.child,
+      this.tone = KeelColors.accent,
+      this.padding = const EdgeInsets.all(KeelSpacing.lg),
+      this.margin = const EdgeInsets.only(bottom: KeelSpacing.md)});
+  final Widget child;
+  final Color tone;
+  final EdgeInsets padding;
+  final EdgeInsets margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: margin,
+      padding: padding,
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(KeelRadii.card),
+          border: Border.all(
+              color: dark
+                  ? tone.withValues(alpha: .38)
+                  : Theme.of(context).colorScheme.outlineVariant),
+          gradient: dark
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                      KeelColors.darkElevated.withValues(alpha: .77),
+                      KeelColors.darkSurface,
+                      KeelColors.darkCanvas
+                    ])
+              : null,
+          color: dark ? null : Theme.of(context).colorScheme.surface,
+          boxShadow: dark
+              ? [
+                  BoxShadow(
+                      color: tone.withValues(alpha: .055),
+                      blurRadius: 24,
+                      spreadRadius: -9)
+                ]
+              : null),
+      child: child,
     );
   }
 }

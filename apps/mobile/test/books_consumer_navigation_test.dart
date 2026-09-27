@@ -90,7 +90,7 @@ void main() {
   testWidgets('Current, History, and one Filter control keep Books distinct',
       (tester) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(320, 1400);
+    tester.view.physicalSize = const Size(320, 2200);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     final client = http.Client();

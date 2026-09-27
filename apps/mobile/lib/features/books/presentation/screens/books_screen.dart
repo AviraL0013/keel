@@ -190,24 +190,30 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
   Widget build(BuildContext context) {
     final books = ref.watch(booksProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('KEEL'), actions: [
-        SizedBox(
-            width: 104,
-            child: Center(
-                child: Text(
-                    _syncing
-                        ? 'SYNCING'
-                        : _updated
-                            ? 'UPDATED'
-                            : _syncError != null
-                                ? 'RESYNC FAILED'
-                                : '',
-                    style: KeelTypography.label))),
-        IconButton(
-            tooltip: 'Resync Books',
-            onPressed: _syncing ? null : _resync,
-            icon: const Icon(Icons.refresh))
-      ]),
+      appBar: AppBar(
+          title: const Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.sailing, color: KeelColors.accent, size: 25),
+            SizedBox(width: 9),
+            Text('KEEL'),
+          ]),
+          actions: [
+            SizedBox(
+                width: 104,
+                child: Center(
+                    child: Text(
+                        _syncing
+                            ? 'SYNCING'
+                            : _updated
+                                ? 'UPDATED'
+                                : _syncError != null
+                                    ? 'RESYNC FAILED'
+                                    : '',
+                        style: KeelTypography.label))),
+            IconButton(
+                tooltip: 'Resync Books',
+                onPressed: _syncing ? null : _resync,
+                icon: const Icon(Icons.refresh))
+          ]),
       body: books.when(
         skipLoadingOnReload: true,
         skipError: true,
@@ -266,7 +272,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                                 selected: _tab == _BookListTab.history,
                                 onSelected: (_) => setState(
                                     () => _tab = _BookListTab.history)),
-                            TextButton.icon(
+                            OutlinedButton.icon(
                                 onPressed: () => _showFilters(items),
                                 icon: const Icon(Icons.tune, size: 18),
                                 label: Text(
@@ -320,37 +326,50 @@ class _BookCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final telemetry = ref.watch(bookDashboardProvider(book.id));
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(KeelRadii.card),
-        onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => BookDetailScreen(book: book))),
-        child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.lg),
-            child: telemetry.when(
-              skipLoadingOnReload: true,
-              skipError: true,
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text(friendlyError(error)),
-              data: (dashboard) {
-                final state = dashboard.telemetry;
-                final currentBook = dashboard.book;
-                final summary = BookSummary.from(currentBook, state);
-                return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                          alignment: WrapAlignment.spaceBetween,
-                          spacing: KeelSpacing.sm,
-                          runSpacing: KeelSpacing.sm,
-                          children: [
-                            Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
+    return KeelPanel(
+      padding: EdgeInsets.zero,
+      child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(KeelRadii.card),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => BookDetailScreen(book: book))),
+            child: Padding(
+                padding: const EdgeInsets.all(KeelSpacing.lg),
+                child: telemetry.when(
+                  skipLoadingOnReload: true,
+                  skipError: true,
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, _) => Text(friendlyError(error)),
+                  data: (dashboard) {
+                    final state = dashboard.telemetry;
+                    final currentBook = dashboard.book;
+                    final summary = BookSummary.from(currentBook, state);
+                    return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            KeelIconTile(
+                                icon: currentBook.market
+                                        .toUpperCase()
+                                        .contains('BTC')
+                                    ? Icons.currency_bitcoin
+                                    : Icons.hexagon_outlined,
+                                color: currentBook.market
+                                        .toUpperCase()
+                                        .contains('BTC')
+                                    ? KeelColors.reduce
+                                    : KeelColors.info,
+                                size: 48),
+                            const SizedBox(width: KeelSpacing.md),
+                            Expanded(
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
                                   Text(currentBook.market,
                                       style: KeelTypography.title),
-                                  const SizedBox(height: KeelSpacing.xs),
+                                  const SizedBox(height: 3),
                                   Text(
                                       '${currentBook.side.toLowerCase()} position',
                                       style: KeelTypography.body.copyWith(
@@ -358,45 +377,129 @@ class _BookCard extends ConsumerWidget {
                                               .textTheme
                                               .bodyMedium
                                               ?.color)),
-                                ]),
-                            StatusPill(
-                                label: summary.label,
-                                color: summary.color,
-                                icon: summary.icon),
+                                ])),
                           ]),
-                      const SizedBox(height: KeelSpacing.md),
-                      Text(summary.message,
-                          style: KeelTypography.body.copyWith(
-                              color: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.color)),
-                      const SizedBox(height: KeelSpacing.md),
-                      if (currentBook.status != 'CLOSED') ...[
-                        Text('Unrealized P&L  ${_number(state.pnl)}',
-                            style:
-                                KeelTypography.metric.copyWith(fontSize: 16)),
-                        const SizedBox(height: KeelSpacing.xs),
-                      ],
-                      Text(
-                          currentBook.automationEnabled
-                              ? 'Automatic actions on'
-                              : 'Automatic actions off',
-                          style: KeelTypography.body.copyWith(
-                              color: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.color)),
-                      LiveSyncStatus(value: telemetry),
-                    ]);
-              },
-            )),
-      ),
+                          const SizedBox(height: KeelSpacing.md),
+                          StatusPill(
+                              label: summary.label,
+                              color: summary.color,
+                              icon: summary.icon),
+                          const SizedBox(height: KeelSpacing.md),
+                          Text(summary.message,
+                              style: KeelTypography.body.copyWith(
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.color)),
+                          const SizedBox(height: KeelSpacing.md),
+                          if (currentBook.status != 'CLOSED' &&
+                              state.mark != null &&
+                              state.mark!.isFinite &&
+                              state.mark! > 0) ...[
+                            Text('MARK PRICE',
+                                style: KeelTypography.label.copyWith(
+                                    color: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.color)),
+                            const SizedBox(height: 4),
+                            Text(state.mark!.toStringAsFixed(2),
+                                style: KeelTypography.display),
+                            const SizedBox(height: KeelSpacing.md),
+                          ],
+                          if (currentBook.status != 'CLOSED' &&
+                              state.liquidationDistance != null &&
+                              state.liquidationDistance!.isFinite &&
+                              currentBook.liquidationFloor > 0) ...[
+                            Text(
+                                'Position health  ${state.liquidationDistance!.toStringAsFixed(2)}% to liquidation',
+                                style: KeelTypography.section),
+                            const SizedBox(height: KeelSpacing.xs),
+                            LinearProgressIndicator(
+                                value: (state.liquidationDistance! /
+                                        (currentBook.liquidationFloor * 2))
+                                    .clamp(0.0, 1.0),
+                                minHeight: 7,
+                                borderRadius: BorderRadius.circular(20),
+                                backgroundColor: KeelColors.darkBorder,
+                                color: state.liquidationDistance! <
+                                        currentBook.liquidationFloor
+                                    ? KeelColors.reduce
+                                    : KeelColors.defend),
+                            const SizedBox(height: KeelSpacing.md),
+                          ],
+                          if (currentBook.status != 'CLOSED') ...[
+                            Text('Unrealized P&L  ${_number(state.pnl)}',
+                                style: KeelTypography.metric
+                                    .copyWith(fontSize: 16)),
+                            const SizedBox(height: KeelSpacing.xs),
+                          ],
+                          Wrap(
+                              spacing: KeelSpacing.sm,
+                              runSpacing: KeelSpacing.xs,
+                              children: [
+                                _BookFact(
+                                    'Reserve',
+                                    state.reserveAvailable == null
+                                        ? 'Unavailable'
+                                        : state.reserveAvailable!
+                                            .toStringAsFixed(2)),
+                                _BookFact('Defense cap',
+                                    currentBook.defenseCap.toStringAsFixed(2)),
+                                _BookFact('Time limit',
+                                    '${(currentBook.timeLimitMs / 3600000).toStringAsFixed(0)}h'),
+                              ]),
+                          const SizedBox(height: KeelSpacing.md),
+                          Row(children: [
+                            Expanded(
+                                child: Text(
+                                    currentBook.automationEnabled
+                                        ? 'Automatic actions on'
+                                        : 'Automatic actions off',
+                                    style: KeelTypography.body.copyWith(
+                                        color: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.color))),
+                            const Icon(Icons.arrow_forward_ios,
+                                size: 17, color: KeelColors.accent),
+                          ]),
+                          LiveSyncStatus(value: telemetry),
+                        ]);
+                  },
+                )),
+          )),
     );
   }
 
   String _number(double? value) =>
       value == null ? 'Unavailable' : value.toStringAsFixed(2);
+}
+
+class _BookFact extends StatelessWidget {
+  const _BookFact(this.label, this.value);
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? KeelColors.darkCanvas.withValues(alpha: .55)
+                : KeelColors.lightBackground,
+            border: Border.all(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? KeelColors.darkBorder.withValues(alpha: .7)
+                    : KeelColors.lightBorder),
+            borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: KeelTypography.body.copyWith(
+                  fontSize: 11,
+                  color: Theme.of(context).textTheme.bodyMedium?.color)),
+          Text(value, style: KeelTypography.section),
+        ]),
+      );
 }
 
 class CreateBookEntry extends StatelessWidget {

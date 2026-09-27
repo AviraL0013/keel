@@ -76,7 +76,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 200));
         expect(tester.takeException(), isNull);
-        final card = tester.getRect(find.byType(Card).first);
+        final card = tester.getRect(find.byType(KeelPanel).first);
         expect(find.byType(TelemetryFreshness), findsNothing);
         final pill = tester.getRect(find.byType(StatusPill).first);
         expect(pill.left, greaterThanOrEqualTo(card.left));
