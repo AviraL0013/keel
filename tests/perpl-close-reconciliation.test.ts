@@ -14,41 +14,41 @@ const adapter = (result: ReturnType<typeof evidence>) => new PerplLiveAdapter({}
 
 describe('Perpl REDUCE and EXIT reconciliation', () => {
   it('confirms REDUCE only after matching fill and smaller open position', async () => {
-    const result = await adapter(evidence([order(2)], [fill(2)], [position(3)])).reconcile(action('REDUCE'))
+    const result = await adapter(evidence([order(2)], [fill(2)], [position(2)])).reconcile(action('REDUCE'))
     expect(result).toMatchObject({ status: 'CONFIRMED', error: undefined })
   })
 
   it('confirms EXIT only after matching full fill and closed position', async () => {
-    const result = await adapter(evidence([order(5)], [fill(5)], [position(0, 2)])).reconcile(action('EXIT'))
+    const result = await adapter(evidence([order(5)], [fill(5)], [position(5, 2)])).reconcile(action('EXIT'))
     expect(result).toMatchObject({ status: 'CONFIRMED', error: undefined })
   })
 
   it('passes only a verified post-close position to durable state persistence', async () => {
     const persist = vi.fn(async () => undefined)
-    const live = new PerplLiveAdapter({} as never, async () => context, { evidence: vi.fn(async () => evidence([order(5)], [fill(5)], [position(0, 2)])) } as never, async () => undefined, persist)
+    const live = new PerplLiveAdapter({} as never, async () => context, { evidence: vi.fn(async () => evidence([order(5)], [fill(5)], [position(5, 2)])) } as never, async () => undefined, persist)
     expect(await live.reconcile(action('EXIT'))).toMatchObject({ status: 'CONFIRMED' })
-    expect(persist).toHaveBeenCalledWith(expect.objectContaining({ kind: 'EXIT' }), expect.anything(), expect.objectContaining({ st: 2, s: 0, rq }), context)
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({ kind: 'EXIT' }), expect.anything(), expect.objectContaining({ st: 2, s: 5, rq }), context, 0n)
   })
 
   it('does not mistake later duplicate sr:32 for a failed successful close', async () => {
     const failed = { ...order(2, 0, 7), oid: 78, sr: 32 }
-    expect(await adapter(evidence([failed, order(2)], [fill(2)], [position(3)])).reconcile(action('REDUCE'))).toMatchObject({ status: 'CONFIRMED' })
+    expect(await adapter(evidence([failed, order(2)], [fill(2)], [position(2)])).reconcile(action('REDUCE'))).toMatchObject({ status: 'CONFIRMED' })
   })
 
   it('keeps incomplete and unbound outcomes unresolved', async () => {
-    expect(await adapter(evidence([order(2)], [fill(2)], [position(5)])).reconcile(action('REDUCE'))).toMatchObject({ status: 'UNKNOWN', error: 'POSITION_NOT_RECONCILED' })
+    expect(await adapter(evidence([order(2)], [fill(2)], [position(-1)])).reconcile(action('REDUCE'))).toMatchObject({ status: 'UNKNOWN', error: 'POSITION_NOT_RECONCILED' })
     expect(await adapter(evidence([order(2)], [fill(2)], [position(3, 1, 999)])).reconcile(action('REDUCE'))).toMatchObject({ status: 'UNKNOWN', error: 'POSITION_NOT_RECONCILED' })
-    expect(await adapter(evidence([order(5)], [fill(5)], [position(0, 1)])).reconcile(action('EXIT'))).toMatchObject({ status: 'UNKNOWN', error: 'EXIT_POSITION_REMAINS_OPEN' })
+    expect(await adapter(evidence([order(5)], [fill(5)], [position(5, 1)])).reconcile(action('EXIT'))).toMatchObject({ status: 'UNKNOWN', error: 'EXIT_POSITION_REMAINS_OPEN' })
     expect(await adapter(evidence([order(2, 0, 2)], [], [])).reconcile(action('REDUCE'))).toMatchObject({ status: 'UNKNOWN', error: 'CLOSE_FILL_PENDING' })
-    expect(await adapter(evidence([order(5)], [fill(2)], [position(3)])).reconcile(action('EXIT'))).toMatchObject({ status: 'UNKNOWN', error: 'CLOSE_FILL_MISMATCH' })
+    expect(await adapter(evidence([order(5)], [fill(2)], [position(2)])).reconcile(action('EXIT'))).toMatchObject({ status: 'UNKNOWN', error: 'CLOSE_FILL_MISMATCH' })
   })
 
   it('preserves partial, canceled and failed outcomes distinctly', async () => {
-    expect(await adapter(evidence([order(5, 2, 3)], [fill(2)], [position(3)])).reconcile(action('EXIT'))).toMatchObject({ status: 'PARTIAL', error: 'PARTIAL_CLOSE_REQUIRES_REVIEW' })
+    expect(await adapter(evidence([order(5, 2, 3)], [fill(2)], [position(2)])).reconcile(action('EXIT'))).toMatchObject({ status: 'PARTIAL', error: 'PARTIAL_CLOSE_REQUIRES_REVIEW' })
     expect(await adapter(evidence([order(2, 0, 5)], [], [])).reconcile(action('REDUCE'))).toMatchObject({ status: 'CANCELED' })
     expect(await adapter(evidence([{ ...order(2, 0, 7), sr: 32 }], [], [])).reconcile(action('REDUCE'))).toMatchObject({ status: 'FAILED', error: 'ORDER_REQUEST_ID_TOO_LOW' })
     expect(await adapter(evidence([{ ...order(2, 0, 7), t: 4, sr: 11 }], [], [])).reconcile(action('REDUCE'))).toMatchObject({ status: 'FAILED', error: 'CLOSE_ORDER_POSITION_MISMATCH' })
-    expect(await adapter(evidence([order(5)], [fill(5)], [position(0, 2)])).reconcile({ ...action('EXIT'), beforeState: undefined })).toMatchObject({ status: 'UNKNOWN', error: 'CLOSE_BASELINE_UNAVAILABLE' })
+    expect(await adapter(evidence([order(5)], [fill(5)], [position(5, 2)])).reconcile({ ...action('EXIT'), beforeState: undefined })).toMatchObject({ status: 'UNKNOWN', error: 'CLOSE_BASELINE_UNAVAILABLE' })
   })
 
   it('rejects a side mismatch before invoking the trading client', async () => {

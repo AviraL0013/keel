@@ -10,13 +10,34 @@ describe('Perpl position normalization', () => {
       st: 1, sd: 1, c: '-2421846', ep: 268390, s: 10, lv: 1200,
       at: { t: at }, efs: 0, xfs: 0, fee: '0' }
     const snapshot = { ...event, c: '2421847', rq: '0', oid: 0 }
-    const context = { accountId: 642, marketId: 32, positionId: 4320379535360,
+    const context = { accountId: 642, marketId: 32, positionId: 4320379535360, position: { side: 'LONG' },
       sizeDecimals: 3, priceDecimals: 2, collateralDecimals: 6 } as const
-    expect(verifiedCloseSnapshotValues({ position: snapshot, observedAt: at + 1 }, event, context as never))
+    expect(verifiedCloseSnapshotValues({ position: snapshot, observedAt: at + 1 }, event, context as never, 10n))
       .toEqual({ size: 0.01, entry: 2683.9, margin: '2.421847', status: 'OPEN' })
-    expect(() => verifiedCloseSnapshotValues({ position: { ...snapshot, s: 20 }, observedAt: at + 1 }, event, context as never))
+    expect(() => verifiedCloseSnapshotValues({ position: { ...snapshot, s: 20 }, observedAt: at + 1 }, event, context as never, 10n))
       .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
-    expect(() => verifiedCloseSnapshotValues({ position: snapshot, observedAt: at - 1 }, event, context as never))
+    expect(() => verifiedCloseSnapshotValues({ position: snapshot, observedAt: at - 1 }, event, context as never, 10n))
+      .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
+  })
+  it('verifies full EXIT against zero-size current snapshot, not history event size', () => {
+    const at = Date.now() - 1000
+    const event = { acc: 642, mkt: 32, pid: 4320379535360, rq: '1791001362443', oid: 4331361009664,
+      st: 2, sd: 1, c: '-2421847', ep: 268390, s: 10, lv: 1200,
+      at: { t: at }, efs: 0, xfs: 0, fee: '0' }
+    const snapshot = { ...event, s: 0, c: '0', ep: 0 }
+    const context = { accountId: 642, marketId: 32, positionId: 4320379535360, position: { side: 'LONG' },
+      sizeDecimals: 3, priceDecimals: 2, collateralDecimals: 6 } as const
+    expect(verifiedCloseSnapshotValues({ position: snapshot, observedAt: at + 1 }, event, context as never, 0n))
+      .toEqual({ size: 0, entry: 0, margin: '0', status: 'CLOSED' })
+    expect(() => verifiedCloseSnapshotValues({ position: { ...snapshot, s: 10 }, observedAt: at + 1 }, event, context as never, 0n))
+      .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
+    expect(verifiedCloseSnapshotValues(undefined, event, context as never, 0n, true))
+      .toEqual({ size: 0, entry: 0, margin: '0', status: 'CLOSED' })
+    expect(() => verifiedCloseSnapshotValues(undefined, event, context as never, 0n))
+      .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
+    expect(() => verifiedCloseSnapshotValues(undefined, event, context as never, 10n, true))
+      .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
+    expect(() => verifiedCloseSnapshotValues(undefined, { ...event, st: 1 }, context as never, 0n, true))
       .toThrow('CLOSE_CURRENT_POSITION_UNVERIFIED')
   })
   it.each([

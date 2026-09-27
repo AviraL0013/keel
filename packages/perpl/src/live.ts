@@ -14,7 +14,7 @@ export class PerplLiveAdapter {
     private readonly context: (action: Action) => Promise<ReconciliationContext>,
     private readonly history: Pick<PerplHistory, 'evidence'>,
     private readonly persistReference: (action: Action) => Promise<void>,
-    private readonly persistEvidence: (action: Action, evidence: unknown, verifiedPosition?: WirePosition, context?: ReconciliationContext) => Promise<void> = async () => undefined,
+    private readonly persistEvidence: (action: Action, evidence: unknown, verifiedPosition?: WirePosition, context?: ReconciliationContext, expectedSizeRaw?: bigint) => Promise<void> = async () => undefined,
     private readonly referenceConflicts: (action: Action) => Promise<boolean> = async () => false,
     private readonly verifyBeforeSend: (action: Action, order: ReturnType<typeof buildPerplOrder>) => Promise<void> = async () => undefined,
   ) {}
@@ -75,19 +75,20 @@ export class PerplLiveAdapter {
       if (fills.some(fill => !Number.isSafeInteger(fill.s) || fill.s <= 0)) return unknown('CLOSE_FILL_INVALID')
       const filled = fills.reduce((sum, fill) => sum + BigInt(fill.s), 0n)
       if (filled > BigInt(requested.s) || !Number.isSafeInteger(order.fs) || filled !== BigInt(order.fs)) return unknown('CLOSE_FILL_MISMATCH')
+      const remaining = BigInt(beforeSize) - filled
       const lastFillBlock = Math.max(...fills.map(fill => fill.at.b ?? 0))
       const after = evidence.positions.filter(position => position.pid === context.positionId && String(position.rq) === rq && position.oid === order.oid && (position.at.b ?? 0) >= lastFillBlock)
         .sort((a, b) => (b.at.b ?? 0) - (a.at.b ?? 0) || (b.at.tx ?? 0) - (a.at.tx ?? 0) || (b.at.l ?? 0) - (a.at.l ?? 0))[0]
-      if (!after || !Number.isSafeInteger(after.s) || BigInt(after.s) !== BigInt(beforeSize) - filled) return unknown('POSITION_NOT_RECONCILED')
+      if (!after || !Number.isSafeInteger(after.s) || after.s < 0 || remaining < 0n) return unknown('POSITION_NOT_RECONCILED')
       if (after.sd !== (before.side === 'LONG' ? 1 : 2)) return unknown('CLOSE_SIDE_MISMATCH')
       if (filled < BigInt(requested.s) || order.st === 3 || order.st === 5 || order.st === 6) {
-        if (after.st !== 1 || after.s <= 0) return unknown('PARTIAL_POSITION_UNVERIFIED')
+        if (after.st !== 1 || remaining <= 0n) return unknown('PARTIAL_POSITION_UNVERIFIED')
         return { ...action, status: 'PARTIAL', error: 'PARTIAL_CLOSE_REQUIRES_REVIEW' }
       }
       if (![4, 10].includes(order.st)) return unknown('CLOSE_ORDER_NOT_TERMINAL')
-      if (action.kind === 'REDUCE' && (after.st !== 1 || after.s <= 0)) return unknown('REDUCE_POSITION_NOT_OPEN')
-      if (action.kind === 'EXIT' && (after.st !== 2 || after.s !== 0)) return unknown('EXIT_POSITION_REMAINS_OPEN')
-      await this.persistEvidence(action, evidence, after, context)
+      if (action.kind === 'REDUCE' && (after.st !== 1 || remaining <= 0n)) return unknown('REDUCE_POSITION_NOT_OPEN')
+      if (action.kind === 'EXIT' && (after.st !== 2 || remaining !== 0n)) return unknown('EXIT_POSITION_REMAINS_OPEN')
+      await this.persistEvidence(action, evidence, after, context, remaining)
       return { ...action, status: 'CONFIRMED', error: undefined, confirmedAt: new Date().toISOString() }
     }
     const orders = evidence.orders

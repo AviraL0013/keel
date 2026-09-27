@@ -39,11 +39,16 @@ export function assertPerplBookSetupReady(position: Position, telemetry: Normali
   if (!readiness.allowed) throw Object.assign(new Error(readiness.code), { statusCode: 409, details: readiness })
 }
 
-export function verifiedCloseSnapshotValues(current: { position: WirePosition; observedAt?: number } | undefined, event: WirePosition, context: ReconciliationContext) {
+export function verifiedCloseSnapshotValues(current: { position: WirePosition; observedAt?: number } | undefined, event: WirePosition, context: ReconciliationContext, expectedSizeRaw: bigint, freshCompleteSnapshot = false) {
   // History `c` is a signed event delta; the authenticated snapshot holds current collateral.
+  if (event.acc !== context.accountId || event.mkt !== context.marketId || event.pid !== context.positionId ||
+      event.sd !== (context.position.side === 'LONG' ? 1 : 2)) throw new Error('CLOSE_CURRENT_POSITION_UNVERIFIED')
+  // Perpl omits closed positions from a fresh mt:26 snapshot after reconnect.
+  if (!current && freshCompleteSnapshot && event.st === 2 && expectedSizeRaw === 0n)
+    return { size: 0, entry: 0, margin: '0', status: 'CLOSED' as const }
   const position = current?.position
   if (!position || position.acc !== context.accountId || position.mkt !== context.marketId || position.pid !== context.positionId ||
-      position.s !== event.s || position.st !== event.st || position.sd !== event.sd ||
+      !Number.isSafeInteger(position.s) || BigInt(position.s) !== expectedSizeRaw || position.st !== event.st || position.sd !== event.sd ||
       !current.observedAt || current.observedAt < (event.at.t ?? 0)) throw new Error('CLOSE_CURRENT_POSITION_UNVERIFIED')
   const status = position.st === 1 ? 'OPEN' : position.st === 2 ? 'CLOSED' : 'UNKNOWN'
   if (status === 'UNKNOWN') throw new Error('CLOSE_POSITION_STATUS_UNVERIFIABLE')
@@ -93,10 +98,11 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
   }
   const live = new PerplLiveAdapter(trading, contextFor, history,
     async action => { await store.pool.query('UPDATE actions SET venue_reference=$2 WHERE id=$1', [action.id, action.venueReference]) },
-    async (action, _evidence, verifiedPosition, context) => {
-      if (!verifiedPosition || !context || (action.kind !== 'REDUCE' && action.kind !== 'EXIT')) return
+    async (action, _evidence, verifiedPosition, context, expectedSizeRaw) => {
+      if (!verifiedPosition || !context || expectedSizeRaw === undefined || (action.kind !== 'REDUCE' && action.kind !== 'EXIT')) return
       const current = trading.positionSnapshot(context.accountId, context.marketId, context.positionId)
-      const { size, entry, margin, status } = verifiedCloseSnapshotValues(current, verifiedPosition, context)
+      const freshCompleteSnapshot = !current && action.kind === 'EXIT' && trading.isReady()
+      const { size, entry, margin, status } = verifiedCloseSnapshotValues(current, verifiedPosition, context, expectedSizeRaw, freshCompleteSnapshot)
       await store.pool.query(`UPDATE positions SET size=$2,entry_price=$3,leverage=$4,margin=$5,status=$6,unrealized_pnl=(mark_price-$3)*$2*CASE WHEN $7='LONG' THEN 1 ELSE -1 END,observed_at=now() WHERE book_id=$1`, [action.bookId, size, entry, verifiedPosition.lv / 100, margin, status, context.position.side])
     },
     async action => {
