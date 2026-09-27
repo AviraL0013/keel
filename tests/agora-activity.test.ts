@@ -73,6 +73,8 @@ describe('read-only Agora activity', () => {
     await store.createSession('agora-test-session', { userId, walletAddress: wallet, expiresAt: Date.now() + 60_000 })
     const seen: string[] = []
     const venue = { agoraActivity: async (address?: string) => { seen.push(address ?? ''); return { status: 'AVAILABLE' as const, rows: [] } }, submit: async () => ({ venueReference: 'unused', status: 'UNKNOWN' as const }), reconcile: async (action: Action) => action, refresh: async () => undefined, ready: () => false, close: async () => undefined }
+    const previousAllowlist = process.env.KEEL_ALLOWED_WALLETS
+    process.env.KEEL_ALLOWED_WALLETS = wallet
     const app = createServer(store, { venue })
     try {
       expect((await app.inject({ url: '/capital/agora-activity' })).statusCode).toBe(401)
@@ -80,6 +82,6 @@ describe('read-only Agora activity', () => {
       expect(result.statusCode).toBe(200)
       expect(result.json()).toEqual({ status: 'AVAILABLE', rows: [] })
       expect(seen).toEqual([wallet])
-    } finally { await app.close() }
+    } finally { await app.close(); if (previousAllowlist === undefined) delete process.env.KEEL_ALLOWED_WALLETS; else process.env.KEEL_ALLOWED_WALLETS = previousAllowlist }
   })
 })

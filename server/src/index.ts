@@ -3,7 +3,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import rateLimit from '@fastify/rate-limit'
-import { loadConfig, assertProductionConfig, logger } from './config/index.js'
+import { loadConfig, assertProductionConfig, logger, walletAccess } from './config/index.js'
 import { KeelRuntime, type RuntimeVenue } from './runtime.js'
 import { AuthService } from './auth.js'
 import { MemoryStore } from './memoryStore.js'
@@ -26,11 +26,11 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   // HTTP startup alive so health remains available while trading fails closed.
   const app = Fastify({ logger: false, pluginTimeout: 30_000 })
   const persistence = store ?? (config.databaseUrl ? new PostgresStore(config.databaseUrl) : config.environment === 'test' ? new MemoryStore() : new UnconfiguredStore())
-  const auth = new AuthService(persistence, config.sessionSecret)
+  const auth = new AuthService(persistence, config.sessionSecret, address => walletAccess(config, address))
   const notificationStore = persistence instanceof PostgresStore ? new NotificationStore(persistence.pool) : null
   const origins = new Set(config.corsOrigin.split(',').map(origin => origin.trim()).filter(Boolean))
-  if (config.environment !== 'mainnet') for (const port of [8082, 8083]) { origins.add(`http://localhost:${port}`); origins.add(`http://127.0.0.1:${port}`) }
-  void app.register(cors, { origin: config.environment === 'mainnet' ? [...origins] : true, credentials: true })
+  if (config.environment === 'test' || config.environment === 'development') for (const port of [8082, 8083]) { origins.add(`http://localhost:${port}`); origins.add(`http://127.0.0.1:${port}`) }
+  void app.register(cors, { origin: config.environment === 'test' || config.environment === 'development' ? true : [...origins], credentials: true })
   void app.register(cookie, { secret: config.sessionSecret })
   void app.register(rateLimit, { max: 120, timeWindow: '1 minute' })
   const testRuntime = persistence instanceof MemoryStore && process.env.KEEL_TEST_VENUE === 'true' ? new DeterministicTestRuntime(persistence) : undefined
