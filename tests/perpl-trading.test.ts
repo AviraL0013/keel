@@ -50,6 +50,31 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     client.close()
   })
 
+  it('sends documented trading keepalives and stops them on close', async () => {
+    server = new WebSocketServer({ port: 0 })
+    let pings = 0
+    let closed!: () => void
+    const socketClosed = new Promise<void>(resolve => { closed = resolve })
+    server.on('connection', socket => {
+      socket.once('close', closed)
+      socket.on('message', raw => {
+        const frame = JSON.parse(String(raw)) as { mt?: number }
+        if (frame.mt === 29) snapshots(socket)
+        if (frame.mt === 1) { pings++; socket.send(JSON.stringify({ mt: 2 })) }
+      })
+    })
+    const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline, 20)
+    await client.connect()
+    await new Promise(resolve => setTimeout(resolve, 95))
+    expect(pings).toBeGreaterThanOrEqual(2)
+    expect(client.isReady()).toBe(true)
+    client.close()
+    await socketClosed
+    const stoppedAt = pings
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(pings).toBe(stoppedAt)
+  })
+
   it('keeps authenticated mt:26 positions with their WS receipt timestamp', async () => {
     server = new WebSocketServer({ port: 0 })
     server.on('connection', socket => socket.on('message', raw => {
@@ -91,6 +116,27 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     expect(connections).toBeGreaterThanOrEqual(2)
     expect(client.isReady()).toBe(true)
     client.close()
+  })
+
+  it('retries when connection closes during authentication', async () => {
+    server = new WebSocketServer({ port: 0 })
+    let connections = 0
+    server.on('connection', socket => {
+      connections++
+      const attempt = connections
+      socket.on('message', raw => {
+        if ((JSON.parse(String(raw)) as { mt?: number }).mt !== 29) return
+        if (attempt === 1) socket.close()
+        else snapshots(socket)
+      })
+    })
+    const client = new PerplTradingClient(config(await listen(server)), signer)
+    try {
+      await expect(client.connect()).rejects.toThrow('PERPL_WS_DISCONNECTED')
+      await new Promise(resolve => setTimeout(resolve, 1300))
+      expect(connections).toBeGreaterThanOrEqual(2)
+      expect(client.isReady()).toBe(true)
+    } finally { client.close() }
   })
 
   it('marks malformed snapshots unsafe', async () => {
@@ -138,6 +184,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       expect(sent).toMatchObject({ mt: 22, sn: 1 })
       expect(sent!.rq).toBe(45)
       expect(result).toMatchObject({ status: 'FAILED', venueReference: `642:${sent!.rq}`, reason: 'PERPL_ORDER_REJECTED_403' })
+      expect(result.venueProgress).toMatchObject({ requestId: '45', clientSequence: sent!.sn, admitted: false, response: 'REJECTED', code: 403 })
       expect(client.isReady()).toBe(true)
       expect(client.lifecycleState()).toBe('READY')
     } finally { client.close() }
@@ -170,7 +217,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
     try {
       await client.connect()
-      expect(await client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).toMatchObject({ status: 'UNKNOWN', reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS' })
+      expect(await client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })).toMatchObject({ status: 'UNKNOWN', reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS', venueProgress: { requestId: '45', response: 'TRANSPORT_AMBIGUOUS' } })
       expect(orderFrames).toBe(1)
     } finally { client.close() }
   })
@@ -206,7 +253,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       if (frame.mt === 22) {
         socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 0 } }))
         socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 2, t: 6, os: 0, fs: 0, at: { b: 1 } }] }))
-        setTimeout(() => socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 4, t: 6, os: 0, fs: 0, at: { b: 2 } }] })), 30)
+        setTimeout(() => socket.send(JSON.stringify({ mt: 24, d: [{ acc: 642, mkt: 16, oid: 3, rq: frame.rq, st: 4, t: 6, os: 0, fs: 0, lb: 150, at: { b: 2 } }] })), 30)
       }
     }))
     const client = new PerplTradingClient(config(await listen(server)), signer, () => undefined, localAllocator, currentBaseline)
@@ -215,6 +262,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       const result = await client.submit({ id: 'manual-action' } as never, { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500 })
       expect(result.status).toBe('CONFIRMED')
       expect(result.venueReference).toMatch(/^642:\d+:3$/)
+      expect(result.venueProgress).toMatchObject({ requestId: '45', admitted: true, response: 'ORDER_UPDATE', orderStatus: 4, effectiveLastExecBlock: 150 })
     } finally { client.close() }
   })
 

@@ -55,7 +55,7 @@ void main() {
                     riskState: 'HOLD',
                     executionState: 'UNKNOWN'))
             .label,
-        'Checking action');
+        'Checking with Perpl');
     expect(
         BookSummary.from(
                 active,

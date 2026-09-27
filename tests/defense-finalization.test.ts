@@ -9,6 +9,7 @@ it('settles verified DEFEND once when stale market timestamps prevent efficiency
   try {
     await db.exec((await readFile('database/migrations/001_initial.sql', 'utf8')).replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', ''))
     await db.exec(await readFile('database/migrations/002_execution.sql', 'utf8'))
+    await db.exec(await readFile('database/migrations/007_action_safety_pause.sql', 'utf8'))
     const user = (await db.query<{ id: string }>("INSERT INTO users(wallet_address) VALUES('reconciled-defend') RETURNING id")).rows[0].id
     const bookId = (await db.query<{ id: string }>("INSERT INTO books(user_id,market,side,stance,liquidation_floor,defense_cap,time_limit_ms) VALUES($1,'BTC','LONG','DEFEND',7,5,86400000) RETURNING id", [user])).rows[0].id
     await db.query('INSERT INTO reserves(book_id,available,cap) VALUES($1,10,10)', [bookId])

@@ -22,7 +22,9 @@ export type ServerServices = {
 export function createServer(store?: Store, services: ServerServices = {}) {
   const config = loadConfig(process.env)
   assertProductionConfig(config)
-  const app = Fastify({ logger: false })
+  // Venue authentication can wait for its 15-second snapshot deadline. Keep
+  // HTTP startup alive so health remains available while trading fails closed.
+  const app = Fastify({ logger: false, pluginTimeout: 30_000 })
   const persistence = store ?? (config.databaseUrl ? new PostgresStore(config.databaseUrl) : config.environment === 'test' ? new MemoryStore() : new UnconfiguredStore())
   const auth = new AuthService(persistence, config.sessionSecret)
   const notificationStore = persistence instanceof PostgresStore ? new NotificationStore(persistence.pool) : null

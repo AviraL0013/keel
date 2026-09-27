@@ -34,7 +34,7 @@ export class ExecutionWorker {
       action.status = 'VALIDATING'; await this.repo.saveAction(action)
       action.status = 'SUBMITTING'; await this.repo.saveAction(action)
       venueSubmissionInvoked = true
-      const submitted = await this.venue.submit(action); action.venueReference = submitted.venueReference; action.submittedAt = new Date().toISOString()
+      const submitted = await this.venue.submit(action); action.venueReference = submitted.venueReference; action.venueProgress = submitted.venueProgress; action.submittedAt = new Date().toISOString()
       if (submitted.status === 'FAILED') { action.status = 'FAILED'; action.failedAt = new Date().toISOString(); action.error = submitted.reason ?? 'VENUE_REJECTED'; if (this.repo.finalize) await this.repo.finalize(action); else { await this.repo.saveAction(action); await this.repo.addEvent(this.event(action, 'ACTION_FAILED', { error: action.error })) }; return action }
       action.status = submitted.status === 'UNKNOWN' ? 'UNKNOWN' : 'SUBMITTED'; if (submitted.status === 'UNKNOWN') action.error = submitted.reason ?? 'VENUE_OUTCOME_UNKNOWN'; await this.repo.saveAction(action)
       action.status = 'VERIFYING'; await this.repo.saveAction(action)

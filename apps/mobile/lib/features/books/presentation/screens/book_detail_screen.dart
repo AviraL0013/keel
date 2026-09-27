@@ -286,7 +286,7 @@ class _ExecutionCard extends StatelessWidget {
     final none = status == 'NO_ACTIVE_EXECUTION';
     final title = switch (status) {
       'NO_ACTIVE_EXECUTION' => 'No action in progress',
-      'UNKNOWN' => 'Checking last action',
+      'UNKNOWN' => 'Checking with Perpl',
       'CONFIRMED' => 'Action completed',
       'FAILED' => 'Action failed',
       'PARTIAL' => 'Partially completed',
@@ -317,16 +317,18 @@ class _ExecutionCard extends StatelessWidget {
                     const Text('LAST ACTION', style: KeelTypography.label),
                     const SizedBox(height: 4),
                     Text(title, style: KeelTypography.section),
-                    if (none ||
-                        unknown ||
-                        status == 'FAILED' ||
-                        status == 'PARTIAL')
+                    if (none || unknown || status == 'FAILED' || status == 'PARTIAL' ||
+                        const {'QUEUED', 'VALIDATING', 'SUBMITTING', 'SUBMITTED', 'VERIFYING'}.contains(status))
                       Text(
                           status == 'FAILED' && state.executionReason != null
                               ? state.executionReason!
-                              : unknown || status == 'PARTIAL'
-                                  ? 'The venue outcome is not fully confirmed. Do not repeat this action yet.'
-                                  : 'No KEEL action has been submitted for this Book.',
+                              : unknown
+                                  ? 'Perpl has not confirmed the outcome. KEEL is still checking and will not repeat this action.'
+                                  : status == 'PARTIAL'
+                                      ? 'Part of this action completed. KEEL paused further actions while checking the position.'
+                                      : none
+                                          ? 'No KEEL action has been submitted for this Book.'
+                                          : 'KEEL is checking the result with Perpl. Do not repeat this action.',
                           style: KeelTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme

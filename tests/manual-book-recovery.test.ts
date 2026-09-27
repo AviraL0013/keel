@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { databaseFixture } from './helpers/database.js'
 import { KeelRuntime, type RuntimeVenue } from '../server/src/runtime.js'
 import type { CreateBookInput } from '../server/src/infrastructure/database/postgres-store.js'
+import { PostgresExecutionRepository } from '../server/src/infrastructure/database/execution-repository.js'
+import type { Action } from '../packages/domain/src/index.js'
 
 function bookInput(): CreateBookInput {
   const now = Date.now()
@@ -16,6 +18,36 @@ function bookInput(): CreateBookInput {
 }
 
 describe('manual-only Book recovery', () => {
+  it('keeps an ambiguous action paused across restart, then restores only manual controls after verification', async () => {
+    const { db, store } = await databaseFixture()
+    try {
+      const user = await store.ensureUser('owner')
+      const book = await store.createBook(user, { ...bookInput(), status: 'ACTIVE' })
+      const decision = await db.query<{ id: string }>("INSERT INTO decisions(book_id,state,action,reason_codes,human_readable_reasons,risk_features) VALUES($1,'REDUCE','REDUCE','[]','[]','{}') RETURNING id", [book.id])
+      const action: Action = { id: crypto.randomUUID(), bookId: book.id, decisionId: decision.rows[0].id, kind: 'REDUCE', amount: 0, status: 'UNKNOWN', idempotencyKey: 'restart-reduce', venueReference: '7:45', error: 'VENUE_OUTCOME_PENDING', venueProgress: { requestId: '45', clientSequence: 2, admitted: true, requestedLastExecBlock: 0, response: 'TIMEOUT' } }
+      const repo = new PostgresExecutionRepository(store)
+      await repo.saveAction(action)
+      await repo.finalize(action)
+      expect(await store.safetyActionForBook(book.id)).toBe(action.id)
+      expect((await store.getBook(user, book.id))?.status).toBe('SAFE_MODE')
+      await expect(new KeelRuntime(store, { ready: () => true, refresh: async () => {}, submit: vi.fn() } as unknown as RuntimeVenue).recoverBook(user, book.id)).rejects.toThrow('POSITION_EXECUTION_UNRESOLVED')
+
+      const confirmed: Action = { ...action, status: 'CONFIRMED', error: undefined, confirmedAt: new Date().toISOString() }
+      await repo.finalize(confirmed)
+      const persisted = await db.query<{ venue_progress: typeof action.venueProgress }>('SELECT venue_progress FROM actions WHERE id=$1', [action.id])
+      expect(persisted.rows[0].venue_progress).toMatchObject({ requestId: '45', admitted: true, response: 'TIMEOUT' })
+      const submit = vi.fn()
+      const venue = { ready: () => true, refresh: vi.fn(async () => {}), submit } as unknown as RuntimeVenue
+      const restarted = new KeelRuntime(store, venue)
+      Object.assign(restarted, { lease: { query: async () => ({ rows: [] }) } })
+      await (restarted as unknown as { tick(): Promise<void> }).tick()
+      expect((await store.getBook(user, book.id))?.status).toBe('ACTIVE')
+      expect((await store.getBook(user, book.id))?.automationEnabled).toBe(false)
+      expect(await store.safetyActionForBook(book.id)).toBeNull()
+      expect(submit).not.toHaveBeenCalled()
+      expect((await store.listAutopsy(user, book.id)).some(row => (row as { type: string }).type === 'BOOK_RECOVERED_AFTER_VERIFIED_ACTION')).toBe(true)
+    } finally { await db.close() }
+  }, 20000)
   it('persists each repeated explicit manual decision before creating its action', async () => {
     const { db, store } = await databaseFixture()
     try {

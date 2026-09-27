@@ -104,7 +104,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       if (pending.rows.length) { await client.query('COMMIT'); return false }
       const updated = await client.query("UPDATE positions SET size=0,status='CLOSED',unrealized_pnl=0,observed_at=now() WHERE book_id=$1 RETURNING book_id", [book.id])
       if (!updated.rows.length) { await client.query('COMMIT'); return false }
-      await client.query("UPDATE books SET status='CLOSED',automation_enabled=false,updated_at=now() WHERE id=$1", [book.id])
+      await client.query("UPDATE books SET status='CLOSED',automation_enabled=false,safety_action_id=NULL,updated_at=now() WHERE id=$1", [book.id])
       await client.query('COMMIT')
       logger.info({ bookId: book.id, accountId: book.venueAccountId, positionId: book.venuePositionId }, 'Book closed after authoritative Perpl position snapshot')
       return true

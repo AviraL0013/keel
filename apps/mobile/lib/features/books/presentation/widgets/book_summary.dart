@@ -12,21 +12,33 @@ class BookSummary {
 
   static BookSummary from(Book book, BookTelemetry state) {
     final execution = state.executionState;
+    if (execution == 'UNKNOWN') {
+      return const BookSummary(
+          'Checking with Perpl',
+          'The last action has no confirmed result yet. KEEL is still checking and will not repeat it.',
+          KeelColors.reduce,
+          Icons.hourglass_top_outlined);
+    }
     if (const {
-      'UNKNOWN',
       'QUEUED',
       'VALIDATING',
       'SUBMITTING',
       'SUBMITTED',
       'VERIFYING',
-      'PARTIAL',
       'ACCEPTED',
       'OPEN',
       'PARTIALLY_FILLED'
     }.contains(execution)) {
       return const BookSummary(
-          'Checking action',
-          'We cannot confirm the last action yet. Open this Book for details.',
+          'Action in progress',
+          'KEEL is checking the result with Perpl. Do not repeat this action.',
+          KeelColors.reduce,
+          Icons.hourglass_top_outlined);
+    }
+    if (execution == 'PARTIAL') {
+      return const BookSummary(
+          'Action needs review',
+          'Part of the action completed. KEEL paused further actions while checking the position.',
           KeelColors.reduce,
           Icons.hourglass_top_outlined);
     }

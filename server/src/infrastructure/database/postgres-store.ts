@@ -61,14 +61,18 @@ export class PostgresStore implements Store {
       const paused = patch.automationEnabled === false || patch.status === 'PAUSED'
       const status = current.status === 'CLOSED' ? 'CLOSED' : current.status === 'SAFE_MODE' ? 'SAFE_MODE' : paused ? 'PAUSED' : enabling ? 'ACTIVE' : current.status
       const automation = paused ? false : enabling ? true : current.automationEnabled
-      const result = await client.query('UPDATE books SET automation_enabled=$3,status=$4,stance=COALESCE($5,stance),updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *', [bookId,userId,automation,status,patch.stance ?? null])
+      const result = await client.query('UPDATE books SET automation_enabled=$3,status=$4,stance=COALESCE($5,stance),safety_action_id=CASE WHEN $6 THEN NULL ELSE safety_action_id END,updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *', [bookId,userId,automation,status,patch.stance ?? null,patch.stance === 'KILL' || paused])
       await client.query('INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)', [bookId,patch.stance === 'KILL' ? 'USER_KILL' : enabling ? 'BOOK_ARMED' : paused ? 'USER_PAUSED' : 'BOOK_UPDATED',JSON.stringify(patch)])
       await client.query('COMMIT')
       return mapBook(result.rows[0])
     } catch(error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }
 
-  async recoverBookManualOnly(userId: string, bookId: string): Promise<Book | null> {
+  async safetyActionForBook(bookId: string): Promise<string | null> {
+    const result = await this.pool.query('SELECT safety_action_id FROM books WHERE id=$1', [bookId])
+    return result.rows[0]?.safety_action_id ? String(result.rows[0].safety_action_id) : null
+  }
+  async recoverBookManualOnly(userId: string, bookId: string, expectedActionId?: string): Promise<Book | null> {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
@@ -76,13 +80,14 @@ export class PostgresStore implements Store {
       if (!locked.rows.length) { await client.query('COMMIT'); return null }
       const book = mapBook(locked.rows[0])
       if (book.status !== 'SAFE_MODE' || book.automationEnabled || book.stance === 'KILL') throw new Error('BOOK_RECOVERY_STATE_CHANGED')
+      if (expectedActionId && String(locked.rows[0].safety_action_id ?? '') !== expectedActionId) throw new Error('BOOK_RECOVERY_STATE_CHANGED')
       const unresolved = await client.query(`SELECT 1 FROM actions a JOIN books origin ON origin.id=a.book_id
         WHERE (a.book_id=$1 OR (origin.venue_account_id=$2 AND origin.venue_position_id=$3))
         AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL') LIMIT 1`,
         [bookId, book.venueAccountId, book.venuePositionId])
       if (unresolved.rows.length) throw new Error('POSITION_EXECUTION_UNRESOLVED')
-      const result = await client.query("UPDATE books SET status='ACTIVE',automation_enabled=false,updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *", [bookId, userId])
-      await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'BOOK_RECOVERED_MANUAL_ONLY',$2)", [bookId, JSON.stringify({ automationEnabled: false })])
+      const result = await client.query("UPDATE books SET status='ACTIVE',automation_enabled=false,safety_action_id=NULL,updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *", [bookId, userId])
+      await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)", [bookId, expectedActionId ? 'BOOK_RECOVERED_AFTER_VERIFIED_ACTION' : 'BOOK_RECOVERED_MANUAL_ONLY', JSON.stringify({ automationEnabled: false, actionId: expectedActionId ?? null })])
       await client.query('COMMIT')
       return mapBook(result.rows[0])
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }

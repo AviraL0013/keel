@@ -50,7 +50,7 @@ export class KeelRuntime {
   private async tick() {
     if (!this.lease) return
     await this.lease.query('SELECT 1')
-    const rows = await this.store.pool.query("SELECT b.id,b.user_id FROM books b WHERE (b.automation_enabled AND b.status!='CLOSED') OR EXISTS (SELECT 1 FROM actions a WHERE a.book_id=b.id AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL')) ORDER BY b.created_at")
+    const rows = await this.store.pool.query("SELECT b.id,b.user_id FROM books b WHERE (b.automation_enabled AND b.status!='CLOSED') OR (b.status='SAFE_MODE' AND b.safety_action_id IS NOT NULL) OR EXISTS (SELECT 1 FROM actions a WHERE a.book_id=b.id AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL')) ORDER BY b.created_at")
     for (const row of rows.rows) {
       const book = await this.store.getBook(row.user_id, row.id)
       if (!book) continue
@@ -78,6 +78,20 @@ export class KeelRuntime {
           }
           await this.repository.finalize(result)
           this.reconciliationSchedule.delete(book.id)
+          continue
+        }
+        const safetyActionId = await this.store.safetyActionForBook(book.id)
+        if (book.status === 'SAFE_MODE' && safetyActionId) {
+          if (Date.now() >= (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) {
+            const safetyAction = await this.store.pool.query('SELECT status,kind FROM actions WHERE id=$1 AND book_id=$2', [safetyActionId, book.id])
+            if (safetyAction.rows[0]?.status === 'CONFIRMED' && safetyAction.rows[0]?.kind !== 'EXIT') {
+              try { await this.recoverBook(row.user_id, book.id, safetyActionId); this.reconciliationSchedule.delete(book.id) }
+              catch (error) {
+                this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })
+                logger.warn({ bookId: book.id, actionId: safetyActionId, error: error instanceof Error ? error.message : 'RECOVERY_DEFERRED' }, 'Verified action manual recovery deferred')
+              }
+            }
+          }
           continue
         }
         this.reconciliationSchedule.delete(book.id)
@@ -114,7 +128,7 @@ export class KeelRuntime {
       await client.query(`INSERT INTO decisions(id,book_id,state,action,amount,reason_codes,human_readable_reasons,risk_features,fingerprint,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [decision.id, decision.bookId, decision.state, decision.action, decision.amount, JSON.stringify(decision.reasonCodes), JSON.stringify(decision.humanReadableReasons), JSON.stringify(decision.riskFeatures), fingerprint, decision.createdAt])
       const types = ['DECISION_CREATED', ...(decision.reasonCodes.includes('DEFENSE_REFUSED') ? ['DEFENSE_REFUSED'] : []), ...(decision.state === 'SAFE_MODE' ? ['SAFE_MODE_ENTERED'] : prior.rows[0]?.state === 'SAFE_MODE' ? ['SAFE_MODE_EXITED'] : [])]
       for (const type of types) await client.query('INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)', [decision.bookId,type,JSON.stringify(decision)])
-      await client.query("UPDATE books SET status=$2,updated_at=now() WHERE id=$1", [decision.bookId,decision.state === 'SAFE_MODE' ? 'SAFE_MODE' : 'ACTIVE'])
+      await client.query("UPDATE books SET status=$2,automation_enabled=CASE WHEN $2='SAFE_MODE' THEN false ELSE automation_enabled END,safety_action_id=CASE WHEN $2='SAFE_MODE' THEN NULL ELSE safety_action_id END,updated_at=now() WHERE id=$1", [decision.bookId,decision.state === 'SAFE_MODE' ? 'SAFE_MODE' : 'ACTIVE'])
       if (decision.state !== 'HOLD') await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,$2,$2,$3,$4 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId,decision.state,decision.humanReadableReasons.join(' '),decision.id])
       await client.query('COMMIT'); return true
     } catch(error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
@@ -125,7 +139,7 @@ export class KeelRuntime {
   private manualAuthorityRejected(bookId: string, code: string | string[], reason: string): Decision {
     return { id: randomUUID(), bookId, state: 'SAFE_MODE', action: 'SAFE_MODE', amount: 0, reasonCodes: Array.isArray(code) ? code : [code], humanReadableReasons: [reason], createdAt: new Date().toISOString(), riskFeatures: { liquidationDistance: 0, fundingPressure: 0, spreadBps: 0, depthCoverage: 0, volatility: 0, reserveHeadroom: 0, capUtilization: 0, timeRemainingMs: 0, defenseEfficiency: 0, fresh: false } }
   }
-  async recoverBook(userId: string, bookId: string): Promise<Book> {
+  async recoverBook(userId: string, bookId: string, expectedActionId?: string): Promise<Book> {
     const book = await this.store.getBook(userId, bookId)
     if (!book) throw new NotFoundError('BOOK_NOT_FOUND')
     if (book.status !== 'SAFE_MODE' || book.automationEnabled || book.stance === 'KILL') throw new ConflictError('BOOK_RECOVERY_NOT_ALLOWED')
@@ -144,7 +158,7 @@ export class KeelRuntime {
       throw error
     }
     try {
-      const recovered = await this.store.recoverBookManualOnly(userId, bookId)
+      const recovered = await this.store.recoverBookManualOnly(userId, bookId, expectedActionId)
       if (!recovered) throw new NotFoundError('BOOK_NOT_FOUND')
       return recovered
     } catch (error) {
