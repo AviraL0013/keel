@@ -150,6 +150,10 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
             onChanged: (value) => setState(() => stance = value),
             decoration: const InputDecoration(labelText: 'Stance'),
           ),
+          if (stance == 'KILL')
+            const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('Never rescues. Exits as soon as a limit breaks.')),
           SwitchListTile(
             title: const Text('Automation'),
             value: automation,

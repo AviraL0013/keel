@@ -47,6 +47,9 @@ class BooksRepository {
       api.post('/books/$id/$action',
           decode: (value) =>
               Book.fromJson(Map<String, dynamic>.from(value as Map)));
+  Future<Book> armWithStance(String id, String stance) => api.patch('/books/$id',
+      body: {'automationEnabled': true, 'stance': stance},
+      decode: (value) => Book.fromJson(Map<String, dynamic>.from(value as Map)));
   Future<BookDashboardState> state(String id) async {
     final raw = await api.get('/books/$id/state', (value) => value);
     final value = Map<String, dynamic>.from(raw as Map);

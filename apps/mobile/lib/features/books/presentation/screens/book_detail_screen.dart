@@ -125,6 +125,8 @@ class BookDetailScreen extends ConsumerWidget {
                           _ControlCard(
                               book: dashboard.book,
                               disabled: action.isLoading,
+                              onArm: () => _armAutomation(context, ref,
+                                  dashboard.book, dashboard.telemetry),
                               onControl: (control) =>
                                   _confirmControl(context, ref, control)),
                           const SizedBox(height: KeelSpacing.md),
@@ -253,6 +255,61 @@ class BookDetailScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _armAutomation(BuildContext context, WidgetRef ref,
+      Book currentBook, BookTelemetry telemetry) async {
+    final reserve = telemetry.reserveAvailable;
+    final consented = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+              title: const Text('Arm automation?'),
+              content: Text(
+                  'KEEL may DEFEND using up to ${currentBook.defenseCap.toStringAsFixed(2)} AUSD per action from your ${reserve?.toStringAsFixed(2) ?? 'unavailable'} AUSD reserve. It may also place reduce-only REDUCE and EXIT orders. Use PAUSE to stop automated actions.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('CANCEL')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('ARM AUTOMATION'))
+              ],
+            ));
+    if (consented != true || !context.mounted) return;
+    await ref.read(bookActionProvider.notifier).run(book.id, 'arm');
+    final error = ref.read(bookActionProvider).error;
+    if (error is KeelException &&
+        error.statusCode == 409 &&
+        error.message == 'KILL_SWITCH_ENGAGED' &&
+        context.mounted) {
+      final stance = await showDialog<String>(
+          context: context,
+          builder: (_) => SimpleDialog(
+                title: const Text('Choose a stance'),
+                children: [
+                  SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, 'DEFEND'),
+                      child: const ListTile(
+                          title: Text('DEFEND'),
+                          subtitle: Text('Use the reserve within your cap.'))),
+                  SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, 'HARVEST'),
+                      child: const ListTile(
+                          title: Text('HARVEST'),
+                          subtitle: Text('Do not spend the reserve.'))),
+                  SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, 'KILL'),
+                      child: const ListTile(
+                          title: Text('KILL'),
+                          subtitle: Text('Never rescue. Exit when a limit breaks.'))),
+                ],
+              ));
+      if (stance != null) {
+        await ref.read(bookActionProvider.notifier).armWithStance(book.id, stance);
+      }
+    }
+    ref.invalidate(bookDashboardProvider(book.id));
+    ref.invalidate(booksProvider);
+  }
+
   List<String> _reasonSentences(BookTelemetry state) {
     if (state.riskReason != null && state.riskReason!.isNotEmpty) {
       return [state.riskReason!];
@@ -341,9 +398,10 @@ class _ExecutionCard extends StatelessWidget {
 
 class _ControlCard extends StatelessWidget {
   const _ControlCard(
-      {required this.book, required this.disabled, required this.onControl});
+      {required this.book, required this.disabled, required this.onArm, required this.onControl});
   final Book book;
   final bool disabled;
+  final VoidCallback onArm;
   final void Function(String) onControl;
   @override
   Widget build(BuildContext context) => Card(
@@ -380,12 +438,21 @@ class _ControlCard extends StatelessWidget {
                 ]),
             const SizedBox(height: KeelSpacing.sm),
             Text(
-                book.automationEnabled
-                    ? 'KEEL may act within this Book policy.'
-                    : book.status == 'PAUSED'
+                book.status == 'SAFE_MODE'
+                    ? switch (book.safeModeReason) {
+                        'DATA_UNAVAILABLE' || 'VENUE_UNAVAILABLE' =>
+                          'Waiting for live data — automation resumes automatically.',
+                        'UNRESOLVED_ACTION' =>
+                          'Checking an action with Perpl — review needed.',
+                        'RUNTIME_FAILURE' =>
+                          'Automation stopped — review needed.',
+                        _ =>
+                          'Book is in safe mode. Review the current status before acting.',
+                      }
+                    : book.automationEnabled
+                        ? 'KEEL may act within this Book policy.'
+                        : book.status == 'PAUSED'
                         ? 'Book is paused. Automation is off; manual controls remain explicit.'
-                        : book.status == 'SAFE_MODE'
-                            ? 'Book is in safe mode. Recover manual access after backend checks; automation stays off.'
                             : 'Automation is off; manual controls remain explicit.',
                 style: KeelTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color)),
@@ -394,7 +461,15 @@ class _ControlCard extends StatelessWidget {
                 spacing: KeelSpacing.sm,
                 runSpacing: KeelSpacing.sm,
                 children: [
-                  if (book.status == 'SAFE_MODE')
+                  if ((book.status == 'ACTIVE' || book.status == 'PAUSED') &&
+                      !book.automationEnabled)
+                    FilledButton.icon(
+                        onPressed: disabled ? null : onArm,
+                        icon: const Icon(Icons.bolt),
+                        label: const Text('ARM AUTOMATION')),
+                  if (book.status == 'SAFE_MODE' &&
+                      book.safeModeReason != 'DATA_UNAVAILABLE' &&
+                      book.safeModeReason != 'VENUE_UNAVAILABLE')
                     OutlinedButton.icon(
                         onPressed: disabled ? null : () => onControl('recover'),
                         icon: const Icon(Icons.health_and_safety_outlined),
