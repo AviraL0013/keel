@@ -51,7 +51,6 @@ export function classifyDecision(book: Book, features: RiskFeatures, amount: num
   if (!features.fresh) return { state: 'SAFE_MODE', action: 'SAFE_MODE', amount: 0, reasonCodes: ['STALE_STATE'], humanReadableReasons: ['Required market or position telemetry is stale.'] , riskFeatures: features }
   if (!book.automationEnabled || book.status === 'PAUSED' || book.status === 'CLOSED') return { state: 'HOLD', action: 'HOLD', amount: 0, reasonCodes: ['AUTOMATION_PAUSED'], humanReadableReasons: ['Automation is paused; no automated action is authorized.'], riskFeatures: features }
   if (features.timeRemainingMs <= 0) { return { state: 'EXIT', action: 'EXIT', amount: 0, reasonCodes: ['TIME_LIMIT'], humanReadableReasons: ['Book time limit reached; position must flatten.'], riskFeatures: features } }
-  if (book.stance === 'KILL') return { state: 'EXIT', action: 'EXIT', amount: 0, reasonCodes: ['USER_KILL'], humanReadableReasons: ['Kill stance forbids further rescue.'], riskFeatures: features }
   const floorBreached = features.liquidationDistance < book.liquidationFloor
   if (floorBreached) { reasons.push('Liquidation distance crossed configured floor.'); codes.push('LIQ_FLOOR') }
   if (features.fundingPressure > config.maxFundingPressure) { reasons.push('Funding pressure is elevated.'); codes.push('FUNDING_PRESSURE') }
