@@ -57,11 +57,16 @@ class MetricGauge extends StatelessWidget {
         ? null
         : (value! / maximum!).clamp(0.0, 1.0);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label,
-            style: KeelTypography.label.copyWith(
-                color: Theme.of(context).textTheme.bodyMedium?.color)),
-        Text(valueLabel, style: KeelTypography.metric.copyWith(fontSize: 16)),
+      Row(children: [
+        Expanded(
+            child: Text(label,
+                style: KeelTypography.label.copyWith(
+                    color: Theme.of(context).textTheme.bodyMedium?.color))),
+        const SizedBox(width: KeelSpacing.sm),
+        Flexible(
+            child: Text(valueLabel,
+                textAlign: TextAlign.right,
+                style: KeelTypography.metric.copyWith(fontSize: 16))),
       ]),
       const SizedBox(height: KeelSpacing.sm),
       LayoutBuilder(builder: (_, constraints) {
@@ -125,7 +130,10 @@ class TelemetryFreshness extends StatelessWidget {
     }
     return Wrap(spacing: KeelSpacing.sm, runSpacing: KeelSpacing.xs, children: [
       for (final source in ['MARKET', 'POSITION', 'FUNDING', 'DEPTH'])
-        StatusPill(label: '$source UNKNOWN', color: KeelColors.hold, icon: Icons.help_outline),
+        StatusPill(
+            label: '$source UNKNOWN',
+            color: KeelColors.hold,
+            icon: Icons.help_outline),
     ]);
   }
 
@@ -136,7 +144,13 @@ class TelemetryFreshness extends StatelessWidget {
         : point.fresh
             ? KeelColors.defend
             : KeelColors.hold;
-    final status = point.fresh ? 'LIVE' : point.stale ? 'STALE' : point.status == 'UNAVAILABLE' ? 'UNAVAILABLE' : 'UNKNOWN';
+    final status = point.fresh
+        ? 'LIVE'
+        : point.stale
+            ? 'STALE'
+            : point.status == 'UNAVAILABLE'
+                ? 'UNAVAILABLE'
+                : 'UNKNOWN';
     return StatusPill(
         label: '$label $status',
         color: color,
@@ -146,8 +160,6 @@ class TelemetryFreshness extends StatelessWidget {
                 ? Icons.wifi_tethering
                 : Icons.help_outline);
   }
-
-
 }
 
 class ActionButtonRow extends StatelessWidget {

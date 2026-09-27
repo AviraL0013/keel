@@ -10,7 +10,12 @@ import '../../../positions/domain/position.dart';
 import '../../../positions/presentation/positions_screen.dart';
 import 'book_detail_screen.dart';
 import 'create_book_screen.dart';
+import '../widgets/book_summary.dart';
 import '../widgets/live_sync_status.dart';
+
+enum _BookListTab { current, history }
+
+enum _BookFilter { all, active, safetyPaused, paused }
 
 class BooksScreen extends ConsumerStatefulWidget {
   const BooksScreen({super.key});
@@ -23,29 +28,161 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
   bool _updated = false;
   String? _syncError;
   Timer? _updatedTimer;
+  Timer? _listTimer;
+  _BookListTab _tab = _BookListTab.current;
+  _BookFilter _statusFilter = _BookFilter.all;
+  String? _marketFilter;
+
+  @override
+  void initState() {
+    super.initState();
+    _listTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && !_syncing) ref.invalidate(booksProvider);
+    });
+  }
 
   @override
   void dispose() {
     _updatedTimer?.cancel();
+    _listTimer?.cancel();
     super.dispose();
+  }
+
+  List<Book> _visibleBooks(List<Book> items) {
+    final current = _tab == _BookListTab.current;
+    final inTab = items.where((book) => (book.status == 'CLOSED') != current);
+    final inMarket = inTab
+        .where((book) => _marketFilter == null || book.market == _marketFilter);
+    final filtered = inMarket
+        .where((book) =>
+            !current ||
+            switch (_statusFilter) {
+              _BookFilter.all => true,
+              _BookFilter.active => book.status == 'ACTIVE',
+              _BookFilter.safetyPaused => book.status == 'SAFE_MODE',
+              _BookFilter.paused => book.status == 'PAUSED',
+            })
+        .toList();
+    if (!current) return filtered;
+    // Safety-paused Books stay first; original order remains within each group.
+    return [
+      ...filtered.where((book) => book.status == 'SAFE_MODE'),
+      ...filtered.where((book) => book.status == 'PAUSED'),
+      ...filtered.where(
+          (book) => book.status != 'SAFE_MODE' && book.status != 'PAUSED'),
+    ];
+  }
+
+  Future<void> _showFilters(List<Book> items) async {
+    var market = _marketFilter;
+    var status = _statusFilter;
+    final markets = items.map((book) => book.market).toSet().toList()..sort();
+    await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheetContext) => StatefulBuilder(
+            builder: (sheetContext, update) => SafeArea(
+                child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxHeight: MediaQuery.sizeOf(sheetContext).height * .8),
+                    child: SingleChildScrollView(
+                        child: Padding(
+                            padding: const EdgeInsets.all(KeelSpacing.lg),
+                            child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Filter Books',
+                                      style: KeelTypography.title),
+                                  const SizedBox(height: KeelSpacing.md),
+                                  const Text('Market',
+                                      style: KeelTypography.label),
+                                  const SizedBox(height: KeelSpacing.sm),
+                                  Wrap(
+                                      spacing: KeelSpacing.sm,
+                                      runSpacing: KeelSpacing.xs,
+                                      children: [
+                                        ChoiceChip(
+                                            label: const Text('All'),
+                                            selected: market == null,
+                                            onSelected: (_) =>
+                                                update(() => market = null)),
+                                        for (final item in markets)
+                                          ChoiceChip(
+                                              label: Text(item),
+                                              selected: market == item,
+                                              onSelected: (_) =>
+                                                  update(() => market = item)),
+                                      ]),
+                                  if (_tab == _BookListTab.current) ...[
+                                    const SizedBox(height: KeelSpacing.lg),
+                                    const Text('Status',
+                                        style: KeelTypography.label),
+                                    const SizedBox(height: KeelSpacing.sm),
+                                    Wrap(
+                                        spacing: KeelSpacing.sm,
+                                        runSpacing: KeelSpacing.xs,
+                                        children: [
+                                          for (final option
+                                              in _BookFilter.values)
+                                            ChoiceChip(
+                                                label: Text(switch (option) {
+                                                  _BookFilter.all => 'All',
+                                                  _BookFilter.active =>
+                                                    'Active',
+                                                  _BookFilter.safetyPaused =>
+                                                    'Safety paused',
+                                                  _BookFilter.paused =>
+                                                    'Paused',
+                                                }),
+                                                selected: status == option,
+                                                onSelected: (_) => update(
+                                                    () => status = option)),
+                                        ]),
+                                  ],
+                                  const SizedBox(height: KeelSpacing.lg),
+                                  SizedBox(
+                                      width: double.infinity,
+                                      child: FilledButton(
+                                          onPressed: () {
+                                            setState(() {
+                                              _marketFilter = market;
+                                              _statusFilter = status;
+                                            });
+                                            Navigator.pop(sheetContext);
+                                          },
+                                          child: const Text('SHOW BOOKS'))),
+                                ])))))));
   }
 
   Future<void> _resync() async {
     if (_syncing) return;
     _updatedTimer?.cancel();
-    setState(() { _syncing = true; _updated = false; _syncError = null; });
+    setState(() {
+      _syncing = true;
+      _updated = false;
+      _syncError = null;
+    });
     try {
       final items = await ref.refresh(booksProvider.future);
       await Future.wait(items.map((book) {
         return ref.read(bookDashboardProvider(book.id).notifier).refreshNow();
       }));
       if (!mounted) return;
-      setState(() { _syncing = false; _updated = true; });
+      setState(() {
+        _syncing = false;
+        _updated = true;
+      });
       _updatedTimer = Timer(const Duration(seconds: 2), () {
         if (mounted) setState(() => _updated = false);
       });
     } catch (error) {
-      if (mounted) setState(() { _syncing = false; _syncError = friendlyError(error); });
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          _syncError = friendlyError(error);
+        });
+      }
     }
   }
 
@@ -54,9 +191,18 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     final books = ref.watch(booksProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('KEEL'), actions: [
-        SizedBox(width: 104, child: Center(child: Text(
-            _syncing ? 'SYNCING' : _updated ? 'UPDATED' : _syncError != null ? 'RESYNC FAILED' : '',
-            style: KeelTypography.label))),
+        SizedBox(
+            width: 104,
+            child: Center(
+                child: Text(
+                    _syncing
+                        ? 'SYNCING'
+                        : _updated
+                            ? 'UPDATED'
+                            : _syncError != null
+                                ? 'RESYNC FAILED'
+                                : '',
+                    style: KeelTypography.label))),
         IconButton(
             tooltip: 'Resync Books',
             onPressed: _syncing ? null : _resync,
@@ -69,44 +215,99 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
         error: (error, _) => ErrorStateCard(
             message: friendlyError(error),
             onRetry: () => ref.invalidate(booksProvider)),
-        data: (items) => RefreshIndicator(
-          onRefresh: _resync,
-          child: ListView(
+        data: (items) {
+          final visible = _visibleBooks(items);
+          final currentCount =
+              items.where((book) => book.status != 'CLOSED').length;
+          final historyCount = items.length - currentCount;
+          final filtersActive = _marketFilter != null ||
+              (_tab == _BookListTab.current &&
+                  _statusFilter != _BookFilter.all);
+          return RefreshIndicator(
+            onRefresh: _resync,
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
                   KeelSpacing.md, KeelSpacing.xl),
-              children: [
-                if (_syncError != null) Text(_syncError!, style: KeelTypography.body),
-                Text('Good morning',
-                    style: KeelTypography.body.copyWith(
-                        color: Theme.of(context).textTheme.bodyMedium?.color)),
-                const SizedBox(height: KeelSpacing.xs),
-                const Text('Your Books', style: KeelTypography.display),
-                const SizedBox(height: KeelSpacing.xs),
-                Text(
-                    '${items.length} protected position${items.length == 1 ? '' : 's'}',
-                    style: KeelTypography.body.copyWith(
-                        color: Theme.of(context).textTheme.bodyMedium?.color)),
-                const SizedBox(height: KeelSpacing.lg),
-                if (items.isEmpty)
-                  EmptyStateCard(
-                      icon: Icons.shield_outlined,
-                      title: 'PROTECT A POSITION',
-                      message:
-                          'Create your first Book from an active Perpl position.',
-                      action: SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                              onPressed: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) => const PositionsScreen())),
-                              icon: const Icon(Icons.arrow_forward),
-                              label: const Text('VIEW POSITIONS')))),
-                ...items.map((book) => Padding(
-                    key: ValueKey('book-card-${book.id}'),
-                    padding: const EdgeInsets.only(bottom: KeelSpacing.md),
-                    child: _BookCard(book: book))),
-              ]),
-        ),
+              itemCount: visible.length + 1,
+              itemBuilder: (context, index) {
+                if (index > 0) {
+                  final book = visible[index - 1];
+                  return Padding(
+                      key: ValueKey('book-card-${book.id}'),
+                      padding: const EdgeInsets.only(bottom: KeelSpacing.md),
+                      child: _BookCard(book: book));
+                }
+                return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_syncError != null)
+                        Text(_syncError!, style: KeelTypography.body),
+                      const Text('Your Books', style: KeelTypography.display),
+                      const SizedBox(height: KeelSpacing.xs),
+                      Text('$currentCount current · $historyCount in history',
+                          style: KeelTypography.body.copyWith(
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color)),
+                      const SizedBox(height: KeelSpacing.lg),
+                      Wrap(
+                          spacing: KeelSpacing.sm,
+                          runSpacing: KeelSpacing.xs,
+                          children: [
+                            ChoiceChip(
+                                label: const Text('Current'),
+                                selected: _tab == _BookListTab.current,
+                                onSelected: (_) => setState(
+                                    () => _tab = _BookListTab.current)),
+                            ChoiceChip(
+                                label: const Text('History'),
+                                selected: _tab == _BookListTab.history,
+                                onSelected: (_) => setState(
+                                    () => _tab = _BookListTab.history)),
+                            TextButton.icon(
+                                onPressed: () => _showFilters(items),
+                                icon: const Icon(Icons.tune, size: 18),
+                                label: Text(
+                                    filtersActive ? 'Filter on' : 'Filter')),
+                          ]),
+                      const SizedBox(height: KeelSpacing.md),
+                      if (items.isEmpty)
+                        EmptyStateCard(
+                            icon: Icons.shield_outlined,
+                            title: 'PROTECT A POSITION',
+                            message:
+                                'Create your first Book from an active Perpl position.',
+                            action: SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                    onPressed: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                            builder: (_) =>
+                                                const PositionsScreen())),
+                                    icon: const Icon(Icons.arrow_forward),
+                                    label: const Text('VIEW POSITIONS'))))
+                      else if (visible.isEmpty)
+                        EmptyStateCard(
+                            icon: filtersActive
+                                ? Icons.filter_alt_off_outlined
+                                : Icons.menu_book_outlined,
+                            title: filtersActive
+                                ? 'NO MATCHING BOOKS'
+                                : _tab == _BookListTab.history
+                                    ? 'NO HISTORY YET'
+                                    : 'NO CURRENT BOOKS',
+                            message: filtersActive
+                                ? 'Try another filter.'
+                                : _tab == _BookListTab.history
+                                    ? 'Closed Books will appear here.'
+                                    : 'Your current Books will appear here.'),
+                    ]);
+              },
+            ),
+          );
+        },
       ),
     );
   }
@@ -134,54 +335,58 @@ class _BookCard extends ConsumerWidget {
               data: (dashboard) {
                 final state = dashboard.telemetry;
                 final currentBook = dashboard.book;
-                final visual = KeelRiskVisual.forState(state.riskState);
+                final summary = BookSummary.from(currentBook, state);
                 return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          spacing: KeelSpacing.sm,
+                          runSpacing: KeelSpacing.sm,
                           children: [
-                            Expanded(child: Column(
+                            Column(
+                                mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(currentBook.market,
                                       style: KeelTypography.title),
                                   const SizedBox(height: KeelSpacing.xs),
-                                  Text('${currentBook.side} / ${currentBook.stance}',
+                                  Text(
+                                      '${currentBook.side.toLowerCase()} position',
                                       style: KeelTypography.body.copyWith(
                                           color: Theme.of(context)
                                               .textTheme
                                               .bodyMedium
-                                              ?.color))
-                                ])),
-                            const SizedBox(width: KeelSpacing.sm),
+                                              ?.color)),
+                                ]),
                             StatusPill(
-                                label: visual.label,
-                                color: visual.color,
-                                icon: visual.icon),
+                                label: summary.label,
+                                color: summary.color,
+                                icon: summary.icon),
                           ]),
-                      const SizedBox(height: KeelSpacing.lg),
-                      Text(state.riskReason ?? (state.reasons.isNotEmpty ? state.reasons.join(' ') : visual.description),
+                      const SizedBox(height: KeelSpacing.md),
+                      Text(summary.message,
                           style: KeelTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
                                   ?.color)),
-                      const SizedBox(height: KeelSpacing.lg),
-                      Row(children: [
-                        _Metric(label: 'PNL', value: _number(state.pnl)),
-                        _Metric(
-                            label: 'RESERVE',
-                            value: _number(state.reserveAvailable)),
-                      ]),
                       const SizedBox(height: KeelSpacing.md),
-                      TelemetryFreshness(freshness: telemetry.hasError ? null : state.freshness),
-                      const SizedBox(height: KeelSpacing.md),
-                      Wrap(spacing: KeelSpacing.sm, runSpacing: KeelSpacing.xs, children: [
-                        Text('BOOK ${currentBook.status}', style: KeelTypography.label),
-                        Text(currentBook.automationEnabled ? 'AUTOMATION ON' : 'AUTOMATION OFF', style: KeelTypography.label),
-                        Text(state.executionState ?? 'UNKNOWN', style: KeelTypography.label),
-                      ]),
+                      if (currentBook.status != 'CLOSED') ...[
+                        Text('Unrealized P&L  ${_number(state.pnl)}',
+                            style:
+                                KeelTypography.metric.copyWith(fontSize: 16)),
+                        const SizedBox(height: KeelSpacing.xs),
+                      ],
+                      Text(
+                          currentBook.automationEnabled
+                              ? 'Automatic actions on'
+                              : 'Automatic actions off',
+                          style: KeelTypography.body.copyWith(
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color)),
                       LiveSyncStatus(value: telemetry),
                     ]);
               },
@@ -192,22 +397,6 @@ class _BookCard extends ConsumerWidget {
 
   String _number(double? value) =>
       value == null ? 'Unavailable' : value.toStringAsFixed(2);
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
-  final String label;
-  final String value;
-  @override
-  Widget build(BuildContext context) => Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label,
-            style: KeelTypography.label.copyWith(
-                color: Theme.of(context).textTheme.bodyMedium?.color)),
-        const SizedBox(height: 4),
-        Text(value, style: KeelTypography.metric.copyWith(fontSize: 16))
-      ]));
 }
 
 class CreateBookEntry extends StatelessWidget {

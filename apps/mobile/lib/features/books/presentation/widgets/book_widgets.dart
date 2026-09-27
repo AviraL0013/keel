@@ -75,9 +75,13 @@ class ValueTile extends StatelessWidget {
 
 class BookMetricsCard extends StatelessWidget {
   const BookMetricsCard(
-      {super.key, required this.book, required this.telemetry});
+      {super.key,
+      required this.book,
+      required this.telemetry,
+      this.includeTechnical = true});
   final Book book;
   final BookTelemetry telemetry;
+  final bool includeTechnical;
 
   @override
   Widget build(BuildContext context) {
@@ -110,44 +114,63 @@ class BookMetricsCard extends StatelessWidget {
                       : '${spent.toStringAsFixed(2)} / ${book.defenseCap.toStringAsFixed(2)}',
                   thresholdLabel:
                       'Reserve available ${_money(telemetry.reserveAvailable)}'),
-              const SizedBox(height: KeelSpacing.lg),
-              _MetricGrid(items: <String, String?>{
-                'MARK': _money(telemetry.mark),
-                'BID / ASK': telemetry.bid == null || telemetry.ask == null
-                    ? null
-                    : '${_money(telemetry.bid)} / ${_money(telemetry.ask)}',
-                'PNL': _money(telemetry.pnl),
-                'LEVERAGE': telemetry.leverage == null
-                    ? null
-                    : '${telemetry.leverage!.toStringAsFixed(2)}x',
-                'FUNDING': telemetry.fundingRate == null
-                    ? null
-                    : '${(telemetry.fundingRate! * 100).toStringAsFixed(4)}%',
-                'DEPTH': _money(telemetry.depthNotional)
-              }),
-              const SizedBox(height: KeelSpacing.md),
-              Container(
-                  padding: const EdgeInsets.all(KeelSpacing.md),
-                  decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: .05),
-                      borderRadius: BorderRadius.circular(KeelRadii.small)),
-                  child: Row(children: [
-                    const Icon(Icons.show_chart, size: 18),
-                    const SizedBox(width: KeelSpacing.sm),
-                    Expanded(
-                        child: Text(
-                            'Mark-price history appears when the backend provides a history series.',
-                            style: KeelTypography.body.copyWith(
-                                color: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.color)))
-                  ])),
+              if (book.status != 'CLOSED') ...[
+                const SizedBox(height: KeelSpacing.lg),
+                ValueTile(
+                    label: 'Unrealized P&L', value: _money(telemetry.pnl)),
+              ],
+              if (includeTechnical) ...[
+                const SizedBox(height: KeelSpacing.lg),
+                BookTechnicalMetrics(telemetry: telemetry),
+              ],
             ])));
   }
+
+  String _money(double? value) =>
+      value == null ? 'Unavailable' : value.toStringAsFixed(2);
+}
+
+class BookTechnicalMetrics extends StatelessWidget {
+  const BookTechnicalMetrics({super.key, required this.telemetry});
+  final BookTelemetry telemetry;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        _MetricGrid(items: <String, String?>{
+          'MARK': _money(telemetry.mark),
+          'BID / ASK': telemetry.bid == null || telemetry.ask == null
+              ? null
+              : '${_money(telemetry.bid)} / ${_money(telemetry.ask)}',
+          if (telemetry.positionStatus != 'CLOSED')
+            'UNREALIZED P&L': _money(telemetry.pnl),
+          'LEVERAGE': telemetry.leverage == null
+              ? null
+              : '${telemetry.leverage!.toStringAsFixed(2)}x',
+          'FUNDING': telemetry.fundingRate == null
+              ? null
+              : '${(telemetry.fundingRate! * 100).toStringAsFixed(4)}%',
+          'DEPTH': _money(telemetry.depthNotional)
+        }),
+        const SizedBox(height: KeelSpacing.md),
+        Container(
+            padding: const EdgeInsets.all(KeelSpacing.md),
+            decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: .05),
+                borderRadius: BorderRadius.circular(KeelRadii.small)),
+            child: Row(children: [
+              const Icon(Icons.show_chart, size: 18),
+              const SizedBox(width: KeelSpacing.sm),
+              Expanded(
+                  child: Text(
+                      'Mark-price history appears when the backend provides a history series.',
+                      style: KeelTypography.body.copyWith(
+                          color:
+                              Theme.of(context).textTheme.bodyMedium?.color)))
+            ])),
+      ]);
 
   String _money(double? value) =>
       value == null ? 'Unavailable' : value.toStringAsFixed(2);
@@ -158,22 +181,33 @@ class _MetricGrid extends StatelessWidget {
   final Map<String, String?> items;
 
   @override
-  Widget build(BuildContext context) => GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 2.4,
-      mainAxisSpacing: KeelSpacing.md,
-      crossAxisSpacing: KeelSpacing.md,
-      children: items.entries
-          .map((entry) =>
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(entry.key,
-                    style: KeelTypography.label.copyWith(
-                        color: Theme.of(context).textTheme.bodyMedium?.color)),
-                const SizedBox(height: 5),
-                Text(entry.value ?? 'Unavailable',
-                    style: KeelTypography.metric.copyWith(fontSize: 16))
-              ]))
-          .toList());
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final twoColumns = constraints.maxWidth >= 260;
+        final width = twoColumns
+            ? (constraints.maxWidth - KeelSpacing.md) / 2
+            : constraints.maxWidth;
+        return Wrap(
+            spacing: KeelSpacing.md,
+            runSpacing: KeelSpacing.md,
+            children: items.entries
+                .map((entry) => SizedBox(
+                    width: width,
+                    child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(entry.key,
+                              style: KeelTypography.label.copyWith(
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.color)),
+                          const SizedBox(height: 5),
+                          Text(entry.value ?? 'Unavailable',
+                              style:
+                                  KeelTypography.metric.copyWith(fontSize: 16))
+                        ])))
+                .toList());
+      });
 }

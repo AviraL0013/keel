@@ -17,6 +17,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: BookPositionSeed; telemetry?: BookTelemetrySeed; bookCreation: BookCreationReadiness }>>
   capital?(walletAddress?: string): Promise<CapitalSnapshot>
   start?(): Promise<void>
+  syncClosedBooks?(books: Book[]): Promise<void>
   refresh(book: Book): Promise<void>
   close(): Promise<void>
   ready(): boolean

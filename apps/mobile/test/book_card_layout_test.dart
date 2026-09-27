@@ -12,11 +12,21 @@ import 'package:keel_mobile/features/books/presentation/screens/books_screen.dar
 import 'package:keel_mobile/shared/models/telemetry_freshness.dart';
 import 'package:keel_mobile/shared/widgets/keel_widgets.dart';
 
-const book = Book(id: 'book-642', market: 'BTC-PERP', side: 'LONG', stance: 'DEFEND', status: 'ACTIVE', automationEnabled: false, liquidationFloor: 6, defenseCap: 5, timeLimitMs: 86400000);
+const book = Book(
+    id: 'book-642',
+    market: 'BTC-PERP',
+    side: 'LONG',
+    stance: 'DEFEND',
+    status: 'ACTIVE',
+    automationEnabled: false,
+    liquidationFloor: 6,
+    defenseCap: 5,
+    timeLimitMs: 86400000);
 
 class StaticBooksRepository extends BooksRepository {
   StaticBooksRepository(this.value, http.Client client)
-      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
+      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'),
+            const SessionStorage(), client));
   final BookDashboardState value;
   @override
   Future<BookDashboardState> state(String id) async => value;
@@ -25,40 +35,56 @@ class StaticBooksRepository extends BooksRepository {
 void main() {
   for (final width in [320.0, 375.0, 427.0, 1440.0]) {
     for (final status in ['FRESH', 'STALE', 'UNKNOWN']) {
-      testWidgets('Book card wraps $status chips at width $width', (tester) async {
+      testWidgets('consumer Book card fits $status at width $width',
+          (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = Size(width, 1200);
         addTearDown(tester.view.resetDevicePixelRatio);
         addTearDown(tester.view.resetPhysicalSize);
-        final point = TelemetryFreshnessPoint(status: status, ageMs: status == 'UNKNOWN' ? null : status == 'STALE' ? 903000 : 400, thresholdMs: 10000);
-        final freshness = TelemetryFreshnessModel(market: point, position: point, funding: point, orderbook: point, thresholdsMs: const {});
+        final point = TelemetryFreshnessPoint(
+            status: status,
+            ageMs: status == 'UNKNOWN'
+                ? null
+                : status == 'STALE'
+                    ? 903000
+                    : 400,
+            thresholdMs: 10000);
+        final freshness = TelemetryFreshnessModel(
+            market: point,
+            position: point,
+            funding: point,
+            orderbook: point,
+            thresholdsMs: const {});
         final client = http.Client();
         addTearDown(client.close);
-        await tester.pumpWidget(ProviderScope(overrides: [
-          booksProvider.overrideWith((ref) async => [book]),
-          booksRepositoryProvider.overrideWithValue(StaticBooksRepository(BookDashboardState(book: book, telemetry: BookTelemetry(pnl: .1, reserveAvailable: 10, riskState: 'SAFE_MODE', freshness: freshness, freshnessMs: point.ageMs)), client)),
-        ], child: MaterialApp(theme: KeelTheme.dark, home: const BooksScreen())));
+        await tester.pumpWidget(ProviderScope(
+            overrides: [
+              booksProvider.overrideWith((ref) async => [book]),
+              booksRepositoryProvider.overrideWithValue(StaticBooksRepository(
+                  BookDashboardState(
+                      book: book,
+                      telemetry: BookTelemetry(
+                          pnl: .1,
+                          reserveAvailable: 10,
+                          riskState: status == 'FRESH' ? 'HOLD' : 'SAFE_MODE',
+                          freshness: freshness,
+                          freshnessMs: point.ageMs)),
+                  client)),
+            ],
+            child:
+                MaterialApp(theme: KeelTheme.dark, home: const BooksScreen())));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 200));
         expect(tester.takeException(), isNull);
         final card = tester.getRect(find.byType(Card).first);
-        final freshnessWidget = find.byType(TelemetryFreshness);
-        final chips = find.descendant(of: freshnessWidget, matching: find.byType(StatusPill));
-        expect(chips, findsNWidgets(4));
-        for (final element in chips.evaluate()) {
-          final chip = tester.getRect(find.byWidget(element.widget));
-          expect(chip.left, greaterThanOrEqualTo(card.left));
-          expect(chip.right, lessThanOrEqualTo(card.right));
-          expect(chip.bottom, lessThanOrEqualTo(card.bottom));
-        }
-        final labels = find.descendant(of: freshnessWidget, matching: find.byType(Text));
-        for (final element in labels.evaluate()) {
-          // A label should remain a readable line, not a vertical column of letters.
-          expect(tester.getSize(find.byWidget(element.widget)).height, lessThan(25));
-        }
-        if (width <= 427) {
-          expect(tester.getRect(chips.last).top, greaterThan(tester.getRect(chips.first).top));
-        }
+        expect(find.byType(TelemetryFreshness), findsNothing);
+        final pill = tester.getRect(find.byType(StatusPill).first);
+        expect(pill.left, greaterThanOrEqualTo(card.left));
+        expect(pill.right, lessThanOrEqualTo(card.right));
+        expect(pill.bottom, lessThanOrEqualTo(card.bottom));
+        expect(find.text(status == 'FRESH' ? 'Watching' : 'Needs attention'),
+            findsOneWidget);
+        expect(find.textContaining('903000'), findsNothing);
         await tester.pumpWidget(const SizedBox.shrink());
       });
     }

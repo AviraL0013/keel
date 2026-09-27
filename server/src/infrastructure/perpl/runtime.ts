@@ -87,6 +87,30 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     const token = protocol.tokens.find(item => item.id === instance?.collateral_token_id)
     return normalizePerplPosition(stream.position, market, token?.decimals ?? 6, stream.observedAt ?? Date.now())
   }
+  const syncClosedBook = async (book: Book): Promise<boolean> => {
+    if (book.status === 'CLOSED' || !book.marketId || !book.venueAccountId || !book.venuePositionId || book.venueAccountId !== Number(env.PERPL_ACCOUNT_ID) || !trading.isReady()) return false
+    const signed = trading.stateSnapshot()
+    if (!signed.accounts.some(account => account.id === book.venueAccountId)) return false
+    const position = signed.positions.find(item => item.acc === book.venueAccountId && item.mkt === book.marketId && item.pid === book.venuePositionId)
+    if (position && position.st !== 2 && position.s !== 0) return false
+    // A complete, heartbeat-current mt:26 snapshot omits externally closed positions.
+    // Never close a Book while an action still needs venue reconciliation.
+    const client = await store.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const locked = await client.query('SELECT status FROM books WHERE id=$1 FOR UPDATE', [book.id])
+      if (!locked.rows.length || locked.rows[0].status === 'CLOSED') { await client.query('COMMIT'); return false }
+      const pending = await client.query("SELECT 1 FROM actions WHERE book_id=$1 AND status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL') LIMIT 1", [book.id])
+      if (pending.rows.length) { await client.query('COMMIT'); return false }
+      const updated = await client.query("UPDATE positions SET size=0,status='CLOSED',unrealized_pnl=0,observed_at=now() WHERE book_id=$1 RETURNING book_id", [book.id])
+      if (!updated.rows.length) { await client.query('COMMIT'); return false }
+      await client.query("UPDATE books SET status='CLOSED',automation_enabled=false,updated_at=now() WHERE id=$1", [book.id])
+      await client.query('COMMIT')
+      logger.info({ bookId: book.id, accountId: book.venueAccountId, positionId: book.venuePositionId }, 'Book closed after authoritative Perpl position snapshot')
+      return true
+    } catch (error) { await client.query('ROLLBACK'); throw error }
+    finally { client.release() }
+  }
   const contextFor = async (action: Action): Promise<ReconciliationContext> => {
     const row = (await store.pool.query('SELECT b.market_id,b.venue_account_id,b.venue_position_id,b.side AS book_side,p.* FROM books b JOIN positions p ON p.book_id=b.id WHERE b.id=$1', [action.bookId])).rows[0]
     if (!row || !row.market_id || !row.venue_account_id || !row.venue_position_id || !['LONG', 'SHORT'].includes(row.book_side)) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
@@ -202,12 +226,15 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       catch (error) { logger.warn({ error: error instanceof Error ? error.message : 'PERPL_WS_START_FAILED', lifecycle: trading.lifecycleState() }, 'Perpl read-only trading stream not ready; readiness remains fail-closed') }
     },
     ready() { return trading.isReady() },
+    async syncClosedBooks(books: Book[]) { for (const book of books) await syncClosedBook(book) },
     async close() { trading.close(); adapter.close() },
     async submit(action) { return live.submit(action) },
     async reconcile(action) { return live.reconcile(action) },
     async refresh(book: Book) {
+      if (book.status === 'CLOSED') return
       if (!book.marketId || !book.venueAccountId) throw new Error('BOOK_VENUE_BINDING_REQUIRED')
       if (book.venueAccountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
+      if (await syncClosedBook(book)) return
       const marketTelemetry = await adapter.getNormalizedMarket(book.marketId)
       const position = await currentPosition(book.venueAccountId, book.marketId, book.venuePositionId)
       if (!marketTelemetry || !position) throw new Error('PERPL_STATE_UNAVAILABLE')

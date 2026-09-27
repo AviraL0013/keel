@@ -11,9 +11,15 @@ import 'package:keel_mobile/features/books/domain/book.dart';
 import 'package:keel_mobile/features/books/presentation/screens/book_detail_screen.dart';
 
 const book = Book(
-    id: 'eth-book', market: 'ETH', side: 'LONG', stance: 'DEFEND',
-    status: 'ACTIVE', automationEnabled: false, liquidationFloor: 5,
-    defenseCap: 5, timeLimitMs: 86400000);
+    id: 'eth-book',
+    market: 'ETH',
+    side: 'LONG',
+    stance: 'DEFEND',
+    status: 'ACTIVE',
+    automationEnabled: false,
+    liquidationFloor: 5,
+    defenseCap: 5,
+    timeLimitMs: 86400000);
 
 class FailedBookRepository extends BooksRepository {
   FailedBookRepository()
@@ -24,12 +30,20 @@ class FailedBookRepository extends BooksRepository {
   Future<BookDashboardState> state(String id) async => const BookDashboardState(
       book: book,
       telemetry: BookTelemetry(
-          liquidationDistance: 4.43, reserveDeployed: 0,
-          reserveAvailable: 5, mark: 2714.69, bid: 2715.81,
-          ask: 2716.11, pnl: 0.62, leverage: 12,
-          fundingRate: 0.00002, depthNotional: 2015779.80,
-          riskState: 'HOLD', executionState: 'FAILED',
-          executionReason: 'Market telemetry became stale before submission. No Perpl order was sent.'));
+          liquidationDistance: 4.43,
+          reserveDeployed: 0,
+          reserveAvailable: 5,
+          mark: 2714.69,
+          bid: 2715.81,
+          ask: 2716.11,
+          pnl: 0.62,
+          leverage: 12,
+          fundingRate: 0.00002,
+          depthNotional: 2015779.80,
+          riskState: 'HOLD',
+          executionState: 'FAILED',
+          executionReason:
+              'Market telemetry became stale before submission. No Perpl order was sent.'));
 }
 
 void main() {
@@ -39,16 +53,23 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     await tester.pumpWidget(ProviderScope(
-        overrides: [booksRepositoryProvider.overrideWithValue(FailedBookRepository())],
-        child: MaterialApp(theme: KeelTheme.dark, home: const BookDetailScreen(book: book))));
+        overrides: [
+          booksRepositoryProvider.overrideWithValue(FailedBookRepository())
+        ],
+        child: MaterialApp(
+            theme: KeelTheme.dark, home: const BookDetailScreen(book: book))));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await tester.scrollUntilVisible(
-        find.text('Market telemetry became stale before submission. No Perpl order was sent.'),
+        find.text(
+            'Market telemetry became stale before submission. No Perpl order was sent.'),
         300,
         scrollable: find.byType(Scrollable).first);
-    expect(find.text('FAILED'), findsOneWidget);
-    expect(find.text('Market telemetry became stale before submission. No Perpl order was sent.'), findsOneWidget);
+    expect(find.text('Action failed'), findsOneWidget);
+    expect(
+        find.text(
+            'Market telemetry became stale before submission. No Perpl order was sent.'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

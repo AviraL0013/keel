@@ -7,6 +7,7 @@ import '../../data/books_repository.dart';
 import '../../domain/book.dart';
 import '../controllers/book_action_controller.dart';
 import '../widgets/book_widgets.dart';
+import '../widgets/book_summary.dart';
 
 class BookDetailScreen extends ConsumerWidget {
   const BookDetailScreen({super.key, required this.book});
@@ -35,66 +36,156 @@ class BookDetailScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
                   KeelSpacing.md, KeelSpacing.xl),
               children: [
-                Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(book.market, style: KeelTypography.display),
-                            const SizedBox(height: KeelSpacing.xs),
-                            Text('${book.side} / ${book.stance}',
-                                style: KeelTypography.body.copyWith(
-                                    color: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.color))
-                          ]),
-                      RiskStateBadge(state: dashboard.telemetry.riskState)
-                    ]),
-                const SizedBox(height: KeelSpacing.md),
-                TelemetryFreshness(freshness: dashboard.telemetry.freshness),
-                const SizedBox(height: KeelSpacing.md),
-                RiskBanner(
-                    state: dashboard.telemetry.riskState, reasons: _reasonSentences(dashboard.telemetry)),
-                if (dashboard.telemetry.reasonCodes.isNotEmpty)
-                  Card(
-                      child: ExpansionTile(
-                          title: const Text('Technical reason codes',
-                              style: KeelTypography.label),
-                          children: [
-                        Padding(
-                            padding: const EdgeInsets.fromLTRB(KeelSpacing.md,
-                                0, KeelSpacing.md, KeelSpacing.md),
-                            child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(dashboard.telemetry.reasonCodes.join(' / '))))
-                      ])),
-                const SizedBox(height: KeelSpacing.md),
-                BookMetricsCard(book: dashboard.book, telemetry: dashboard.telemetry),
-                const SizedBox(height: KeelSpacing.md),
-                _ExecutionCard(state: dashboard.telemetry),
-                const SizedBox(height: KeelSpacing.md),
-                if (action.isLoading) const LinearProgressIndicator(),
-                if (action.hasError)
-                  Padding(
-                      padding: const EdgeInsets.only(bottom: KeelSpacing.md),
-                      child: Text(friendlyError(action.error!),
-                          style: const TextStyle(color: KeelColors.exit))),
-                ActionButtonRow(
-                    disabled: action.isLoading || dashboard.book.status != 'ACTIVE' || dashboard.telemetry.stale || dashboard.telemetry.freshnessUnknown,
-                    onDefend: () =>
-                        _confirmAction(context, ref, 'DEFEND', dashboard.telemetry),
-                    onReduce: () =>
-                        _confirmAction(context, ref, 'REDUCE', dashboard.telemetry),
-                    onExit: () => _confirmAction(context, ref, 'EXIT', dashboard.telemetry)),
-                const SizedBox(height: KeelSpacing.md),
-                _ControlCard(
-                    book: dashboard.book,
-                    disabled: action.isLoading,
-                    onControl: (control) =>
-                        _confirmControl(context, ref, control)),
+                Builder(builder: (context) {
+                  final summary =
+                      BookSummary.from(dashboard.book, dashboard.telemetry);
+                  return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Flexible(
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                    Text(dashboard.book.market,
+                                        style: KeelTypography.display),
+                                    const SizedBox(height: KeelSpacing.xs),
+                                    Text(
+                                        '${dashboard.book.side.toLowerCase()} position',
+                                        style: KeelTypography.body.copyWith(
+                                            color: Theme.of(context)
+                                                .textTheme
+                                                .bodyMedium
+                                                ?.color))
+                                  ])),
+                              const SizedBox(width: KeelSpacing.sm),
+                              StatusPill(
+                                  label: summary.label,
+                                  color: summary.color,
+                                  icon: summary.icon),
+                            ]),
+                        const SizedBox(height: KeelSpacing.md),
+                        Card(
+                            child: Padding(
+                                padding: const EdgeInsets.all(KeelSpacing.lg),
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(summary.message,
+                                          style: KeelTypography.body),
+                                      if (dashboard.telemetry.riskReason
+                                                  ?.isNotEmpty ==
+                                              true &&
+                                          const {
+                                            'Needs attention',
+                                            'Checking status',
+                                            'Review position'
+                                          }.contains(summary.label)) ...[
+                                        const SizedBox(height: KeelSpacing.sm),
+                                        Text(dashboard.telemetry.riskReason!,
+                                            style: KeelTypography.body),
+                                      ],
+                                    ]))),
+                        const SizedBox(height: KeelSpacing.md),
+                        if (dashboard.book.status != 'CLOSED') ...[
+                          BookMetricsCard(
+                              book: dashboard.book,
+                              telemetry: dashboard.telemetry,
+                              includeTechnical: false),
+                          const SizedBox(height: KeelSpacing.md),
+                        ],
+                        _ExecutionCard(state: dashboard.telemetry),
+                        const SizedBox(height: KeelSpacing.md),
+                        if (action.isLoading) const LinearProgressIndicator(),
+                        if (action.hasError)
+                          Padding(
+                              padding:
+                                  const EdgeInsets.only(bottom: KeelSpacing.md),
+                              child: Text(friendlyError(action.error!),
+                                  style:
+                                      const TextStyle(color: KeelColors.exit))),
+                        if (dashboard.book.status != 'CLOSED') ...[
+                          ActionButtonRow(
+                              disabled: action.isLoading ||
+                                  dashboard.book.status != 'ACTIVE' ||
+                                  dashboard.telemetry.stale ||
+                                  dashboard.telemetry.freshnessUnknown,
+                              onDefend: () => _confirmAction(
+                                  context, ref, 'DEFEND', dashboard.telemetry),
+                              onReduce: () => _confirmAction(
+                                  context, ref, 'REDUCE', dashboard.telemetry),
+                              onExit: () => _confirmAction(
+                                  context, ref, 'EXIT', dashboard.telemetry)),
+                          const SizedBox(height: KeelSpacing.md),
+                          _ControlCard(
+                              book: dashboard.book,
+                              disabled: action.isLoading,
+                              onControl: (control) =>
+                                  _confirmControl(context, ref, control)),
+                          const SizedBox(height: KeelSpacing.md),
+                        ],
+                        Card(
+                            child: ExpansionTile(
+                                title: const Text('More details',
+                                    style: KeelTypography.section),
+                                children: [
+                              Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                      KeelSpacing.md,
+                                      0,
+                                      KeelSpacing.md,
+                                      KeelSpacing.md),
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        TelemetryFreshness(
+                                            freshness:
+                                                dashboard.telemetry.freshness),
+                                        const SizedBox(height: KeelSpacing.md),
+                                        RiskBanner(
+                                            state:
+                                                dashboard.telemetry.riskState,
+                                            reasons: _reasonSentences(
+                                                dashboard.telemetry)),
+                                        if (dashboard.telemetry.reasonCodes
+                                            .isNotEmpty) ...[
+                                          const SizedBox(
+                                              height: KeelSpacing.sm),
+                                          Text(
+                                              'Reason codes: ${dashboard.telemetry.reasonCodes.join(' / ')}',
+                                              style: KeelTypography.body),
+                                        ],
+                                        if (dashboard
+                                                .telemetry.executionActionId !=
+                                            null) ...[
+                                          const SizedBox(
+                                              height: KeelSpacing.sm),
+                                          Text(
+                                              'Action ID: ${dashboard.telemetry.executionActionId}',
+                                              style: KeelTypography.body),
+                                        ],
+                                        if (dashboard
+                                                .telemetry.executionReason !=
+                                            null) ...[
+                                          const SizedBox(
+                                              height: KeelSpacing.sm),
+                                          Text(
+                                              'Execution reason: ${dashboard.telemetry.executionReason}',
+                                              style: KeelTypography.body),
+                                        ],
+                                        const SizedBox(height: KeelSpacing.md),
+                                        BookTechnicalMetrics(
+                                            telemetry: dashboard.telemetry),
+                                      ]))
+                            ])),
+                      ]);
+                }),
               ]),
         ),
       ),
@@ -124,6 +215,7 @@ class BookDetailScreen extends ConsumerWidget {
           .read(bookActionProvider.notifier)
           .run(book.id, kind == 'EXIT' ? 'close' : kind.toLowerCase());
       ref.invalidate(bookDashboardProvider(book.id));
+      ref.invalidate(booksProvider);
     }
   }
 
@@ -136,24 +228,28 @@ class BookDetailScreen extends ConsumerWidget {
                     ? 'Enable kill switch?'
                     : control == 'recover'
                         ? 'Recover Book for manual actions?'
-                    : 'Pause automation?'),
+                        : 'Pause automation?'),
                 content: Text(control == 'kill'
                     ? 'Automation will be blocked by the backend until recovery is explicit.'
                     : control == 'recover'
                         ? 'KEEL will verify the live position, telemetry, and unresolved executions. Automation stays off. No order is submitted.'
-                    : 'This Book will stop automated actions.'),
+                        : 'This Book will stop automated actions.'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(context, false),
                       child: const Text('CANCEL')),
                   FilledButton(
                       onPressed: () => Navigator.pop(context, true),
-                      child: Text(
-                          control == 'kill' ? 'ENABLE KILL SWITCH' : control == 'recover' ? 'RECOVER' : 'CONFIRM'))
+                      child: Text(control == 'kill'
+                          ? 'ENABLE KILL SWITCH'
+                          : control == 'recover'
+                              ? 'RECOVER'
+                              : 'CONFIRM'))
                 ]));
     if (confirmed == true) {
       await ref.read(bookActionProvider.notifier).run(book.id, control);
       ref.invalidate(bookDashboardProvider(book.id));
+      ref.invalidate(booksProvider);
     }
   }
 
@@ -188,23 +284,49 @@ class _ExecutionCard extends StatelessWidget {
     final status = state.executionState ?? 'UNKNOWN';
     final unknown = status == 'UNKNOWN';
     final none = status == 'NO_ACTIVE_EXECUTION';
+    final title = switch (status) {
+      'NO_ACTIVE_EXECUTION' => 'No action in progress',
+      'UNKNOWN' => 'Checking last action',
+      'CONFIRMED' => 'Action completed',
+      'FAILED' => 'Action failed',
+      'PARTIAL' => 'Partially completed',
+      'CANCELED' => 'Action canceled',
+      'EXPIRED' => 'Action expired',
+      _ => 'Action in progress',
+    };
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(KeelSpacing.md),
             child: Row(children: [
-              Icon(none ? Icons.hourglass_empty : unknown ? Icons.help_outline : Icons.receipt_long_outlined,
-                  color: none ? KeelColors.info : unknown ? KeelColors.reduce : KeelColors.info),
+              Icon(
+                  none
+                      ? Icons.hourglass_empty
+                      : unknown
+                          ? Icons.help_outline
+                          : Icons.receipt_long_outlined,
+                  color: none
+                      ? KeelColors.info
+                      : unknown
+                          ? KeelColors.reduce
+                          : KeelColors.info),
               const SizedBox(width: KeelSpacing.sm),
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    const Text('EXECUTION', style: KeelTypography.label),
+                    const Text('LAST ACTION', style: KeelTypography.label),
                     const SizedBox(height: 4),
-                    Text(status, style: KeelTypography.section),
-                    if (none || unknown || status == 'FAILED')
+                    Text(title, style: KeelTypography.section),
+                    if (none ||
+                        unknown ||
+                        status == 'FAILED' ||
+                        status == 'PARTIAL')
                       Text(
-                          state.executionReason ?? (unknown ? 'Authoritative venue outcome is not established yet.' : 'No KEEL action is active for this Book.'),
+                          status == 'FAILED' && state.executionReason != null
+                              ? state.executionReason!
+                              : unknown || status == 'PARTIAL'
+                                  ? 'The venue outcome is not fully confirmed. Do not repeat this action yet.'
+                                  : 'No KEEL action has been submitted for this Book.',
                           style: KeelTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
@@ -227,20 +349,33 @@ class _ControlCard extends StatelessWidget {
           padding: const EdgeInsets.all(KeelSpacing.md),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('BOOK + AUTOMATION', style: KeelTypography.label),
-              Row(children: [
-                StatusPill(
-                    label: book.status,
-                    color: book.status == 'ACTIVE' ? KeelColors.defend : KeelColors.reduce,
-                    icon: book.status == 'ACTIVE' ? Icons.play_arrow : Icons.pause),
-                const SizedBox(width: KeelSpacing.xs),
-                StatusPill(
-                    label: book.automationEnabled ? 'AUTOMATION ON' : 'AUTOMATION OFF',
-                    color: book.automationEnabled ? KeelColors.defend : KeelColors.info,
-                    icon: book.automationEnabled ? Icons.bolt : Icons.pause_circle_outline)
-              ])
-            ]),
+            Wrap(
+                spacing: KeelSpacing.sm,
+                runSpacing: KeelSpacing.sm,
+                children: [
+                  const Text('BOOK CONTROLS', style: KeelTypography.label),
+                  StatusPill(
+                      label: switch (book.status) {
+                        'SAFE_MODE' => 'Safety paused',
+                        'ACTIVE' => 'Active',
+                        'PAUSED' => 'Paused',
+                        _ => book.status,
+                      },
+                      color: book.status == 'ACTIVE'
+                          ? KeelColors.defend
+                          : KeelColors.reduce,
+                      icon: book.status == 'ACTIVE'
+                          ? Icons.play_arrow
+                          : Icons.pause),
+                  StatusPill(
+                      label: book.automationEnabled ? 'Auto on' : 'Auto off',
+                      color: book.automationEnabled
+                          ? KeelColors.defend
+                          : KeelColors.info,
+                      icon: book.automationEnabled
+                          ? Icons.bolt
+                          : Icons.pause_circle_outline)
+                ]),
             const SizedBox(height: KeelSpacing.sm),
             Text(
                 book.automationEnabled
@@ -249,7 +384,7 @@ class _ControlCard extends StatelessWidget {
                         ? 'Book is paused. Automation is off; manual controls remain explicit.'
                         : book.status == 'SAFE_MODE'
                             ? 'Book is in safe mode. Recover manual access after backend checks; automation stays off.'
-                        : 'Automation is off; manual controls remain explicit.',
+                            : 'Automation is off; manual controls remain explicit.',
                 style: KeelTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color)),
             const SizedBox(height: KeelSpacing.md),
@@ -261,7 +396,7 @@ class _ControlCard extends StatelessWidget {
                     OutlinedButton.icon(
                         onPressed: disabled ? null : () => onControl('recover'),
                         icon: const Icon(Icons.health_and_safety_outlined),
-                        label: const Text('RECOVER MANUAL ONLY')),
+                        label: const Text('RESTORE MANUAL ACTIONS')),
                   OutlinedButton.icon(
                       onPressed: disabled ? null : () => onControl('pause'),
                       icon: const Icon(Icons.pause),

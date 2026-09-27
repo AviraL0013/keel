@@ -65,7 +65,15 @@ export function registerRoutes(context: HttpContext) {
   app.post('/auth/logout', async (request, reply) => { const bearer = request.headers.authorization; const token = request.cookies.keel_session ?? (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined); await auth.revoke(token); reply.clearCookie('keel_session', { path: '/' }); return { ok: true } })
   app.addHook('preHandler', async (request, reply) => { if (request.url === '/' || request.url === '/health' || request.url === '/ready' || request.url === '/metrics' || request.url.startsWith('/auth/')) return; const current = await session(request); if (!current) return reply.code(401).send({ error: 'UNAUTHENTICATED' }); (request as RequestWithSession).user = current })
 
-  app.get('/books', async request => (await books.list((await requireSession(request)).userId)).map(toBookDto))
+  app.get('/books', async request => {
+    const userId = (await requireSession(request)).userId
+    const listed = await books.list(userId)
+    if (context.venue?.syncClosedBooks) {
+      try { await context.venue.syncClosedBooks(listed) }
+      catch (error) { logger.warn({ error: error instanceof Error ? error.message : 'BOOK_CLOSURE_SYNC_FAILED' }, 'Book closure sync deferred') }
+    }
+    return (await books.list(userId)).map(toBookDto)
+  })
   app.post<{ Body: CreateBookCommand }>('/books', async request => { const current = await requireSession(request); return toBookDto(await books.create(current.userId, request.body)) })
   app.get<{ Params: { id: string } }>('/books/:id', async request => toBookDto(await books.get((await requireSession(request)).userId, request.params.id)))
   app.patch<{ Params: { id: string }; Body: { automationEnabled?: boolean; status?: Book['status']; stance?: Book['stance'] } }>('/books/:id', async request => toBookDto(await books.controls((await requireSession(request)).userId, request.params.id, request.body)))
@@ -84,9 +92,9 @@ export function registerRoutes(context: HttpContext) {
   app.get<{ Params: { id: string } }>('/books/:id/risk', async request => { const current = await requireSession(request); await books.get(current.userId, request.params.id); const row = await persistence.getRiskRow(current.userId, request.params.id); return row ? toRiskDto(row) : null })
   app.get<{ Params: { id: string } }>('/books/:id/state', async request => {
     const current = await requireSession(request)
-    const book = await books.get(current.userId, request.params.id)
+    let book = await books.get(current.userId, request.params.id)
     if (context.venue?.refresh) {
-      try { await context.venue.refresh(book) }
+      try { await context.venue.refresh(book); book = await books.get(current.userId, request.params.id) }
       catch (error) { logger.warn({ bookId: book.id, error: error instanceof Error ? error.message : 'VENUE_REFRESH_FAILED' }, 'Book telemetry refresh failed; serving persisted state with its real freshness') }
     }
     const [positionRow, telemetryRow, riskRow, actionRows, reserveRow] = await Promise.all([

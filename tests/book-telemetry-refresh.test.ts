@@ -117,4 +117,48 @@ describe('Book telemetry refresh', () => {
       expect(await store.listActions(user, book.id)).toEqual([])
     } finally { await venue?.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); await db.close() }
   }, 20_000)
+
+  it('archives only positions absent from a fresh signed snapshot and never hides unresolved actions', async () => {
+    vi.stubEnv('PERPL_API_KEY', 'test-read-only')
+    vi.stubEnv('PERPL_API_KEY_SECRET', '11'.repeat(32))
+    vi.stubEnv('PERPL_ACCOUNT_ID', '642')
+    const { db, store } = await databaseFixture()
+    let venue: ReturnType<typeof createPerplRuntime>
+    try {
+      const user = await store.ensureUser('closure-owner')
+      const closed = await store.createBook(user, input(Date.now()))
+      const pending = await store.createBook(user, { ...input(Date.now()), venuePositionId: 78 })
+      const open = await store.createBook(user, { ...input(Date.now()), venuePositionId: 79 })
+      await store.pool.query("INSERT INTO decisions(book_id,state,action,reason_codes,human_readable_reasons,risk_features,created_at) VALUES($1,'HOLD','HOLD','[]','[]','{}',now())", [pending.id])
+      await store.pool.query("INSERT INTO actions(book_id,decision_id,kind,status,idempotency_key) SELECT $1,id,'REDUCE','UNKNOWN',$2 FROM decisions WHERE book_id=$1 LIMIT 1", [pending.id, 'pending-closure'])
+      let ready = false
+      let accountPresent = true
+      vi.spyOn(PerplTradingClient.prototype, 'isReady').mockImplementation(() => ready)
+      vi.spyOn(PerplTradingClient.prototype, 'stateSnapshot').mockImplementation(() => ({
+        wallet: undefined,
+        accounts: accountPresent ? [{ id: 642 }] : [],
+        positions: [{ acc: 642, mkt: 16, pid: 79, st: 1, s: 1000 }],
+        orders: [], fills: [],
+      }) as never)
+      venue = createPerplRuntime(store)
+      const sync = () => venue!.syncClosedBooks!( [closed, pending, open] )
+      await sync()
+      expect((await store.getBook(user, closed.id))?.status).toBe('ACTIVE')
+      ready = true
+      accountPresent = false
+      await sync()
+      expect((await store.getBook(user, closed.id))?.status).toBe('ACTIVE')
+      accountPresent = true
+      await sync()
+      expect((await store.getBook(user, closed.id))?.status).toBe('CLOSED')
+      expect((await store.getPositionRow(user, closed.id))?.status).toBe('CLOSED')
+      expect(Number((await store.getPositionRow(user, closed.id))?.size)).toBe(0)
+      expect((await store.getBook(user, pending.id))?.status).toBe('ACTIVE')
+      expect((await store.getBook(user, open.id))?.status).toBe('ACTIVE')
+      await store.pool.query("UPDATE actions SET status='FAILED' WHERE book_id=$1", [pending.id])
+      await sync()
+      expect((await store.getBook(user, pending.id))?.status).toBe('CLOSED')
+      expect((await store.getBook(user, open.id))?.status).toBe('ACTIVE')
+    } finally { await venue?.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); await db.close() }
+  }, 20_000)
 })
