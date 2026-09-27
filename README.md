@@ -39,12 +39,28 @@ npm run db:migrate
 npm run server:dev
 ```
 
+```bash
+npm install
+cp .env.example .env
+npm run db:migrate
+npm run server:dev
+```
+
+Set `KEEL_ALLOWED_WALLETS` to the wallets allowed to sign in, or set `MONAD_WALLET_ADDRESS` as the fallback. Testnet/mainnet browser requests must come from an origin listed in `CORS_ORIGIN`; development/test accept any origin.
+
 For a credentialless end-to-end local run, use the explicit deterministic venue. It is a real HTTP/application path backed by the in-memory test store and the production risk/execution code; it never masquerades as live Perpl:
 
 ```powershell
 $env:KEEL_ENV='test'
 $env:KEEL_TEST_VENUE='true'
 $env:PORT='8787'
+npm run server:dev
+```
+
+```bash
+export KEEL_ENV=test
+export KEEL_TEST_VENUE=true
+export PORT=8787
 npm run server:dev
 ```
 
@@ -60,9 +76,25 @@ npm run server:typecheck
 npm run build
 ```
 
+```bash
+npm run lint
+npm test
+npm run typecheck
+npm run server:typecheck
+npm run build
+```
+
 Flutter development requires Flutter SDK 3.19 or newer:
 
 ```powershell
+cd apps/mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter run --dart-define=KEEL_API_URL=http://localhost:8787
+```
+
+```bash
 cd apps/mobile
 flutter pub get
 flutter analyze

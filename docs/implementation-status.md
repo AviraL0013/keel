@@ -8,12 +8,11 @@
 
 ## Verified locally
 
-- `npm test`: 47 tests passing across 15 files.
+- 2026-09-28: `npm test`: 248 tests passing across 42 files.
 - `npm run lint`: passing.
 - `npm run typecheck`: passing.
-- `npm run server:typecheck`: passing.
-- `npm run build`: passing.
+- Flutter 3.47.5 / Dart 3.13.4: `flutter analyze` clean; `flutter test` 50 tests passing.
 
 ## External requirements
 
-Live readiness still requires PostgreSQL, Perpl credentials and approvals, Monad/AUSD account access, Agora configuration where used, and push provider credentials. Flutter analyze/test/build require a Flutter SDK; this environment has no Flutter executable, so those gates remain external.
+Live readiness still requires PostgreSQL, Perpl credentials and approvals, Monad/AUSD account access, Agora configuration where used, and push provider credentials. Local tests used fake venues and did not contact external services.
