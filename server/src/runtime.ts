@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
-import type { Book, BookCreationReadiness, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed } from '../../packages/domain/src/index.js'
+import type { AgoraActivity, Book, BookCreationReadiness, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed } from '../../packages/domain/src/index.js'
 import { evaluate, evaluateManualAction, telemetryFreshnessFailures } from '../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
@@ -16,6 +16,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   loadBookSetup?(marketId: number, accountId: number, positionId: number): Promise<{ market: string; position: BookPositionSeed; telemetry: BookTelemetrySeed; reserveAvailable: number }>
   listPositions?(): Promise<Array<{ marketId: number; market: string; accountId: number; positionId: number; position: BookPositionSeed; telemetry?: BookTelemetrySeed; bookCreation: BookCreationReadiness }>>
   capital?(walletAddress?: string): Promise<CapitalSnapshot>
+  agoraActivity?(walletAddress?: string): Promise<AgoraActivity>
   start?(): Promise<void>
   syncClosedBooks?(books: Book[]): Promise<void>
   refresh(book: Book): Promise<void>

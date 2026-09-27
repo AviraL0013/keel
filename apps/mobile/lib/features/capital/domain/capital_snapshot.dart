@@ -37,3 +37,25 @@ class CapitalSnapshot {
 
 String? _text(Object? value) => value is num ? value.toString() : value is String ? value : null;
 DateTime? _date(Object? value) => value is String ? DateTime.tryParse(value) : null;
+
+class AgoraActivityRow {
+  const AgoraActivityRow({required this.type, required this.status, required this.source, required this.destination, required this.asset, required this.amount, required this.timestamp, required this.match});
+  final String type;
+  final String status;
+  final String source;
+  final String destination;
+  final String asset;
+  final String amount;
+  final DateTime? timestamp;
+  final String match;
+  factory AgoraActivityRow.fromJson(Map<String, dynamic> json) => AgoraActivityRow(type: json['type'] as String? ?? 'Activity', status: json['status'] as String? ?? 'Unknown', source: json['source'] as String? ?? 'Unknown', destination: json['destination'] as String? ?? 'Unknown', asset: json['asset'] as String? ?? 'Unknown', amount: json['amount'] as String? ?? '', timestamp: _date(json['timestamp']), match: json['match'] as String? ?? 'UNMATCHED');
+}
+
+class AgoraActivity {
+  const AgoraActivity({required this.status, required this.rows, this.reason, this.limited});
+  final String status;
+  final String? reason;
+  final bool? limited;
+  final List<AgoraActivityRow> rows;
+  factory AgoraActivity.fromJson(Map<String, dynamic> json) => AgoraActivity(status: json['status'] as String? ?? 'UNAVAILABLE', reason: json['reason'] as String?, limited: json['limited'] as bool?, rows: (json['rows'] as List? ?? const []).whereType<Map>().map((row) => AgoraActivityRow.fromJson(Map<String, dynamic>.from(row))).toList());
+}

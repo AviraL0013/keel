@@ -30,6 +30,7 @@ export type TelemetrySnapshot = NormalizedTelemetry
 export type CapitalAvailability = 'AVAILABLE' | 'UNAVAILABLE' | 'UNKNOWN'
 export type CapitalFreshness = 'FRESH' | 'STALE' | 'UNKNOWN'
 export type CapitalAmount = { amount: string | null; asset: string; decimals: number; source: string; availability: CapitalAvailability; freshness: CapitalFreshness; ageMs?: number; updatedAt?: string; reason?: string }
+export type AgoraActivity = { status: 'AVAILABLE' | 'UNAVAILABLE'; reason?: string; checkedAt?: string; limited?: boolean; rows: Array<{ id: string; type: string; status: string; source: string; destination: string; asset: string; amount: string; timestamp: string; match: 'POSSIBLE_MATCH' | 'UNMATCHED'; evidence: 'WALLET_TRANSFER' | 'WALLET_AND_PERPL' | 'NONE' }> }
 export type CapitalSnapshot = {
   status: 'VALID' | 'UNAVAILABLE'
   accountId?: number

@@ -9,9 +9,14 @@ class CapitalRepository {
       '/capital',
       (value) =>
           CapitalSnapshot.fromJson(Map<String, dynamic>.from(value as Map)));
+  Future<AgoraActivity> getAgoraActivity() => api.get(
+      '/capital/agora-activity',
+      (value) => AgoraActivity.fromJson(Map<String, dynamic>.from(value as Map)));
 }
 
 final capitalRepositoryProvider = Provider<CapitalRepository>(
     (ref) => CapitalRepository(ref.watch(apiClientProvider)));
 final capitalProvider = FutureProvider.autoDispose<CapitalSnapshot>(
     (ref) => ref.watch(capitalRepositoryProvider).get());
+final agoraActivityProvider = FutureProvider.autoDispose<AgoraActivity>(
+    (ref) => ref.watch(capitalRepositoryProvider).getAgoraActivity());

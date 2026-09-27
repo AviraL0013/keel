@@ -8,10 +8,11 @@ import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
 import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
 import { PerplRequestIdAllocator } from './request-id-allocator.js'
 import { buildTelemetryFreshness, defaultFreshnessThresholds, freshnessPoint, type Action, type Book, type BookCreationReadiness, type CapitalAmount, type NormalizedTelemetry, type Position } from '../../../../packages/domain/src/index.js'
-import { ChainAdapter } from '../../../../packages/chain/src/index.js'
+import { ChainAdapter, chainConfigs } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
-import { getAddress } from 'viem'
+import { readAgoraActivity } from '../agora/activity.js'
+import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
 import { logger } from '../../config/index.js'
 
@@ -66,9 +67,34 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
   const requestIds = new PerplRequestIdAllocator(store.pool)
   const trading = new PerplTradingClient(network, signer, line => console.info(line), (accountId, lfr, _actionId, rejectedRq) => requestIds.allocate(accountId, lfr, rejectedRq))
   const history = new PerplHistory(network.restUrl, signer, fetch, network.rpcUrl, network.exchangeAddress)
-  const chain = new ChainAdapter(environment, { rpcUrl: env.MONAD_RPC_URL ?? network.rpcUrl, chainId: Number(env.MONAD_CHAIN_ID ?? network.chainId), ausdToken: getAddress(env.AUSD_TOKEN_ADDRESS ?? network.collateralToken) })
+  const chain = new ChainAdapter(environment, { rpcUrl: env.MONAD_RPC_URL ?? network.rpcUrl, chainId: Number(env.MONAD_CHAIN_ID ?? network.chainId), ausdToken: getAddress(env.AUSD_TOKEN_ADDRESS ?? chainConfigs[environment].ausdToken) })
   const ausd = new AusdAdapter(chain)
-  const agora = new AgoraAdapter(env.AGORA_API_URL, env.AGORA_API_KEY)
+  const agora = new AgoraAdapter(env.AGORA_API_URL, env.AGORA_API_KEY, (requestId, path, status) => logger.info({ requestId, path, status }, 'Agora API response'))
+  const transferAbi = parseAbi(['event Transfer(address indexed from,address indexed to,uint256 value)'])
+  const collateralAbi = parseAbi(['event IncreasePositionCollateral(uint256 perpId,uint256 accountId,uint256 positionDepositCNS,uint256 amountCNS,uint256 balanceCNS)'])
+  const agoraEvidence = async (transactionHash: string, amount: string, wallet: string) => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(transactionHash)) return 'NONE' as const
+    const receipt = await chain.client.getTransactionReceipt({ hash: transactionHash as `0x${string}` })
+    if (receipt.status !== 'success') return 'NONE' as const
+    const expected = parseUnits(amount, 6)
+    let walletTransfer = false
+    let perplCollateral = false
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() === chain.config.ausdToken.toLowerCase()) {
+        try {
+          const event = decodeEventLog({ abi: transferAbi, topics: log.topics, data: log.data })
+          if (event.eventName === 'Transfer' && event.args.value === expected && (event.args.from.toLowerCase() === wallet.toLowerCase() || event.args.to.toLowerCase() === wallet.toLowerCase())) walletTransfer = true
+        } catch { /* Other token event. */ }
+      }
+      if (chain.config.ausdToken.toLowerCase() === network.collateralToken.toLowerCase() && log.address.toLowerCase() === network.exchangeAddress.toLowerCase()) {
+        try {
+          const event = decodeEventLog({ abi: collateralAbi, topics: log.topics, data: log.data })
+          if (event.eventName === 'IncreasePositionCollateral' && event.args.accountId === BigInt(env.PERPL_ACCOUNT_ID!) && event.args.amountCNS === expected) perplCollateral = true
+        } catch { /* Other Exchange event. */ }
+      }
+    }
+    return walletTransfer ? (perplCollateral ? 'WALLET_AND_PERPL' as const : 'WALLET_TRANSFER' as const) : 'NONE' as const
+  }
   const freshnessThresholds = defaultFreshnessThresholds
   const telemetryForPosition = (telemetry: NormalizedTelemetry, position: Position, now = Date.now()): NormalizedTelemetry => {
     const positionUpdatedAt = position.observedAt ?? position.timestamp
@@ -220,6 +246,10 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
         ausd: wallet ? { raw: wallet.raw.toString(), decimals: wallet.decimals, symbol: wallet.symbol, token: wallet.token, chainId: wallet.chainId } : undefined,
         agora: agoraMetrics,
       }
+    },
+    async agoraActivity(walletAddress?: string) {
+      if (!env.AGORA_API_KEY) return { status: 'UNAVAILABLE' as const, reason: 'AGORA_NOT_CONNECTED', rows: [] }
+      return readAgoraActivity(agora, walletAddress, agoraEvidence)
     },
     async start() {
       try { await trading.connect() }

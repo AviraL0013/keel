@@ -12,30 +12,32 @@ class CapitalScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final capital = ref.watch(capitalProvider);
+    final agoraActivity = ref.watch(agoraActivityProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('CAPITAL'), actions: [
         IconButton(
-            onPressed: () => ref.invalidate(capitalProvider),
+            onPressed: () { ref.invalidate(capitalProvider); ref.invalidate(agoraActivityProvider); },
             icon: const Icon(Icons.refresh))
       ]),
-      body: capital.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => ErrorStateCard(
-            message: friendlyError(error),
-            onRetry: () => ref.invalidate(capitalProvider)),
-        data: (snapshot) => ListView(
-            padding: const EdgeInsets.fromLTRB(
-                KeelSpacing.md, KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
-            children: [
-              const Text('Capital context', style: KeelTypography.display),
-              const SizedBox(height: KeelSpacing.xs),
-              Text(
-                  snapshot.status == 'VALID'
-                      ? 'Authoritative balances kept separate by source.'
-                      : 'Some capital sources are unavailable.',
-                  style: KeelTypography.body.copyWith(
-                      color: Theme.of(context).textTheme.bodyMedium?.color)),
-              const SizedBox(height: KeelSpacing.lg),
+      body: ListView(
+          padding: const EdgeInsets.fromLTRB(
+              KeelSpacing.md, KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
+          children: [
+            const Text('Capital context', style: KeelTypography.display),
+            const SizedBox(height: KeelSpacing.xs),
+            capital.when(
+              loading: () => const Padding(padding: EdgeInsets.all(KeelSpacing.lg), child: Center(child: CircularProgressIndicator())),
+              error: (error, _) => ErrorStateCard(
+                  message: friendlyError(error),
+                  onRetry: () => ref.invalidate(capitalProvider)),
+              data: (snapshot) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                    snapshot.status == 'VALID'
+                        ? 'Authoritative balances kept separate by source.'
+                        : 'Some capital sources are unavailable.',
+                    style: KeelTypography.body.copyWith(
+                        color: Theme.of(context).textTheme.bodyMedium?.color)),
+                const SizedBox(height: KeelSpacing.lg),
               _CapitalSection(
                   title: 'WALLET / AUSD',
                   icon: Icons.account_balance_wallet_outlined,
@@ -56,10 +58,50 @@ class CapitalScreen extends ConsumerWidget {
                     'Remaining': snapshot.bookRemaining,
                     'Unreserved': snapshot.unreservedCapital
                   }),
-            ]),
-      ),
+              ]),
+            ),
+            _AgoraActivitySection(activity: agoraActivity),
+          ]),
     );
   }
+}
+
+class _AgoraActivitySection extends StatelessWidget {
+  const _AgoraActivitySection({required this.activity});
+  final AsyncValue<AgoraActivity> activity;
+
+  @override
+  Widget build(BuildContext context) => Card(
+      margin: const EdgeInsets.only(bottom: KeelSpacing.md),
+      child: Padding(
+        padding: const EdgeInsets.all(KeelSpacing.lg),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('AGORA ACCOUNT ACTIVITY', style: KeelTypography.label),
+          const SizedBox(height: KeelSpacing.xs),
+          const Text('Transaction history. Not a balance or funds available.'),
+          const SizedBox(height: KeelSpacing.md),
+          activity.when(
+            loading: () => const Text('Checking Agora activity…'),
+            error: (_, __) => const Text('Unavailable'),
+            data: (value) {
+              if (value.status != 'AVAILABLE') return const Text('Unavailable');
+              if (value.rows.isEmpty) return Text(value.limited == true ? 'No activity for this wallet in recent Agora records.' : 'No Agora activity for this wallet.');
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                ...value.rows.map((row) => Padding(
+                  padding: const EdgeInsets.only(bottom: KeelSpacing.md),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${row.type.toUpperCase()} · ${row.status}', style: KeelTypography.label),
+                    Text('${row.source} to ${row.destination}'),
+                    Text('${row.amount.isEmpty ? 'Amount unavailable' : '${row.amount} ${row.asset}'} · ${row.timestamp?.toLocal().toString().split('.').first ?? 'Time unavailable'}'),
+                    Text(row.match == 'POSSIBLE_MATCH' ? 'Possible match with on-chain evidence' : 'No verified match in KEEL'),
+                  ]),
+                )),
+                if (value.limited == true) const Text('Showing recent Agora records only.'),
+              ]);
+            },
+          ),
+        ]),
+      ));
 }
 
 class _CapitalSection extends StatelessWidget {
