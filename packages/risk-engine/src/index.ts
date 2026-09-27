@@ -3,7 +3,8 @@ export type { RiskState, BookStance as Stance } from '../../domain/src/index.js'
 import { defaultFreshnessThresholds, type Book, type Decision, type NormalizedTelemetry, type Position, type Reserve, type RiskFeatures } from '../../domain/src/index.js'
 import { applyBookPolicy } from './policy.js'
 export type RiskConfig = { freshnessWindowMs: number; maxSpreadBps: number; minDepthNotional: number; maxFundingPressure: number; minDefenseEfficiency: number; minReserveAfterAction: number; maxVolatility: number }
-export const defaultRiskConfig: RiskConfig = { freshnessWindowMs: defaultFreshnessThresholds.marketMs, maxSpreadBps: 40, minDepthNotional: 1000, maxFundingPressure: 0.0008, minDefenseEfficiency: 0.25, minReserveAfterAction: 0, maxVolatility: 0.1 }
+// Minimum fraction of modeled liquidation-distance improvement delivered by a defense.
+export const defaultRiskConfig: RiskConfig = { freshnessWindowMs: defaultFreshnessThresholds.marketMs, maxSpreadBps: 40, minDepthNotional: 1000, maxFundingPressure: 0.0008, minDefenseEfficiency: 0.5, minReserveAfterAction: 0, maxVolatility: 0.1 }
 export type { RiskFeatures }
 export function liquidationDistance(position: Position, mark = position.markPrice): number { if (mark <= 0) return 0; return position.side === 'LONG' ? (mark - position.liquidationPrice) / mark * 100 : (position.liquidationPrice - mark) / mark * 100 }
 type TelemetrySource = 'market' | 'position' | 'funding' | 'orderbook'
