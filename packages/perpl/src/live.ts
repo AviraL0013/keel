@@ -40,7 +40,8 @@ export class PerplLiveAdapter {
     if (account !== context.accountId || !rq) return unknown('MISSING_DURABLE_VENUE_REFERENCE')
     try { if (requestId(rq) === 0n) return unknown('MISSING_DURABLE_VENUE_REFERENCE') }
     catch { return unknown('MISSING_DURABLE_VENUE_REFERENCE') }
-    const evidence = await this.history.evidence(account, rq, context.marketId, context.positionId, action.kind === 'DEFEND' ? { amount: action.amount, decimals: context.collateralDecimals, minBlock: action.beforeState?.telemetry.block ?? 0 } : undefined)
+    const minBlock = action.beforeState?.telemetry.block
+    const evidence = await this.history.evidence(account, rq, context.marketId, context.positionId, action.kind === 'DEFEND' ? { amount: action.amount, decimals: context.collateralDecimals, minBlock: minBlock ?? 0 } : undefined, minBlock)
     if (action.kind === 'DEFEND' && evidence.collateralSuccess) {
       await this.persistEvidence(action, evidence)
       return { ...action, venueReference: `${account}:${rq}:${evidence.collateralSuccess.txHash}`, status: 'CONFIRMED', error: undefined, failedAt: undefined, confirmedAt: new Date().toISOString() }

@@ -11,7 +11,7 @@ const forwardAbi = parseAbi(['function execFwdPositionOpsV2((uint256 accountId,u
 const collateralAbi = parseAbi(['event IncreasePositionCollateral(uint256 perpId,uint256 accountId,uint256 positionDepositCNS,uint256 amountCNS,uint256 balanceCNS)'])
 export class PerplHistory {
   constructor(private readonly baseUrl: string, private readonly signer: ApiKeySigner, private readonly transport: typeof fetch = fetch, private readonly rpcUrl?: string, private readonly exchangeAddress?: string) {}
-  async read<T>(resource: 'account-history' | 'order-history' | 'position-history' | 'fills', predicate: (item: T) => boolean): Promise<T[]> {
+  async read<T extends { at?: Stamp }>(resource: 'account-history' | 'order-history' | 'position-history' | 'fills', predicate: (item: T) => boolean, minBlock?: number): Promise<T[]> {
     let page: string | undefined
     const result: T[] = []
     const seen = new Set<string>()
@@ -29,6 +29,11 @@ export class PerplHistory {
       const data = parsePerplRequestIds(await response.text()) as { d?: T[]; np?: string }
       if (!Array.isArray(data.d)) throw new Error('PERPL_HISTORY_INVALID')
       result.push(...data.d.filter(predicate))
+      // Perpl returns newest-to-oldest pages. Keep the boundary page because
+      // other events in the same block may be on its next page.
+      if (minBlock !== undefined && minBlock > 0 && data.d.length > 0 &&
+        data.d.every(item => Number.isSafeInteger(item.at?.b)) &&
+        (data.d.at(-1)!.at!.b!) < minBlock) return result
       if (!data.np) return result
       if (seen.has(data.np)) throw new Error('PERPL_HISTORY_CURSOR_LOOP')
       seen.add(data.np); page = data.np
@@ -64,13 +69,13 @@ export class PerplHistory {
       } catch { return false }
     })
   }
-  async evidence(accountId: number, requestId: string, marketId: number, positionId: number, collateral?: { amount: number; decimals: number; minBlock: number }) {
+  async evidence(accountId: number, requestId: string, marketId: number, positionId: number, collateral?: { amount: number; decimals: number; minBlock: number }, minBlock = collateral?.minBlock) {
     const amountRaw = collateral ? encodeAmount(new Decimal(collateral.amount).toFixed(), collateral.decimals) : undefined
     const [orders, positions, accounts, fills] = await Promise.all([
-      this.read<WireOrder>('order-history', item => item.acc === accountId && String(item.rq) === requestId && item.mkt === marketId),
-      this.read<WirePosition>('position-history', item => item.acc === accountId && item.pid === positionId && item.mkt === marketId),
-      this.read<AccountEvent>('account-history', item => item.id === accountId && item.m === marketId && (String(item.r) === requestId || (amountRaw !== undefined && item.et === 3 && item.p === positionId && item.a === `-${amountRaw}` && (item.at.b ?? 0) >= collateral!.minBlock))),
-      this.read<WireFill>('fills', item => item.acc === accountId && item.mkt === marketId),
+      this.read<WireOrder>('order-history', item => item.acc === accountId && String(item.rq) === requestId && item.mkt === marketId, minBlock),
+      this.read<WirePosition>('position-history', item => item.acc === accountId && item.pid === positionId && item.mkt === marketId, minBlock),
+      this.read<AccountEvent>('account-history', item => item.id === accountId && item.m === marketId && (String(item.r) === requestId || (amountRaw !== undefined && item.et === 3 && item.p === positionId && item.a === `-${amountRaw}` && (item.at.b ?? 0) >= collateral!.minBlock)), minBlock),
+      this.read<WireFill>('fills', item => item.acc === accountId && item.mkt === marketId, minBlock),
     ])
     let collateralSuccess: { txHash: string; block: number } | undefined
     if (amountRaw !== undefined) for (const event of accounts.filter(item => item.et === 3 && item.p === positionId && item.a === `-${amountRaw}`)) {

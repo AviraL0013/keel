@@ -15,4 +15,35 @@ describe('Perpl signed history adapter', () => {
     const looping = new PerplHistory('https://testnet.perpl.xyz/api', { apiKey: 'key', sign }, vi.fn().mockImplementation(async () => new Response(JSON.stringify({ d: [], np: 'same' }), { status: 200 })))
     await expect(looping.read('fills', () => true)).rejects.toThrow('PERPL_HISTORY_CURSOR_LOOP')
   })
+
+  it('stops a reconciliation scan after the first page older than the action block', async () => {
+    const transport = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      d: [{ acc: 642, rq: '1791001362444', at: { b: 66118126 } }], np: 'older',
+    }), { status: 200 }))
+    const history = new PerplHistory('https://testnet.perpl.xyz/api', { apiKey: 'key', sign: async () => 'sig' }, transport)
+    expect(await history.read<{ acc: number; rq: string; at: { b: number } }>('order-history', item => item.rq === '1791001362445', 66118287)).toEqual([])
+    expect(transport).toHaveBeenCalledTimes(1)
+  })
+
+  it('scans the next page when the boundary block might continue there', async () => {
+    const transport = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify(
+      new URL(url).searchParams.has('page')
+        ? { d: [{ rq: 'target', at: { b: 100 } }, { rq: 'old', at: { b: 99 } }], np: 'older' }
+        : { d: [{ rq: 'other', at: { b: 101 } }, { rq: 'other', at: { b: 100 } }], np: 'next' },
+    ), { status: 200 }))
+    const history = new PerplHistory('https://testnet.perpl.xyz/api', { apiKey: 'key', sign: async () => 'sig' }, transport)
+    expect(await history.read<{ rq: string; at: { b: number } }>('order-history', item => item.rq === 'target', 100)).toEqual([{ rq: 'target', at: { b: 100 } }])
+    expect(transport).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not cut off history when a page lacks a reliable block', async () => {
+    const transport = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify(
+      new URL(url).searchParams.has('page')
+        ? { d: [{ rq: 'target', at: { b: 101 } }], np: '' }
+        : { d: [{ rq: 'other', at: {} }], np: 'next' },
+    ), { status: 200 }))
+    const history = new PerplHistory('https://testnet.perpl.xyz/api', { apiKey: 'key', sign: async () => 'sig' }, transport)
+    expect(await history.read<{ rq: string; at: { b?: number } }>('order-history', item => item.rq === 'target', 100)).toEqual([{ rq: 'target', at: { b: 101 } }])
+    expect(transport).toHaveBeenCalledTimes(2)
+  })
 })
