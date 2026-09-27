@@ -38,7 +38,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   if (!venue && persistence instanceof PostgresStore) {
     try { venue = createPerplRuntime(persistence) } catch (error) { logger.warn({ error: error instanceof Error ? error.message : 'PERPL_CONFIGURATION_INVALID' }, 'Perpl live adapter unavailable; readiness will fail closed') }
   }
-  const runtime = persistence instanceof PostgresStore ? new KeelRuntime(persistence, venue) : undefined
+  const runtime = persistence instanceof PostgresStore ? new KeelRuntime(persistence, venue, Date.now, config.safeModeResumeTicks) : undefined
   const closeBook = services.closeBook ?? (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
   const executeAction = services.executeAction ?? (runtime ? runtime.executeAction.bind(runtime) : testRuntime ? testRuntime.executeAction.bind(testRuntime) : undefined)
   app.addHook('onReady', async () => { await runtime?.start() })

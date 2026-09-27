@@ -1,5 +1,5 @@
 ﻿export type Environment = 'development' | 'test' | 'testnet' | 'mainnet'
-export type Config = { environment: Environment; port: number; databaseUrl?: string; sessionSecret: string; perplRestUrl: string; perplWsUrl: string; perplChainId: number; ausdTokenAddress?: string; corsOrigin: string; allowedWallets: string[] }
+export type Config = { environment: Environment; port: number; databaseUrl?: string; sessionSecret: string; perplRestUrl: string; perplWsUrl: string; perplChainId: number; ausdTokenAddress?: string; corsOrigin: string; allowedWallets: string[]; safeModeResumeTicks: number }
 export type WalletAccess = 'ALLOWED' | 'WALLET_NOT_ALLOWED' | 'WALLET_ALLOWLIST_NOT_CONFIGURED'
 export function walletAccess(config: Config, address: string): WalletAccess { if (config.allowedWallets.length === 0) return config.environment === 'test' ? 'ALLOWED' : 'WALLET_ALLOWLIST_NOT_CONFIGURED'; return config.allowedWallets.includes(address.toLowerCase()) ? 'ALLOWED' : 'WALLET_NOT_ALLOWED' }
 export function loadConfig(env: Record<string, string | undefined> = {}): Config {
@@ -7,7 +7,9 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   const explicit = (env.KEEL_ALLOWED_WALLETS ?? '').trim()
   const source = explicit ? explicit : (env.MONAD_WALLET_ADDRESS ?? '')
   const allowedWallets = [...new Set(source.split(',').map(address => address.trim()).filter(Boolean).map(address => { if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error(explicit ? 'INVALID_KEEL_ALLOWED_WALLETS' : 'INVALID_MONAD_WALLET_ADDRESS'); return address.toLowerCase() }))]
-  return { environment, port: Number(env.PORT ?? 8787), databaseUrl: env.DATABASE_URL, sessionSecret: env.SESSION_SECRET ?? 'development-only-change-me', perplRestUrl: env.PERPL_REST_URL ?? '', perplWsUrl: env.PERPL_WS_URL ?? '', perplChainId: Number(env.PERPL_CHAIN_ID ?? 10143), ausdTokenAddress: env.AUSD_TOKEN_ADDRESS, corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173', allowedWallets }
+  const safeModeResumeTicks = Number(env.KEEL_SAFE_MODE_RESUME_TICKS ?? 5)
+  if (!Number.isSafeInteger(safeModeResumeTicks) || safeModeResumeTicks < 1) throw new Error('INVALID_KEEL_SAFE_MODE_RESUME_TICKS')
+  return { environment, port: Number(env.PORT ?? 8787), databaseUrl: env.DATABASE_URL, sessionSecret: env.SESSION_SECRET ?? 'development-only-change-me', perplRestUrl: env.PERPL_REST_URL ?? '', perplWsUrl: env.PERPL_WS_URL ?? '', perplChainId: Number(env.PERPL_CHAIN_ID ?? 10143), ausdTokenAddress: env.AUSD_TOKEN_ADDRESS, corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173', allowedWallets, safeModeResumeTicks }
 }
 export function assertProductionConfig(config: Config) { if (config.environment === 'mainnet' && (config.sessionSecret.includes('change-me') || !config.databaseUrl || !config.perplRestUrl || !config.perplWsUrl || !config.ausdTokenAddress)) throw new Error('INCOMPLETE_MAINNET_CONFIGURATION') }
 export type Logger = { info: (meta: Record<string, unknown>, message: string) => void; warn: (meta: Record<string, unknown>, message: string) => void; error: (meta: Record<string, unknown>, message: string) => void }
