@@ -14,6 +14,7 @@ jobs:
       - run: npm test
       - run: npm run server:typecheck
       - run: npm run build
+      - run: npm run smoke:prod
 
   flutter:
     runs-on: ubuntu-latest

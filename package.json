@@ -4,14 +4,17 @@
     "version": "0.0.0",
     "type": "module",
     "scripts": {
-        "build": "tsc -p server/tsconfig.json --noEmit",
+        "build": "tsc -p tsconfig.build.json",
         "lint": "oxlint",
         "test:risk": "vitest run tests/risk-engine.test.ts tests/risk-stale.test.ts",
         "test": "vitest run",
         "server:dev": "node --env-file-if-exists=.env --import tsx server/src/index.ts",
+        "start": "node dist/server/src/index.js",
+        "smoke:prod": "node scripts/smoke-production.mjs",
         "typecheck": "tsc -p server/tsconfig.json --noEmit",
         "server:typecheck": "tsc -p server/tsconfig.json --noEmit",
         "db:migrate": "tsx scripts/migrate.ts",
+        "db:migrate:prod": "node dist/scripts/migrate.js",
         "mobile:analyze": "cd apps/mobile && flutter analyze",
         "mobile:test": "cd apps/mobile && flutter test",
         "mobile:build": "cd apps/mobile && flutter build apk --debug"
