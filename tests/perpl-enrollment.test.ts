@@ -16,12 +16,13 @@ const wallet = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const other = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 const origin = 'https://keel.example'
 
-async function fixture(enrollStatus = 200) {
+async function fixture(enrollStatus = 200, domainOrder = false) {
   const { db, store } = await databaseFixture()
   const userId = await store.ensureUser(wallet.address)
   const custody = new DevelopmentKeyCustody('33'.repeat(32))
   const config = loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: origin }, loadConfig({ KEEL_ENV: 'test' }))
   const requests: Array<{ path: string; headers: Headers; body: Record<string, unknown> }> = []
+  let onEnroll: (() => Promise<void>) | undefined
   const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(input)).pathname
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -29,13 +30,17 @@ async function fixture(enrollStatus = 200) {
     if (path.endsWith('/payload')) {
       return Response.json({ mac: 'private-mac', typed_data: {
         domain: { name: 'Perpl', version: '1', chainId: 10143, verifyingContract: '0x0000000000000000000000000000000000000001' },
-        types: { ApiKeyEnrollment: [
+        types: { ...(domainOrder ? { EIP712Domain: [
+          { name: 'verifyingContract', type: 'address' }, { name: 'chainId', type: 'uint256' },
+          { name: 'version', type: 'string' }, { name: 'name', type: 'string' },
+        ] } : {}), ApiKeyEnrollment: [
           { name: 'address', type: 'address' }, { name: 'publicKey', type: 'bytes32' },
           { name: 'scopeMask', type: 'uint8' }, { name: 'expiresAt', type: 'uint64' }, { name: 'label', type: 'string' },
         ] }, primaryType: 'ApiKeyEnrollment',
         message: { address: body.address, publicKey: body.public_key, scopeMask: body.scope_mask, expiresAt: body.expires_at, label: body.label },
       } })
     }
+    await onEnroll?.()
     if (enrollStatus !== 200) return Response.json({ error: 'fake venue refusal' }, { status: enrollStatus })
     const typed = body.typed_data as Parameters<typeof hashTypedData>[0]
     const digest = hashTypedData(typed)
@@ -49,7 +54,7 @@ async function fixture(enrollStatus = 200) {
   const client = new PerplEnrollmentClient('https://perpl.invalid/api', origin, fetcher)
   const service = new PerplEnrollmentService(store, config, custody, client)
   const sign = async (typedData: unknown) => wallet.signTypedData(typedData as Parameters<typeof wallet.signTypedData>[0])
-  return { db, store, userId, custody, service, requests, fetcher, sign, close: () => db.close() }
+  return { db, store, userId, custody, service, requests, fetcher, sign, setOnEnroll: (callback: () => Promise<void>) => { onEnroll = callback }, close: () => db.close() }
 }
 
 describe('development Perpl enrollment foundation', () => {
@@ -110,6 +115,80 @@ describe('development Perpl enrollment foundation', () => {
       expect(value.requests).toHaveLength(1)
       expect((await value.db.query('SELECT status FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0].status).toBe('PENDING')
     } finally { await value.close() }
+  }, 20_000)
+
+  it('uses Perpl domain field order for wallet verification and proof-of-possession', async () => {
+    const value = await fixture(200, true)
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      const domainFields = (pending.typedData.types as Record<string, Array<{ name: string }>>).EIP712Domain
+      expect(domainFields.map(field => field.name)).toEqual(['verifyingContract', 'chainId', 'version', 'name'])
+      expect(await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))).toEqual({ connectionId: pending.connectionId, status: 'ACTIVE' })
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('commits ENROLLING before calling Perpl and blocks duplicate enrollment', async () => {
+    const value = await fixture()
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      value.setOnEnroll(async () => {
+        const row = (await value.db.query('SELECT status,public_key FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+        expect(row.status).toBe('ENROLLING')
+        expect(row.public_key).toBe(value.requests[0].body.public_key)
+        await expect(value.service.start(value.userId, wallet.address)).rejects.toThrow('PERPL_ENROLLMENT_ALREADY_PENDING')
+      })
+      await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      expect(value.requests).toHaveLength(2)
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('protects an in-flight enrollment from local revoke and legacy validation', async () => {
+    const value = await fixture()
+    const app = Fastify({ logger: false })
+    try {
+      const config = loadConfig({ KEEL_ENV: 'test' })
+      await app.register(cookie, { secret: config.sessionSecret })
+      registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: value.service })
+      await value.store.createSession('inflight-enrollment-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
+      const pending = await value.service.start(value.userId, wallet.address)
+      value.setOnEnroll(async () => {
+        await expect(value.service.disconnect(value.userId, pending.connectionId)).rejects.toThrow('PERPL_ENROLLMENT_IN_PROGRESS')
+        await expect(value.store.revokeConnection(value.userId)).rejects.toThrow('PERPL_ENROLLMENT_IN_PROGRESS')
+        const validated = await app.inject({ method: 'POST', url: '/connections/perpl/validate', headers: { authorization: 'Bearer inflight-enrollment-session' }, payload: {} })
+        expect(validated.statusCode).toBe(200)
+        expect((await value.db.query('SELECT status FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0].status).toBe('ENROLLING')
+      })
+      await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      expect((await value.db.query('SELECT status FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0].status).toBe('ACTIVE')
+    } finally { await app.close(); await value.close() }
+  }, 20_000)
+
+  it('preserves the public key and flags a Perpl success whose token could not be saved', async () => {
+    const value = await fixture()
+    const pending = await value.service.start(value.userId, wallet.address)
+    const originalQuery = value.db.query.bind(value.db)
+    let failFinalWrite = true
+    const querySpy = vi.spyOn(value.db, 'query').mockImplementation((async (sql: string, values?: unknown[]) => {
+      if (failFinalWrite && sql.includes("SET status='ACTIVE'")) { failFinalWrite = false; throw new Error('SIMULATED_DB_FAILURE') }
+      return originalQuery(sql, values)
+    }) as typeof value.db.query)
+    try {
+      await expect(value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))).rejects.toThrow('PERPL_ENROLLED_NOT_SAVED')
+      expect(value.requests).toHaveLength(2)
+      const row = (await value.db.query('SELECT status,last_error,public_key,sealed_api_token FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row).toMatchObject({ status: 'ERROR', last_error: 'ENROLLED_NOT_SAVED', public_key: value.requests[0].body.public_key, sealed_api_token: null })
+      await expect(value.service.start(value.userId, wallet.address)).rejects.toThrow('PERPL_ENROLLMENT_REVIEW_REQUIRED')
+      const app = Fastify({ logger: false })
+      try {
+        const config = loadConfig({ KEEL_ENV: 'test' })
+        await app.register(cookie, { secret: config.sessionSecret })
+        registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: value.service })
+        await value.store.createSession('enrollment-failure-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
+        const listed = await app.inject({ method: 'GET', url: '/connections', headers: { authorization: 'Bearer enrollment-failure-session' } })
+        expect(listed.statusCode).toBe(200)
+        expect(listed.json()[0]).toMatchObject({ status: 'ERROR', lastError: 'ENROLLED_NOT_SAVED', publicKey: row.public_key, perplKeyPageUrl: 'https://testnet.perpl.xyz/apikeys' })
+      } finally { await app.close() }
+    } finally { querySpy.mockRestore(); await value.close() }
   }, 20_000)
 
   it('permits only one pending or active enrollment for a wallet', async () => {

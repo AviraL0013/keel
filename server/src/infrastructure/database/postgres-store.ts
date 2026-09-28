@@ -1,6 +1,7 @@
 import pg from 'pg'
 import { defaultFreshnessThresholds, type Book, type BookPositionSeed, type BookTelemetrySeed } from '../../../../packages/domain/src/index.js'
 import { validateBookControls } from '../../bookControls.js'
+import { ConflictError } from '../../application/errors.js'
 export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & { reserveAvailable?: number; initialPosition?: BookPositionSeed; initialTelemetry?: BookTelemetrySeed }
 export type StoredSession = { userId: string; walletAddress: string; expiresAt: number }
 export type Store = { ensureUser(walletAddress: string): Promise<string>; createSession(token: string, session: StoredSession): Promise<void>; getSession(token: string): Promise<StoredSession | null>; revokeSession(token: string): Promise<void>; updateBookControls(userId: string, bookId: string, patch: { automationEnabled?: boolean; status?: Book['status']; stance?: Book['stance'] }): Promise<Book | null>; createBook(userId: string, input: CreateBookInput): Promise<Book>; getBook(userId: string, bookId: string): Promise<Book | null>; listBooks(userId: string): Promise<Book[]>; getPositionRow(userId: string, bookId: string): Promise<Record<string, unknown> | null>; getTelemetryRow(userId: string, bookId: string): Promise<Record<string, unknown> | null>; getRiskRow(userId: string, bookId: string): Promise<Record<string, unknown> | null>; revokeConnection(userId: string): Promise<void>; registerDevice(userId: string, pushToken: string, platform: string): Promise<void>; listAutopsy(userId: string, bookId: string): Promise<unknown[]>; listDecisions(userId: string, bookId: string): Promise<unknown[]>; listActions(userId: string, bookId: string): Promise<unknown[]>; getReserve(userId: string, bookId: string): Promise<unknown | null>; createChallenge(address: string, nonce: string, expiresAt: number, message: string): Promise<void>; consumeChallenge(address: string, nonce: string, message: string): Promise<boolean> }
@@ -99,7 +100,17 @@ export class PostgresStore implements Store {
   async listActions(userId: string, bookId: string) { const result = await this.pool.query('SELECT a.* FROM actions a JOIN books b ON b.id=a.book_id JOIN decisions d ON d.id=a.decision_id WHERE b.user_id=$1 AND a.book_id=$2 ORDER BY d.created_at DESC, a.id DESC LIMIT 100', [userId, bookId]); return result.rows }
   async getReserve(userId: string, bookId: string) { const result = await this.pool.query('SELECT r.* FROM reserves r JOIN books b ON b.id=r.book_id WHERE b.user_id=$1 AND r.book_id=$2', [userId, bookId]); return result.rows[0] ?? null }
   async registerDevice(userId: string, pushToken: string, platform: string) { await this.pool.query('INSERT INTO devices(user_id,push_token,platform) VALUES($1,$2,$3)', [userId, pushToken, platform]) }
-  async revokeConnection(userId: string) { await this.pool.query("UPDATE perpl_connections SET status='REVOKED', revoked_at=now(),sealed_private_key=NULL,sealed_api_token=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [userId]) }
+  async revokeConnection(userId: string) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const rows = await client.query('SELECT status FROM perpl_connections WHERE user_id=$1 AND revoked_at IS NULL FOR UPDATE', [userId])
+      if (rows.rows.some(row => row.status === 'ENROLLING')) throw new ConflictError('PERPL_ENROLLMENT_IN_PROGRESS')
+      await client.query("UPDATE perpl_connections SET status='REVOKED', revoked_at=now(),sealed_private_key=NULL,sealed_api_token=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [userId])
+      await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error }
+    finally { client.release() }
+  }
   async createChallenge(address: string, nonce: string, expiresAt: number, message: string) { await this.pool.query('INSERT INTO auth_challenges(address,nonce,expires_at,message) VALUES($1,$2,$3,$4)', [address.toLowerCase(), nonce, expiresAt, message]) }
   async consumeChallenge(address: string, nonce: string, message: string) { const result = await this.pool.query('UPDATE auth_challenges SET consumed_at=now() WHERE address=$1 AND nonce=$2 AND expires_at>$3 AND consumed_at IS NULL AND message=$4 RETURNING nonce', [address.toLowerCase(), nonce, Date.now(), message]); return result.rowCount === 1 }
 }

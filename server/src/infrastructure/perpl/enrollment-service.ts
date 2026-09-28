@@ -54,9 +54,11 @@ export class PerplEnrollmentService {
   async start(userId: string, walletAddress: string): Promise<{ connectionId: string; typedData: TypedData }> {
     await this.cleanupExpired()
     const wallet = walletAddress.toLowerCase()
+    const unresolved = await this.store.pool.query("SELECT 1 FROM perpl_connections WHERE user_id=$1 AND wallet_address=$2 AND environment=$3 AND last_error='ENROLLED_NOT_SAVED' AND revoked_at IS NULL LIMIT 1", [userId, wallet, this.config.environment])
+    if (unresolved.rows.length) throw new ConflictError('PERPL_ENROLLMENT_REVIEW_REQUIRED')
     const active = await this.store.pool.query("SELECT 1 FROM perpl_connections WHERE user_id=$1 AND wallet_address=$2 AND environment=$3 AND status='ACTIVE' LIMIT 1", [userId, wallet, this.config.environment])
     if (active.rows.length) throw new ConflictError('PERPL_CONNECTION_ALREADY_ACTIVE')
-    const pending = await this.store.pool.query("SELECT 1 FROM perpl_connections WHERE user_id=$1 AND wallet_address=$2 AND environment=$3 AND status='PENDING' LIMIT 1", [userId, wallet, this.config.environment])
+    const pending = await this.store.pool.query("SELECT 1 FROM perpl_connections WHERE user_id=$1 AND wallet_address=$2 AND environment=$3 AND status IN ('PENDING','ENROLLING') LIMIT 1", [userId, wallet, this.config.environment])
     if (pending.rows.length) throw new ConflictError('PERPL_ENROLLMENT_ALREADY_PENDING')
     const secret = randomBytes(32)
     try {
@@ -75,50 +77,72 @@ export class PerplEnrollmentService {
     } finally { secret.fill(0) }
   }
 
+  private async markEnrollmentError(id: string, userId: string, reason: string) {
+    await this.store.pool.query("UPDATE perpl_connections SET status='ERROR',last_error=$3,sealed_private_key=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now() WHERE id=$1 AND user_id=$2 AND status='ENROLLING'", [id,userId,reason])
+  }
+
   async complete(userId: string, walletAddress: string, id: string, signature: string): Promise<{ connectionId: string; status: 'ACTIVE' }> {
     await this.cleanupExpired()
     const db = await this.store.pool.connect()
+    let row: Record<string, unknown>
+    let committed = false
     try {
       await db.query('BEGIN')
       const found = await db.query('SELECT * FROM perpl_connections WHERE id=$1 AND user_id=$2 FOR UPDATE', [id,userId])
-      const row = found.rows[0]
+      row = found.rows[0]
       if (!row) throw new NotFoundError('PERPL_CONNECTION_NOT_FOUND')
       if (row.status !== 'PENDING') throw new ConflictError('PERPL_ENROLLMENT_NOT_PENDING')
       if (String(row.wallet_address).toLowerCase() !== walletAddress.toLowerCase()) throw new AuthorizationError('PERPL_ENROLLMENT_WALLET_MISMATCH')
       const active = await db.query("SELECT 1 FROM perpl_connections WHERE user_id=$1 AND wallet_address=$2 AND environment=$3 AND status='ACTIVE' LIMIT 1", [userId,row.wallet_address,row.environment])
       if (active.rows.length) throw new ConflictError('PERPL_CONNECTION_ALREADY_ACTIVE')
       const typed = typedData(row.typed_data)
-      const canonical = { ...typed, types: Object.fromEntries(Object.entries(typed.types).filter(([name]) => name !== 'EIP712Domain')) }
       let valid = false
-      try { valid = await verifyTypedData({ ...canonical, address: walletAddress as Address, signature: signature as Hex } as Parameters<typeof verifyTypedData>[0]) }
+      try { valid = await verifyTypedData({ ...typed, address: walletAddress as Address, signature: signature as Hex } as Parameters<typeof verifyTypedData>[0]) }
       catch { valid = false }
       if (!valid) throw new AuthorizationError('WALLET_SIGNATURE_INVALID')
+      await db.query("UPDATE perpl_connections SET status='ENROLLING',last_error=NULL WHERE id=$1", [id])
+      await db.query('COMMIT')
+      committed = true
+    } catch (error) { if (!committed) await db.query('ROLLBACK'); throw error }
+    finally { db.release() }
+
+    const typed = typedData(row.typed_data)
+    let enrolled: EnrolledKey
+    try {
       const privateKey = Buffer.from(this.custody.open(String(row.sealed_private_key), credentialContext(id, 'private_key')), 'hex')
       let popSignature: string
       try {
-        const digest = hashTypedData(canonical as Parameters<typeof hashTypedData>[0])
+        const digest = hashTypedData(typed as Parameters<typeof hashTypedData>[0])
         popSignature = `0x${Buffer.from(await signAsync(Buffer.from(digest.slice(2), 'hex'), privateKey)).toString('hex')}`
       } finally { privateKey.fill(0) }
-      let enrolled: EnrolledKey
-      try {
-        enrolled = await this.client.enroll({ chain_id: this.config.chainId, address: walletAddress.toLowerCase(), typed_data: typed, mac: this.custody.open(String(row.sealed_mac), credentialContext(id, 'mac')), signature, pop_signature: popSignature })
-        if (enrolled.api_key.address.toLowerCase() !== walletAddress.toLowerCase() || enrolled.api_key.scope_mask !== 3 || enrolled.api_key.label !== 'KEEL' || enrolled.api_key.origin !== this.config.origin || enrolled.api_key.expires_at !== new Date(row.expires_at).getTime() || enrolled.api_key.builder_id !== (row.builder_id ?? undefined) || enrolled.api_key.max_builder_fee_per_100k !== (row.builder_fee_ceiling ?? undefined)) throw new InfrastructureError('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
-      } catch (error) {
-        await db.query("UPDATE perpl_connections SET status='ERROR',last_error=$2,sealed_private_key=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now() WHERE id=$1", [id,error instanceof Error ? error.message : 'PERPL_ENROLLMENT_UNAVAILABLE'])
-        await db.query('COMMIT')
-        throw error
-      }
-      await db.query("UPDATE perpl_connections SET status='ACTIVE',sealed_api_token=$2,sealed_mac=NULL,typed_data=NULL,pending_expires_at=NULL,last_error=NULL WHERE id=$1", [id,this.custody.seal(enrolled.api_key.api_key, credentialContext(id, 'api_token'))])
-      await db.query('COMMIT')
-      return { connectionId: id, status: 'ACTIVE' }
-    } catch (error) { try { await db.query('ROLLBACK') } catch { /* Transaction already committed after a venue error. */ } throw error }
-    finally { db.release() }
+      enrolled = await this.client.enroll({ chain_id: this.config.chainId, address: walletAddress.toLowerCase(), typed_data: typed, mac: this.custody.open(String(row.sealed_mac), credentialContext(id, 'mac')), signature, pop_signature: popSignature })
+    } catch (error) {
+      await this.markEnrollmentError(id, userId, error instanceof Error ? error.message : 'PERPL_ENROLLMENT_UNAVAILABLE')
+      throw error
+    }
+    const key = enrolled.api_key
+    if (key.address.toLowerCase() !== walletAddress.toLowerCase() || key.scope_mask !== 3 || key.label !== 'KEEL' || key.origin !== this.config.origin || key.expires_at !== new Date(row.expires_at as string).getTime() || key.builder_id !== (row.builder_id ?? undefined) || key.max_builder_fee_per_100k !== (row.builder_fee_ceiling ?? undefined)) {
+      await this.markEnrollmentError(id, userId, 'ENROLLED_NOT_SAVED')
+      throw new InfrastructureError('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
+    }
+    try {
+      const saved = await this.store.pool.query("UPDATE perpl_connections SET status='ACTIVE',sealed_api_token=$2,sealed_mac=NULL,typed_data=NULL,pending_expires_at=NULL,last_error=NULL WHERE id=$1 AND user_id=$3 AND status='ENROLLING' RETURNING id", [id,this.custody.seal(key.api_key, credentialContext(id, 'api_token')),userId])
+      if (!saved.rows.length) throw new Error('ENROLLMENT_FINAL_STATE_CHANGED')
+    } catch {
+      try { await this.markEnrollmentError(id, userId, 'ENROLLED_NOT_SAVED') } catch { /* Keep ENROLLING and public key for manual Perpl revocation if database remains unavailable. */ }
+      throw new InfrastructureError('PERPL_ENROLLED_NOT_SAVED')
+    }
+    return { connectionId: id, status: 'ACTIVE' }
   }
 
   async disconnect(userId: string, id: string): Promise<{ connectionId: string; status: 'REVOKED'; perplKeyPageUrl: string }> {
     const result = await this.store.pool.query(`UPDATE perpl_connections SET status='REVOKED',sealed_private_key=NULL,sealed_api_token=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now(),revoked_at=now()
-      WHERE id=$1 AND user_id=$2 RETURNING id`, [id,userId])
-    if (!result.rows.length) throw new NotFoundError('PERPL_CONNECTION_NOT_FOUND')
+      WHERE id=$1 AND user_id=$2 AND status!='ENROLLING' RETURNING id`, [id,userId])
+    if (!result.rows.length) {
+      const current = await this.store.pool.query('SELECT status FROM perpl_connections WHERE id=$1 AND user_id=$2', [id,userId])
+      if (current.rows[0]?.status === 'ENROLLING') throw new ConflictError('PERPL_ENROLLMENT_IN_PROGRESS')
+      throw new NotFoundError('PERPL_CONNECTION_NOT_FOUND')
+    }
     return { connectionId: id, status: 'REVOKED', perplKeyPageUrl: keyPage }
   }
 }
