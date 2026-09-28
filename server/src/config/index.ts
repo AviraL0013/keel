@@ -1,6 +1,7 @@
 export {
   assertProductionConfig,
   brandEnv,
+  executionDisabled,
   loadConfig,
   logger,
   walletAccess,

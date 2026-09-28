@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { MonitorScheduler } from '../server/src/lifecycle.js'
 import { registerRoutes } from '../server/src/interfaces/http/register.js'
 import { PostgresStore } from '../server/src/infrastructure/database/postgres-store.js'
-import { loadConfig } from '../packages/shared/src/index.js'
+import { executionDisabled, loadConfig } from '../packages/shared/src/index.js'
 import type { AuthService } from '../server/src/auth.js'
 import type { EyelerRuntime } from '../server/src/runtime.js'
 
@@ -32,6 +32,12 @@ describe('monitor readiness', () => {
   it('accepts the previous setting name and rejects invalid thresholds', () => {
     expect(loadConfig({ KEEL_TICK_STALE_MS: '20000' }).tickStaleMs).toBe(20_000)
     expect(() => loadConfig({ EYELER_TICK_STALE_MS: '0' })).toThrow('INVALID_EYELER_TICK_STALE_MS')
+  })
+
+  it('accepts the previous execution-disable name and rejects invalid values', () => {
+    expect(executionDisabled({ KEEL_EXECUTION_DISABLED: 'true' })).toBe(true)
+    expect(executionDisabled({ EYELER_EXECUTION_DISABLED: 'false' })).toBe(false)
+    expect(() => loadConfig({ EYELER_EXECUTION_DISABLED: 'maybe' })).toThrow('INVALID_EYELER_EXECUTION_DISABLED')
   })
 
   it('returns 503 with tick age, venue readiness, and lock ownership', async () => {
@@ -67,6 +73,32 @@ describe('monitor readiness', () => {
       })
     } finally {
       await app.close()
+    }
+  })
+
+  it('reports the emergency execution stop in readiness', async () => {
+    const previous = process.env.EYELER_EXECUTION_DISABLED
+    process.env.EYELER_EXECUTION_DISABLED = 'true'
+    const app = Fastify()
+    const store = Object.assign(Object.create(PostgresStore.prototype) as PostgresStore, {
+      pool: { query: async () => ({ rows: [{ '?column?': 1 }] }) },
+    })
+    registerRoutes({
+      app,
+      config: loadConfig({ EYELER_ENV: 'test' }),
+      persistence: store,
+      auth: {} as AuthService,
+      notificationStore: null,
+      runtime: { health: () => ({ running: true, executionReady: true, lastTickAgeMs: 0 }) } as EyelerRuntime,
+    })
+    try {
+      const response = await app.inject({ method: 'GET', url: '/ready' })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ ready: true, executionDisabled: true })
+    } finally {
+      await app.close()
+      if (previous === undefined) delete process.env.EYELER_EXECUTION_DISABLED
+      else process.env.EYELER_EXECUTION_DISABLED = previous
     }
   })
 })

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ExecutionWorker } from '../server/src/workers/execution-worker.js'
 import { PerplPreSubmissionError } from '../packages/perpl/src/trading.js'
+import { evaluateManualAction } from '../packages/risk-engine/src/index.js'
 import type { Action, Book, Decision, NormalizedTelemetry, Position, Reserve } from '../packages/domain/src/index.js'
 const book: Book = {
   id: 'b',
@@ -26,6 +27,7 @@ const position: Position = {
   leverage: 6,
   unrealizedPnl: -2,
   margin: 16,
+  status: 'OPEN',
   timestamp: Date.now(),
 }
 const reserve: Reserve = {
@@ -84,6 +86,26 @@ function repo() {
   }
 }
 describe('execution worker safety', () => {
+  it.each([false, true])('blocks new submission before creating an action (manual=%s)', async (manual) => {
+    const r = repo()
+    const submit = vi.fn(async () => ({ venueReference: 'venue-1', status: 'SUBMITTED' as const }))
+    const venue = {
+      submit,
+      reconcile: async (a: Action) => ({ ...a, status: 'CONFIRMED' as const }),
+    }
+    let disabled = true
+    const worker = new ExecutionWorker(r, venue, undefined, Date.now, () => disabled)
+    const decision = manual
+      ? evaluateManualAction(book, position, reserve, telemetry, 'DEFEND', Infinity, Date.now())
+      : await worker.evaluate('b')
+    await expect(worker.execute(decision, false, manual)).rejects.toThrow('EXECUTION_DISABLED')
+    expect(r.actions).toHaveLength(0)
+    expect(submit).not.toHaveBeenCalled()
+    disabled = false
+    const result = await worker.execute(decision, false, manual)
+    expect(result.status).toBe('CONFIRMED')
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
   it('does not duplicate an idempotent action and records confirmed audit', async () => {
     const r = repo()
     const venue = {

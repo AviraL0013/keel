@@ -26,7 +26,13 @@ export function brandEnv(env: Record<string, string | undefined>, name: string):
     throw new Error(`CONFLICTING_EYELER_${name}`)
   return current ?? previous
 }
+export function executionDisabled(env: Record<string, string | undefined> = process.env): boolean {
+  const value = (brandEnv(env, 'EXECUTION_DISABLED') ?? 'false').trim().toLowerCase()
+  if (value !== 'true' && value !== 'false' && value !== '') throw new Error('INVALID_EYELER_EXECUTION_DISABLED')
+  return value === 'true'
+}
 export function loadConfig(env: Record<string, string | undefined> = {}): Config {
+  executionDisabled(env)
   const environment = (brandEnv(env, 'ENV') ?? 'development') as Environment
   const explicit = (brandEnv(env, 'ALLOWED_WALLETS') ?? '').trim()
   const source = explicit ? explicit : (env.MONAD_WALLET_ADDRESS ?? '')

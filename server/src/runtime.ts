@@ -17,7 +17,7 @@ import { PostgresExecutionRepository } from './infrastructure/database/execution
 import { ExecutionWorker } from './workers/execution-worker.js'
 import { MonitorScheduler } from './lifecycle.js'
 import { ConflictError, NotFoundError, PolicyRejectedError } from './application/errors.js'
-import { logger } from './config/index.js'
+import { executionDisabled as isExecutionDisabled, logger } from './config/index.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
@@ -197,6 +197,10 @@ export class EyelerRuntime {
           continue
         }
         this.reconciliationSchedule.delete(book.id)
+        if (isExecutionDisabled(process.env)) {
+          this.freshRecoveryTicks.delete(book.id)
+          continue
+        }
         const transientSafeMode =
           book.status === 'SAFE_MODE' && ['DATA_UNAVAILABLE', 'VENUE_UNAVAILABLE'].includes(book.safeModeReason ?? '')
         if (!book.automationEnabled || (book.status !== 'ACTIVE' && !transientSafeMode)) {

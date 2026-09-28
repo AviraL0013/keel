@@ -17,6 +17,7 @@ import {
 } from '../../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../../packages/perpl/src/index.js'
 import { PerplPreSubmissionError } from '../../../packages/perpl/src/trading.js'
+import { executionDisabled as isExecutionDisabled } from '../config/index.js'
 export type ExecutionRepository = {
   getActionByIdempotency?(key: string): Promise<Action | null>
   getActiveAction(bookId: string): Promise<Action | null>
@@ -40,6 +41,7 @@ export class ExecutionWorker {
     private readonly venue: Pick<VenueAdapter, 'submit' | 'reconcile'>,
     private readonly refreshAfterConfirmation?: (book: Book) => Promise<void>,
     private readonly now: () => number = Date.now,
+    private readonly executionDisabled: () => boolean = () => isExecutionDisabled(process.env),
   ) {}
   async evaluate(bookId: string): Promise<Decision> {
     const context = await this.repo.getBookContext(bookId)
@@ -77,6 +79,7 @@ export class ExecutionWorker {
   }
   async execute(decision: Decision, manualClose = false, manualAction = false) {
     if (decision.action === 'HOLD' || decision.action === 'SAFE_MODE') return decision
+    if (this.executionDisabled()) throw new Error('EXECUTION_DISABLED')
     const key = `${decision.id}:${decision.action}`
     const duplicate = this.repo.getActionByIdempotency ? await this.repo.getActionByIdempotency(key) : null
     if (duplicate) return duplicate
@@ -155,6 +158,7 @@ export class ExecutionWorker {
       await this.repo.saveAction(action)
       action.status = 'SUBMITTING'
       await this.repo.saveAction(action)
+      if (this.executionDisabled()) throw new Error('EXECUTION_DISABLED')
       venueSubmissionInvoked = true
       const submitted = await this.venue.submit(action)
       action.venueReference = submitted.venueReference

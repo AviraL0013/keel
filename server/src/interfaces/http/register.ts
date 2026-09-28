@@ -1,7 +1,7 @@
 ﻿import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { isAddress } from 'viem'
 import type { Config } from '../../config/index.js'
-import { logger } from '../../config/index.js'
+import { executionDisabled as isExecutionDisabled, logger } from '../../config/index.js'
 import type { Book } from '../../../../packages/domain/src/index.js'
 import { buildTelemetryFreshness } from '../../../../packages/domain/src/index.js'
 import { AuthenticationError, InfrastructureError, ValidationError } from '../../application/errors.js'
@@ -84,6 +84,7 @@ export function registerRoutes(context: HttpContext) {
       lastTickAgeMs: health?.lastTickAgeMs ?? null,
       venueReady: health?.venueReady ?? false,
       lockOwned: health?.lockOwned ?? false,
+      executionDisabled: isExecutionDisabled(process.env),
     }
     if (!(persistence instanceof PostgresStore))
       return reply.code(503).send({ ready: false, reason: 'DATABASE_NOT_CONFIGURED', ...detail })

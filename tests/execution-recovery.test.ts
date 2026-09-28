@@ -122,6 +122,21 @@ describe('existing execution recovery', () => {
     expect(value.finalize).not.toHaveBeenCalled()
   })
 
+  it('keeps reconciling a submitted action while execution is disabled', async () => {
+    const previous = process.env.EYELER_EXECUTION_DISABLED
+    process.env.EYELER_EXECUTION_DISABLED = 'true'
+    try {
+      const submitted = { ...action, status: 'SUBMITTED' as const }
+      const value = runtimeFor(submitted, submitted)
+      await value.tick()
+      expect(value.reconcile).toHaveBeenCalledWith(submitted)
+      expect(value.submit).not.toHaveBeenCalled()
+    } finally {
+      if (previous === undefined) delete process.env.EYELER_EXECUTION_DISABLED
+      else process.env.EYELER_EXECUTION_DISABLED = previous
+    }
+  })
+
   it('records a duplicate venue reference as UNKNOWN without submitting or finalizing', async () => {
     const collision = { ...action, status: 'UNKNOWN' as const, error: 'VENUE_REFERENCE_COLLISION' }
     const value = runtimeFor(collision)
