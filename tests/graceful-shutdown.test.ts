@@ -4,6 +4,7 @@ import { EyelerRuntime } from '../server/src/runtime.js'
 import { createServer } from '../server/src/index.js'
 import { installShutdownHandlers, shutdownServer } from '../server/src/shutdown.js'
 import { PostgresStore } from '../server/src/infrastructure/database/postgres-store.js'
+import { logger } from '../server/src/config/index.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 
 describe('graceful shutdown', () => {
@@ -57,6 +58,28 @@ describe('graceful shutdown', () => {
     expect(close).toHaveBeenCalledTimes(1)
     finish()
     await detach()
+  })
+
+  it('logs completion only after the server has closed', async () => {
+    const signals = new EventEmitter()
+    let finish!: () => void
+    const close = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined)
+    try {
+      const detach = installShutdownHandlers({ close }, signals)
+      signals.emit('SIGTERM')
+      expect(info).not.toHaveBeenCalledWith({}, 'EYELER shutdown complete')
+      finish()
+      await detach()
+      expect(info).toHaveBeenCalledWith({}, 'EYELER shutdown complete')
+    } finally {
+      info.mockRestore()
+    }
   })
 
   it('closes the worker before ending the Postgres pool', async () => {

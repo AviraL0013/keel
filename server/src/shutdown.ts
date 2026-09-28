@@ -36,10 +36,14 @@ export function installShutdownHandlers(
   let closing: Promise<void> | undefined
   const shutdown = () => {
     if (closing) return
-    closing = shutdownServer(server, timeoutMs, onTimeout).catch((error) => {
-      logger.error({ error: error instanceof Error ? error.message : 'SHUTDOWN_FAILED' }, 'EYELER shutdown failed')
-      process.exitCode = 1
-    })
+    closing = shutdownServer(server, timeoutMs, onTimeout)
+      .then(() => {
+        logger.info({}, 'EYELER shutdown complete')
+      })
+      .catch((error) => {
+        logger.error({ error: error instanceof Error ? error.message : 'SHUTDOWN_FAILED' }, 'EYELER shutdown failed')
+        process.exitCode = 1
+      })
   }
   signals.once('SIGTERM', shutdown)
   signals.once('SIGINT', shutdown)
