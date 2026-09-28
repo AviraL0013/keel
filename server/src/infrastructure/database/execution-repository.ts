@@ -1,4 +1,4 @@
-import { measureDefense } from '../../../../packages/risk-engine/src/sizing.js'
+import { defenseSensitivity, measureDefense } from '../../../../packages/risk-engine/src/sizing.js'
 import { liquidationDistance } from '../../../../packages/risk-engine/src/index.js'
 import { settleDefense } from '../../reserveSettlement.js'
 import type { Action, AutopsyEvent, Book, Decision, NormalizedTelemetry, Position, Reserve } from '../../../../packages/domain/src/index.js'
@@ -6,7 +6,7 @@ import type { ExecutionRepository } from '../../workers/execution-worker.js'
 import { PostgresStore } from './postgres-store.js'
 import { storedTelemetryFreshness } from './telemetry-freshness.js'
 export class PostgresExecutionRepository implements ExecutionRepository { constructor(private readonly store: PostgresStore) {} private get pool() { return this.store.pool }
-  async priorEfficiency(bookId: string) { const result = await this.pool.query('SELECT efficiency FROM defense_performance WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1', [bookId]); return result.rows.length ? Number(result.rows[0].efficiency) : Infinity }
+  async priorEfficiency(bookId: string) { const result = await this.pool.query("SELECT efficiency,measurement->>'basis' AS basis FROM defense_performance WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1", [bookId]); return result.rows[0]?.basis === 'PREDICTED_RATIO' ? Number(result.rows[0].efficiency) : Infinity }
   async getActionByIdempotency(key: string) { const result = await this.pool.query('SELECT * FROM actions WHERE idempotency_key=$1', [key]); return result.rows[0] ? mapAction(result.rows[0]) : null }
   async getActiveAction(bookId: string) { const result = await this.pool.query("SELECT * FROM actions WHERE book_id=$1 AND status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL') LIMIT 1", [bookId]); return result.rows[0] ? mapAction(result.rows[0]) : null }
   async getConflictingPositionAction(bookId: string) { const result = await this.pool.query(`SELECT a.* FROM actions a JOIN books origin ON origin.id=a.book_id JOIN books requested ON requested.id=$1
@@ -30,7 +30,8 @@ export class PostgresExecutionRepository implements ExecutionRepository { constr
         await settleDefense(client, action.bookId, action.amount, action.id, action.decisionId)
         const observation = (position: Position, telemetry: NormalizedTelemetry) => ({ liquidationDistance: liquidationDistance(position, telemetry.mark), funding: telemetry.fundingRate, depth: telemetry.depthNotional, volatility: telemetry.volatility, timestamp: telemetry.timestamp })
         try {
-          const measurement = measureDefense(observation(action.beforeState.position, action.beforeState.telemetry), observation(after.position, after.telemetry), action.amount)
+          const sensitivity = defenseSensitivity(action.beforeState.position, action.beforeState.telemetry.mark)
+          const measurement = measureDefense(observation(action.beforeState.position, action.beforeState.telemetry), observation(after.position, after.telemetry), action.amount, sensitivity)
           await client.query('INSERT INTO defense_performance(action_id,book_id,amount,efficiency,measurement) VALUES($1,$2,$3,$4,$5) ON CONFLICT(action_id) DO NOTHING', [action.id, action.bookId, action.amount, measurement.efficiency, JSON.stringify(measurement)])
           await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DEFENSE_EFFICIENCY_UPDATED',$2)", [action.bookId, JSON.stringify(measurement)])
         } catch (error) {
@@ -41,7 +42,7 @@ export class PostgresExecutionRepository implements ExecutionRepository { constr
       await client.query('INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)', [action.bookId, `${action.kind}_${action.status}`, JSON.stringify({ actionId: action.id, amount: action.amount, venueReference: action.venueReference, error: action.error })])
       await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,$2,$3,$4,$5 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [action.bookId, `ACTION_${action.status}`, `${action.kind}: ${action.status}`, action.error ?? 'Venue state reconciled.', `${action.id}:${action.status}`])
       if (action.kind === 'EXIT' && action.status === 'CONFIRMED') await client.query("UPDATE books SET status='CLOSED',automation_enabled=false,safety_action_id=NULL,updated_at=now() WHERE id=$1", [action.bookId])
-      if (action.status === 'UNKNOWN' || action.status === 'PARTIAL') await client.query("UPDATE books SET safety_action_id=CASE WHEN status='ACTIVE' OR safety_action_id=$2 THEN $2 ELSE safety_action_id END,status='SAFE_MODE',automation_enabled=false,updated_at=now() WHERE id=$1 AND status!='CLOSED'", [action.bookId, action.id])
+      if (action.status === 'UNKNOWN' || action.status === 'PARTIAL') await client.query("UPDATE books SET safety_action_id=CASE WHEN status='ACTIVE' OR safety_action_id=$2 THEN $2 ELSE safety_action_id END,status='SAFE_MODE',safe_mode_reason='UNRESOLVED_ACTION',safe_mode_since=COALESCE(safe_mode_since,now()),automation_enabled=false,updated_at=now() WHERE id=$1 AND status!='CLOSED'", [action.bookId, action.id])
       await client.query('COMMIT')
     } catch(error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }

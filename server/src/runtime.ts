@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
-import type { AgoraActivity, Book, BookCreationReadiness, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed } from '../../packages/domain/src/index.js'
+import type { AgoraActivity, Book, BookCreationReadiness, CapitalSnapshot, Decision, BookPositionSeed, BookTelemetrySeed, SafeModeReason } from '../../packages/domain/src/index.js'
 import { evaluate, evaluateManualAction, telemetryFreshnessFailures } from '../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
@@ -24,13 +24,22 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   ready(): boolean
 }
 
+export function classifySafeModeCause(code: string): Exclude<SafeModeReason, 'UNRESOLVED_ACTION'> {
+  const codes = code.split(',').map(value => value.trim()).filter(Boolean)
+  const dataCode = (value: string) => /^(MARKET|POSITION|FUNDING|DEPTH)_(STALE|UNKNOWN)$/.test(value) || ['BOTH_STALE','TELEMETRY_NOT_AVAILABLE','BOOK_TELEMETRY_UNAVAILABLE'].includes(value)
+  const venueCode = (value: string) => ['VENUE_NOT_CONNECTED','VENUE_UNAVAILABLE','VENUE_STATE_UNAVAILABLE','PERPL_STATE_UNAVAILABLE','PERPL_TRADING_STATE_UNTRUSTED','VENUE_HTTP_429','PERPL_HISTORY_HTTP_429','PERPL_TRADING_NOT_CONNECTED','PERPL_WS_DISCONNECTED','PERPL_TELEMETRY_NOT_READY'].includes(value)
+  if (codes.length && codes.every(value => dataCode(value) || venueCode(value))) return codes.some(venueCode) ? 'VENUE_UNAVAILABLE' : 'DATA_UNAVAILABLE'
+  return 'RUNTIME_FAILURE'
+}
+
 /** A single PostgreSQL advisory-lock owner drives persisted Books. */
 export class KeelRuntime {
   private readonly repository: PostgresExecutionRepository
   private readonly scheduler: MonitorScheduler
   private readonly reconciliationSchedule = new Map<string, { nextAt: number; rateLimitFailures: number }>()
+  private readonly freshRecoveryTicks = new Map<string, number>()
   private lease?: PoolClient
-  constructor(private readonly store: PostgresStore, private readonly venue?: RuntimeVenue) {
+  constructor(private readonly store: PostgresStore, private readonly venue?: RuntimeVenue, private readonly now: () => number = Date.now, private readonly safeModeResumeTicks = 5) {
     this.repository = new PostgresExecutionRepository(store)
     this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000)
   }
@@ -96,13 +105,24 @@ export class KeelRuntime {
           continue
         }
         this.reconciliationSchedule.delete(book.id)
-        if (!book.automationEnabled || book.status !== 'ACTIVE') continue
+        const transientSafeMode = book.status === 'SAFE_MODE' && ['DATA_UNAVAILABLE','VENUE_UNAVAILABLE'].includes(book.safeModeReason ?? '')
+        if (!book.automationEnabled || (book.status !== 'ACTIVE' && !transientSafeMode)) { this.freshRecoveryTicks.delete(book.id); continue }
         if (!this.venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
         await this.venue.refresh(book)
         const context = await this.repository.getBookContext(book.id)
-        const decision = { ...evaluate(context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, Date.now()), id: randomUUID() }
+        const decision = { ...evaluate(transientSafeMode ? { ...context.book, status: 'ACTIVE' } : context.book, context.position, context.reserve, context.telemetry, context.priorDefenseEfficiency, this.now()), id: randomUUID() }
+        if (transientSafeMode && decision.state !== 'SAFE_MODE') {
+          const freshTicks = (this.freshRecoveryTicks.get(book.id) ?? 0) + 1
+          if (freshTicks >= this.safeModeResumeTicks) { await this.resumeTransientBook(book); this.freshRecoveryTicks.delete(book.id) }
+          else this.freshRecoveryTicks.set(book.id, freshTicks)
+          continue
+        }
+        if (decision.state === 'SAFE_MODE') this.freshRecoveryTicks.delete(book.id)
         const isNew = await this.recordDecision(decision)
-        if (isNew && !['HOLD','SAFE_MODE'].includes(decision.action)) await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current)).execute(decision)
+        if (isNew && !['HOLD','SAFE_MODE'].includes(decision.action)) {
+          const result = await new ExecutionWorker(this.repository, this.venue, current => this.venue!.refresh(current), this.now).execute(decision)
+          if ('status' in result && ['FAILED','CANCELED','EXPIRED'].includes(result.status) && ['REDUCE','EXIT'].includes(decision.action)) await this.recordAutomationFailure(decision, result.id)
+        }
       } catch (error) {
         if (await this.repository.getActiveAction(book.id)) {
           const priorFailures = this.reconciliationSchedule.get(book.id)?.rateLimitFailures ?? 0
@@ -112,6 +132,11 @@ export class KeelRuntime {
           logger.warn({ bookId: book.id, error: error instanceof Error ? error.message : 'RECONCILIATION_FAILED', retryMs }, 'Existing execution reconciliation deferred')
           continue
         }
+        if (error instanceof Error && error.message === 'DECISION_SUPERSEDED') {
+          await this.store.pool.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DECISION_SUPERSEDED',$2)", [book.id, JSON.stringify({ reason: error.message })])
+          continue
+        }
+        this.freshRecoveryTicks.delete(book.id)
         await this.safeMode(book, error instanceof Error ? error.message : 'RUNTIME_FAILURE')
       }
     }
@@ -121,18 +146,67 @@ export class KeelRuntime {
     const client = await this.store.pool.connect()
     try {
       await client.query('BEGIN')
-      const bookRow = await client.query('SELECT id,status FROM books WHERE id=$1 FOR UPDATE', [decision.bookId])
+      const bookRow = await client.query('SELECT id,status,automation_enabled FROM books WHERE id=$1 FOR UPDATE', [decision.bookId])
       if (!bookRow.rows.length) throw new Error('BOOK_NOT_FOUND')
       if (bookRow.rows[0].status === 'CLOSED') throw new Error('BOOK_CLOSED')
-      const prior = await client.query('SELECT state,fingerprint FROM decisions WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1', [decision.bookId])
-      if (!explicitManualRequest && prior.rows[0]?.fingerprint === fingerprint) { await client.query('COMMIT'); return false }
+      if (!explicitManualRequest && (!bookRow.rows[0].automation_enabled || bookRow.rows[0].status === 'PAUSED')) { await client.query('COMMIT'); return false }
+      const prior = await client.query('SELECT id,state,fingerprint FROM decisions WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1', [decision.bookId])
+      if (!explicitManualRequest) {
+        if (['REDUCE','EXIT'].includes(decision.action)) {
+          const episode = await client.query('SELECT fingerprint,attempts,next_attempt_at,exhausted,last_action_id FROM automation_retry_episodes WHERE book_id=$1', [decision.bookId])
+          if (episode.rows.length && episode.rows[0].fingerprint === fingerprint) {
+            const latest = await client.query('SELECT status FROM actions WHERE id=$1', [episode.rows[0].last_action_id])
+            if (episode.rows[0].exhausted || Number(episode.rows[0].attempts) >= 3 || !['FAILED','CANCELED','EXPIRED'].includes(latest.rows[0]?.status) || this.now() < new Date(episode.rows[0].next_attempt_at).getTime()) { await client.query('COMMIT'); return false }
+          } else {
+            if (prior.rows[0]?.fingerprint === fingerprint) { await client.query('COMMIT'); return false }
+            if (episode.rows.length) await client.query('DELETE FROM automation_retry_episodes WHERE book_id=$1', [decision.bookId])
+          }
+        } else if (prior.rows[0]?.fingerprint === fingerprint) { await client.query('COMMIT'); return false }
+      }
       await client.query(`INSERT INTO decisions(id,book_id,state,action,amount,reason_codes,human_readable_reasons,risk_features,fingerprint,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [decision.id, decision.bookId, decision.state, decision.action, decision.amount, JSON.stringify(decision.reasonCodes), JSON.stringify(decision.humanReadableReasons), JSON.stringify(decision.riskFeatures), fingerprint, decision.createdAt])
-      const types = ['DECISION_CREATED', ...(decision.reasonCodes.includes('DEFENSE_REFUSED') ? ['DEFENSE_REFUSED'] : []), ...(decision.state === 'SAFE_MODE' ? ['SAFE_MODE_ENTERED'] : prior.rows[0]?.state === 'SAFE_MODE' ? ['SAFE_MODE_EXITED'] : [])]
+      const enteringSafeMode = decision.state === 'SAFE_MODE' && bookRow.rows[0].status !== 'SAFE_MODE'
+      const types = ['DECISION_CREATED', ...(decision.reasonCodes.includes('DEFENSE_REFUSED') ? ['DEFENSE_REFUSED'] : []), ...(enteringSafeMode ? ['SAFE_MODE_ENTERED'] : decision.state !== 'SAFE_MODE' && bookRow.rows[0].status === 'SAFE_MODE' ? ['SAFE_MODE_EXITED'] : [])]
       for (const type of types) await client.query('INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,$2,$3)', [decision.bookId,type,JSON.stringify(decision)])
-      await client.query("UPDATE books SET status=$2,automation_enabled=CASE WHEN $2='SAFE_MODE' THEN false ELSE automation_enabled END,safety_action_id=CASE WHEN $2='SAFE_MODE' THEN NULL ELSE safety_action_id END,updated_at=now() WHERE id=$1", [decision.bookId,decision.state === 'SAFE_MODE' ? 'SAFE_MODE' : 'ACTIVE'])
-      if (decision.state !== 'HOLD') await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,$2,$2,$3,$4 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId,decision.state,decision.humanReadableReasons.join(' '),decision.id])
+      const cause = decision.state === 'SAFE_MODE' ? classifySafeModeCause(decision.reasonCodes.join(',')) : null
+      const transient = cause === 'DATA_UNAVAILABLE' || cause === 'VENUE_UNAVAILABLE'
+      await client.query("UPDATE books SET status=$2,automation_enabled=CASE WHEN $2='SAFE_MODE' AND NOT $3 THEN false ELSE automation_enabled END,safe_mode_reason=CASE WHEN $2='SAFE_MODE' THEN $4 ELSE NULL END,safe_mode_since=CASE WHEN $2='SAFE_MODE' THEN COALESCE(safe_mode_since,$5) ELSE NULL END,safety_action_id=CASE WHEN $2='SAFE_MODE' THEN NULL ELSE safety_action_id END,updated_at=now() WHERE id=$1", [decision.bookId,decision.state === 'SAFE_MODE' ? 'SAFE_MODE' : 'ACTIVE', transient, cause, new Date(this.now()).toISOString()])
+      if (decision.state !== 'HOLD' && (decision.state !== 'SAFE_MODE' || enteringSafeMode)) await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,$2,$2,$3,$4 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId,decision.state,decision.humanReadableReasons.join(' '),decision.id])
       await client.query('COMMIT'); return true
     } catch(error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+  }
+  private async resumeTransientBook(book: Book) {
+    const client = await this.store.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const current = await client.query('SELECT status,automation_enabled,safe_mode_reason,safety_action_id FROM books WHERE id=$1 FOR UPDATE', [book.id])
+      if (current.rows[0]?.status !== 'SAFE_MODE' || !current.rows[0].automation_enabled || !['DATA_UNAVAILABLE','VENUE_UNAVAILABLE'].includes(current.rows[0].safe_mode_reason) || current.rows[0].safety_action_id) { await client.query('COMMIT'); return }
+      const active = await client.query("SELECT 1 FROM actions WHERE book_id=$1 AND status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL') LIMIT 1", [book.id])
+      if (active.rows.length) { await client.query('COMMIT'); return }
+      await client.query("UPDATE books SET status='ACTIVE',safe_mode_reason=NULL,safe_mode_since=NULL,updated_at=now() WHERE id=$1", [book.id])
+      await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'SAFE_MODE_EXITED',$2)", [book.id, JSON.stringify({ reason: current.rows[0].safe_mode_reason, freshTicks: this.safeModeResumeTicks })])
+      await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,'SAFE_MODE_EXITED','Automation resumed','Automation resumed: live data is fresh again.',$2 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [book.id, randomUUID()])
+      await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+  }
+  private async recordAutomationFailure(decision: Decision, actionId: string) {
+    const fingerprint = JSON.stringify([decision.state, decision.action, decision.amount, decision.reasonCodes])
+    const client = await this.store.pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('SELECT id FROM books WHERE id=$1 FOR UPDATE', [decision.bookId])
+      const previous = await client.query('SELECT fingerprint,attempts,last_action_id,exhausted FROM automation_retry_episodes WHERE book_id=$1', [decision.bookId])
+      if (previous.rows[0]?.last_action_id === actionId) { await client.query('COMMIT'); return }
+      const attempts = previous.rows[0]?.fingerprint === fingerprint ? Number(previous.rows[0].attempts) + 1 : 1
+      const exhausted = attempts >= 3
+      const delay = attempts === 1 ? 30_000 : attempts === 2 ? 60_000 : 120_000
+      await client.query(`INSERT INTO automation_retry_episodes(book_id,fingerprint,attempts,next_attempt_at,last_action_id,exhausted) VALUES($1,$2,$3,$4,$5,$6)
+        ON CONFLICT(book_id) DO UPDATE SET fingerprint=EXCLUDED.fingerprint,attempts=EXCLUDED.attempts,next_attempt_at=EXCLUDED.next_attempt_at,last_action_id=EXCLUDED.last_action_id,exhausted=EXCLUDED.exhausted,updated_at=now()`, [decision.bookId, fingerprint, attempts, new Date(this.now() + delay).toISOString(), actionId, exhausted])
+      if (exhausted && !previous.rows[0]?.exhausted) {
+        await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'AUTOMATION_RETRY_EXHAUSTED',$2)", [decision.bookId, JSON.stringify({ actionId, attempts, action: decision.action })])
+        await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,'AUTOMATION_RETRY_EXHAUSTED','Automatic action stopped','Three attempts failed. Review this Book and act manually.',$2 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId, `${decision.bookId}:${fingerprint}:exhausted`])
+      }
+      await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }
   private async safeMode(book: Book, reason: string) {
     await this.recordDecision({ id: randomUUID(), bookId: book.id, state:'SAFE_MODE', action:'SAFE_MODE', amount:0, reasonCodes:[reason], humanReadableReasons:['Automation cannot trust venue or execution state. Reconciliation is required.'], createdAt:new Date().toISOString(), riskFeatures:{liquidationDistance:0,fundingPressure:0,spreadBps:0,depthCoverage:0,volatility:0,reserveHeadroom:0,capUtilization:0,timeRemainingMs:0,defenseEfficiency:0,fresh:false} })

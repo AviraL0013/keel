@@ -15,6 +15,12 @@ async function setup(options: SetupOptions = {}) {
   const submit = vi.fn(async () => { calls.push('submit'); return { venueReference: 'manual-defend', status: 'SUBMITTED' as const } })
   const reconcile = vi.fn(async (action: Action) => { calls.push('reconcile'); return { ...action, status: 'CONFIRMED' as const, confirmedAt: new Date().toISOString() } })
   const runtime = new KeelRuntime(store, { submit, reconcile, refresh: async () => undefined, ready: () => options.venueReady ?? true, close: async () => undefined })
+  const previousEnvironment = process.env.KEEL_ENV
+  const previousAllowlist = process.env.KEEL_ALLOWED_WALLETS
+  const previousFallbackWallet = process.env.MONAD_WALLET_ADDRESS
+  process.env.KEEL_ENV = 'test'
+  delete process.env.KEEL_ALLOWED_WALLETS
+  delete process.env.MONAD_WALLET_ADDRESS
   const app = createServer(memory, { executeAction: runtime.executeAction.bind(runtime) })
   const user = await store.ensureUser('test-policy-owner')
   await memory.createSession('test-policy-session', { userId: user, walletAddress: 'test-policy-owner', expiresAt: Date.now() + 60_000 })
@@ -30,10 +36,10 @@ async function setup(options: SetupOptions = {}) {
     initialTelemetry: { mark, oracle: mark, bid: mark - .1, ask: mark + .1, mid: mark, spreadBps: 20, fundingRate: 0, depthNotional: 100_000, volatility: 0, volume24h: 1, openInterest: 1, block: 1, timestamp: telemetryAt, source: 'replay', freshnessMs: options.stale || options.marketStale ? 20_000 : 0, freshness },
   })
   const request = () => app.inject({ method: 'POST', url: `/books/${book.id}/actions`, headers: { authorization: 'Bearer test-policy-session' }, payload: { kind: 'DEFEND' } })
-  return { app, calls, db, request, submit, reconcile, store, user, book }
+  return { app, calls, db, request, submit, reconcile, store, user, book, previousEnvironment, previousAllowlist, previousFallbackWallet }
 }
 
-async function close(value: Awaited<ReturnType<typeof setup>>) { await value.app.close(); await value.db.close() }
+async function close(value: Awaited<ReturnType<typeof setup>>) { await value.app.close(); await value.db.close(); if (value.previousEnvironment === undefined) delete process.env.KEEL_ENV; else process.env.KEEL_ENV = value.previousEnvironment; if (value.previousAllowlist === undefined) delete process.env.KEEL_ALLOWED_WALLETS; else process.env.KEEL_ALLOWED_WALLETS = value.previousAllowlist; if (value.previousFallbackWallet === undefined) delete process.env.MONAD_WALLET_ADDRESS; else process.env.MONAD_WALLET_ADDRESS = value.previousFallbackWallet }
 
 describe('manual action policy', () => {
   it('automation OFF holds the automated policy without submitting', () => {

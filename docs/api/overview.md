@@ -1,40 +1,64 @@
 # API
 
-Public:
+Routes below match `server/src/interfaces/http/register.ts` as of 2026-09-28.
 
+Public status:
+
+- `GET /`
 - `GET /health`
 - `GET /ready`
 - `GET /metrics`
+
+Wallet session:
+
 - `POST /auth/challenge`
 - `POST /auth/verify`
+- `GET /auth/session` (valid session required)
 - `POST /auth/logout`
 
-Authenticated:
+Books and controls (authenticated):
 
 - `GET /books`
 - `POST /books` (supports `marketId`, `venueAccountId`, `venuePositionId`)
 - `GET /books/:id`
+- `PATCH /books/:id`
+- `POST /books/:id/controls`
+- `PATCH /books/:id/controls`
+- `POST /books/:id/arm`
+- `POST /books/:id/pause`
+- `POST /books/:id/recover`
+- `POST /books/:id/kill`
+- `POST /books/:id/close`
+- `POST /books/:id/actions` (`DEFEND` or `REDUCE`)
+- `POST /controls/kill-switch`
 - `GET /books/:id/position`
 - `GET /books/:id/telemetry`
 - `GET /books/:id/risk`
-- `PATCH|POST /books/:id/controls`
-- `POST /books/:id/arm`
-- `POST /books/:id/pause`
-- `POST /books/:id/kill`
-- `POST /books/:id/close`
-- `GET /connections`
-- `POST /connections/perpl`
-- `POST /connections/perpl/validate`
-- `POST /connections/revoke`
-- `POST /devices`
-- `GET /notifications`
-- `POST /notifications/:id/read`
+- `GET /books/:id/state`
+- `GET /books/:id/autopsy`
 - `GET /books/:id/decisions`
 - `GET /books/:id/actions`
 - `GET /books/:id/reserve`
-- `GET /books/:id/autopsy`
 
-`POST /books/:id/close` enters the server execution worker. It returns `503` only when live execution is not configured; it never claims a position closed without reconciliation.
+Connections, capital, and notifications (authenticated):
 
-Book ownership is checked server-side. Financial execution never occurs in React event handlers. Live Perpl credentials and PostgreSQL are external activation requirements.
+- `GET /connections`
+- `POST /connections/revoke`
+- `POST /connections/perpl/enrollment` (development/testnet key enrollment; returns typed data, never a credential)
+- `POST /connections/perpl/enrollment/:id/complete` (wallet signature)
+- `POST /connections/perpl/:id/disconnect` (shreds local credentials; Perpl web UI handles venue revocation)
+- `POST /connections/perpl/validate`
+- `GET /connections/perpl/positions`
+- `GET /capital`
+- `GET /capital/agora-activity`
+- `POST /devices`
+- `GET /notifications`
+- `POST /notifications/:id/read`
 
+Test venue (authenticated; only when the deterministic test runtime is enabled):
+
+- `POST /dev/test-venue/scenario`
+
+`POST /books/:id/close` enters the server execution worker. It never reports a position closed before venue reconciliation. `POST /connections/perpl` is not registered. Enrollment is a backend foundation only; Books and the trading runtime still use the existing server-wide Perpl key.
+
+Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.

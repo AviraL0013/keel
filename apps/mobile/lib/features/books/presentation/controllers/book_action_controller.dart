@@ -21,6 +21,14 @@ class BookActionController extends StateNotifier<AsyncValue<Book?>> {
       state = AsyncError(error, stack);
     }
   }
+  Future<void> armWithStance(String bookId, String stance) async {
+    state = const AsyncLoading();
+    try {
+      state = AsyncData(await repository.armWithStance(bookId, stance));
+    } catch (error, stack) {
+      state = AsyncError(error, stack);
+    }
+  }
 }
 
 final bookActionProvider =

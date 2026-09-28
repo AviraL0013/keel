@@ -4,7 +4,7 @@ import type { VenueAdapter } from '../../../packages/perpl/src/index.js'
 import { PerplPreSubmissionError } from '../../../packages/perpl/src/trading.js'
 export type ExecutionRepository = { getActionByIdempotency?(key: string): Promise<Action | null>; getActiveAction(bookId: string): Promise<Action | null>; getConflictingPositionAction?(bookId: string): Promise<Action | null>; saveAction(action: Action): Promise<void>; saveDecision(decision: Decision): Promise<void>; addEvent(event: AutopsyEvent): Promise<void>; getBookContext(bookId: string): Promise<{ book: Book; position: Position; reserve: Reserve; priorDefenseEfficiency: number; telemetry: NormalizedTelemetry }>; finalize?(action: Action): Promise<void>; updateReserve(bookId: string, amount: number, actionId?: string, decisionId?: string): Promise<void> }
 export class ExecutionWorker {
-  constructor(private readonly repo: ExecutionRepository, private readonly venue: Pick<VenueAdapter, 'submit' | 'reconcile'>, private readonly refreshAfterConfirmation?: (book: Book) => Promise<void>) {}
+  constructor(private readonly repo: ExecutionRepository, private readonly venue: Pick<VenueAdapter, 'submit' | 'reconcile'>, private readonly refreshAfterConfirmation?: (book: Book) => Promise<void>, private readonly now: () => number = Date.now) {}
   async evaluate(bookId: string): Promise<Decision> { const context = await this.repo.getBookContext(bookId); const features = deriveFeatures(context.book, context.position, context.reserve, context.telemetry, Date.now(), defaultRiskConfig, context.priorDefenseEfficiency); const amount = defenseAmount(features, context.position, context.reserve, context.book, context.telemetry); const decision: Decision = { ...classifyDecision(context.book, features, amount, defaultRiskConfig), id: crypto.randomUUID(), bookId, createdAt: new Date().toISOString() }; await this.repo.saveDecision(decision); await this.repo.addEvent({ id: crypto.randomUUID(), bookId, type: 'DECISION_CREATED', payload: { state: decision.state, action: decision.action, reasons: decision.humanReadableReasons, features: decision.riskFeatures }, timestamp: decision.createdAt, block: context.telemetry.block }); return decision }
   async execute(decision: Decision, manualClose = false, manualAction = false) {
     if (decision.action === 'HOLD' || decision.action === 'SAFE_MODE') return decision
@@ -12,9 +12,9 @@ export class ExecutionWorker {
     if (await this.repo.getActiveAction(decision.bookId)) throw new Error('ACTION_ALREADY_ACTIVE')
     if (await this.repo.getConflictingPositionAction?.(decision.bookId)) throw new Error('POSITION_EXECUTION_UNRESOLVED')
     const context = await this.repo.getBookContext(decision.bookId)
-    const features = deriveFeatures(context.book, context.position, context.reserve, context.telemetry, Date.now(), defaultRiskConfig, context.priorDefenseEfficiency)
+    const features = deriveFeatures(context.book, context.position, context.reserve, context.telemetry, this.now(), defaultRiskConfig, context.priorDefenseEfficiency)
     if (!features.fresh) {
-      const failures = telemetryFreshnessFailures(context.telemetry, context.position)
+      const failures = telemetryFreshnessFailures(context.telemetry, context.position, this.now())
       throw new Error(failures.codes.join(',') || 'TELEMETRY_INVALID')
     }
     if (context.book.status === 'CLOSED' || (!manualClose && context.book.status !== 'ACTIVE') || (!manualClose && !manualAction && !context.book.automationEnabled)) throw new Error('BOOK_NOT_ACTIVE')
@@ -22,7 +22,7 @@ export class ExecutionWorker {
     if (decision.action === 'DEFEND' && context.book.stance !== 'DEFEND') throw new Error('POLICY_REJECTED')
     if (!Number.isFinite(decision.amount) || decision.amount < 0) throw new Error('INVALID_ACTION_AMOUNT')
     const refreshed = manualAction
-      ? evaluateManualAction(context.book, context.position, context.reserve, context.telemetry, decision.action as 'DEFEND' | 'REDUCE', context.priorDefenseEfficiency, Date.now())
+      ? evaluateManualAction(context.book, context.position, context.reserve, context.telemetry, decision.action as 'DEFEND' | 'REDUCE', context.priorDefenseEfficiency, this.now())
       : classifyDecision(context.book, features, defenseAmount(features, context.position, context.reserve, context.book, context.telemetry))
     if ((!manualClose && decision.action !== refreshed.action) || (decision.action === 'DEFEND' && decision.amount !== refreshed.amount)) throw new Error('DECISION_SUPERSEDED')
     if (decision.action === 'DEFEND' && (decision.amount > context.reserve.available || decision.amount > context.book.defenseCap)) throw new Error('RESERVE_CAP_EXCEEDED')

@@ -3,7 +3,8 @@ export type { RiskState, BookStance as Stance } from '../../domain/src/index.js'
 import { defaultFreshnessThresholds, type Book, type Decision, type NormalizedTelemetry, type Position, type Reserve, type RiskFeatures } from '../../domain/src/index.js'
 import { applyBookPolicy } from './policy.js'
 export type RiskConfig = { freshnessWindowMs: number; maxSpreadBps: number; minDepthNotional: number; maxFundingPressure: number; minDefenseEfficiency: number; minReserveAfterAction: number; maxVolatility: number }
-export const defaultRiskConfig: RiskConfig = { freshnessWindowMs: defaultFreshnessThresholds.marketMs, maxSpreadBps: 40, minDepthNotional: 1000, maxFundingPressure: 0.0008, minDefenseEfficiency: 0.25, minReserveAfterAction: 0, maxVolatility: 0.1 }
+// Minimum fraction of modeled liquidation-distance improvement delivered by a defense.
+export const defaultRiskConfig: RiskConfig = { freshnessWindowMs: defaultFreshnessThresholds.marketMs, maxSpreadBps: 40, minDepthNotional: 1000, maxFundingPressure: 0.0008, minDefenseEfficiency: 0.5, minReserveAfterAction: 0, maxVolatility: 0.1 }
 export type { RiskFeatures }
 export function liquidationDistance(position: Position, mark = position.markPrice): number { if (mark <= 0) return 0; return position.side === 'LONG' ? (mark - position.liquidationPrice) / mark * 100 : (position.liquidationPrice - mark) / mark * 100 }
 type TelemetrySource = 'market' | 'position' | 'funding' | 'orderbook'
@@ -51,7 +52,6 @@ export function classifyDecision(book: Book, features: RiskFeatures, amount: num
   if (!features.fresh) return { state: 'SAFE_MODE', action: 'SAFE_MODE', amount: 0, reasonCodes: ['STALE_STATE'], humanReadableReasons: ['Required market or position telemetry is stale.'] , riskFeatures: features }
   if (!book.automationEnabled || book.status === 'PAUSED' || book.status === 'CLOSED') return { state: 'HOLD', action: 'HOLD', amount: 0, reasonCodes: ['AUTOMATION_PAUSED'], humanReadableReasons: ['Automation is paused; no automated action is authorized.'], riskFeatures: features }
   if (features.timeRemainingMs <= 0) { return { state: 'EXIT', action: 'EXIT', amount: 0, reasonCodes: ['TIME_LIMIT'], humanReadableReasons: ['Book time limit reached; position must flatten.'], riskFeatures: features } }
-  if (book.stance === 'KILL') return { state: 'EXIT', action: 'EXIT', amount: 0, reasonCodes: ['USER_KILL'], humanReadableReasons: ['Kill stance forbids further rescue.'], riskFeatures: features }
   const floorBreached = features.liquidationDistance < book.liquidationFloor
   if (floorBreached) { reasons.push('Liquidation distance crossed configured floor.'); codes.push('LIQ_FLOOR') }
   if (features.fundingPressure > config.maxFundingPressure) { reasons.push('Funding pressure is elevated.'); codes.push('FUNDING_PRESSURE') }

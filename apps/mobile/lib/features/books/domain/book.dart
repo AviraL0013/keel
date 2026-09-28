@@ -7,11 +7,14 @@ class Book {
       required this.side,
       required this.stance,
       required this.status,
+      this.safeModeReason,
+      this.safeModeSince,
       required this.automationEnabled,
       required this.liquidationFloor,
       required this.defenseCap,
       required this.timeLimitMs});
   final String id, market, side, stance, status;
+  final String? safeModeReason, safeModeSince;
   final bool automationEnabled;
   final double liquidationFloor, defenseCap;
   final int timeLimitMs;
@@ -21,6 +24,8 @@ class Book {
       side: json['side'] as String,
       stance: json['stance'] as String,
       status: json['status'] as String,
+      safeModeReason: json['safeModeReason'] as String?,
+      safeModeSince: json['safeModeSince'] as String?,
       automationEnabled: json['automationEnabled'] as bool,
       liquidationFloor: (json['liquidationFloor'] as num).toDouble(),
       defenseCap: (json['defenseCap'] as num).toDouble(),
