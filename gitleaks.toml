@@ -1,0 +1,14 @@
+title = "Eyeler secret scan"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Two public, deterministic test wallet keys only"
+condition = "AND"
+paths = ['''^tests/.*\.test\.ts$''']
+regexTarget = "match"
+regexes = [
+  '''^0x0123456789012345678901234567890123456789012345678901234567890123$''',
+  '''^0x1123456789012345678901234567890123456789012345678901234567890123$'''
+]
