@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/eyeler_widgets.dart';
@@ -7,8 +8,16 @@ import '../data/autopsy_repository.dart';
 import '../domain/autopsy_event.dart';
 
 class AutopsyScreen extends ConsumerWidget {
-  const AutopsyScreen({super.key, required this.bookId});
+  const AutopsyScreen({
+    super.key,
+    required this.bookId,
+    this.explorerBaseUrl = const String.fromEnvironment(
+      'EYELER_MONAD_EXPLORER_URL',
+      defaultValue: String.fromEnvironment('KEEL_MONAD_EXPLORER_URL'),
+    ),
+  });
   final String bookId;
+  final String explorerBaseUrl;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -48,16 +57,20 @@ class AutopsyScreen extends ConsumerWidget {
                         ),
                       )
                     : _TimelineEvent(
-                        event: items[index - 1], last: index == items.length)),
+                        event: items[index - 1],
+                        last: index == items.length,
+                        explorerBaseUrl: explorerBaseUrl)),
       ),
     );
   }
 }
 
 class _TimelineEvent extends StatelessWidget {
-  const _TimelineEvent({required this.event, required this.last});
+  const _TimelineEvent(
+      {required this.event, required this.last, required this.explorerBaseUrl});
   final AutopsyEvent event;
   final bool last;
+  final String explorerBaseUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +123,7 @@ class _TimelineEvent extends StatelessWidget {
                         ExpansionTile(
                             tilePadding: EdgeInsets.zero,
                             childrenPadding: EdgeInsets.zero,
-                            title: const Text('Technical detail',
+                            title: const Text('Technical details',
                                 style: EyelerTypography.label),
                             children: [
                               _detail('Decision', event.decision),
@@ -119,11 +132,57 @@ class _TimelineEvent extends StatelessWidget {
                               _detail('Venue result', event.venueResult),
                               _detail('Post-state', event.postState),
                               _detail('Reserve effect',
-                                  event.reserveEffect?.toString())
+                                  event.reserveEffect?.toString()),
+                              if (event.venueProgress case final progress?) ...[
+                                _detail(
+                                    'Perpl admission',
+                                    progress['admitted'] == true
+                                        ? 'Perpl admitted'
+                                        : 'Perpl not admitted'),
+                                _detail('Venue response',
+                                    _text(progress['response'])),
+                                _detail(
+                                    'Request ID', _text(progress['requestId'])),
+                                _detail(
+                                    'Block',
+                                    progress['effectiveLastExecBlock'] is int
+                                        ? 'Block ${progress['effectiveLastExecBlock']}'
+                                        : null),
+                              ],
+                              if (_explorerUrl() case final url?)
+                                Row(children: [
+                                  Expanded(
+                                      child: SelectableText('Explorer: $url')),
+                                  IconButton(
+                                      tooltip: 'Copy explorer link',
+                                      onPressed: () => Clipboard.setData(
+                                          ClipboardData(text: url)),
+                                      icon: const Icon(Icons.copy)),
+                                ]),
                             ]),
                       ])))),
     ]));
   }
+
+  String? _explorerUrl() {
+    final base = Uri.tryParse(explorerBaseUrl);
+    if (base == null ||
+        base.scheme != 'https' ||
+        base.host.isEmpty ||
+        base.userInfo.isNotEmpty) {
+      return null;
+    }
+    final root = explorerBaseUrl.replaceFirst(RegExp(r'/$'), '');
+    final hash = event.transactionHash;
+    if (hash != null && RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(hash)) {
+      return '$root/tx/$hash';
+    }
+    final block = event.venueProgress?['effectiveLastExecBlock'];
+    if (block is int && block > 0) return '$root/block/$block';
+    return null;
+  }
+
+  String? _text(Object? value) => value?.toString();
 
   Widget _detail(String label, String? value) {
     if (value == null) return const SizedBox.shrink();

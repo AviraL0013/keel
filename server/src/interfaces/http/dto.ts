@@ -1,4 +1,4 @@
-import type { Book, CapitalSnapshot } from '../../../../packages/domain/src/index.js'
+import type { Book, CapitalSnapshot, VenueProgress } from '../../../../packages/domain/src/index.js'
 
 export type AuthResponse = {
   address: string
@@ -80,6 +80,8 @@ export type AutopsyEventDto = {
   venueResult: string | null
   postState: string | null
   reserveEffect: number | null
+  venueProgress: VenueProgress | null
+  transactionHash: string | null
 }
 export type NotificationDto = {
   id: string

@@ -169,6 +169,8 @@ export function toExecutionSummaryDto(row: Record<string, unknown> | null): Exec
 export function toAutopsyDto(row: Record<string, unknown>): AutopsyEventDto {
   const payload = row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, unknown>) : {}
   const reasons = Array.isArray(payload.humanReadableReasons) ? payload.humanReadableReasons.join(' ') : null
+  const reference = text(row.venue_reference ?? payload.venueReference)
+  const transactionHash = reference?.match(/(?:^|:)(0x[0-9a-fA-F]{64})$/)?.[1] ?? null
   return {
     id: String(row.id),
     bookId: String(row.book_id),
@@ -180,6 +182,11 @@ export function toAutopsyDto(row: Record<string, unknown>): AutopsyEventDto {
     venueResult: text(payload.venueReference ?? payload.error),
     postState: text(payload.postState),
     reserveEffect: number(payload.amount),
+    venueProgress:
+      row.venue_progress && typeof row.venue_progress === 'object'
+        ? (row.venue_progress as AutopsyEventDto['venueProgress'])
+        : null,
+    transactionHash,
   }
 }
 export function toActionDto(row: Record<string, unknown>): ExecutionDto {
