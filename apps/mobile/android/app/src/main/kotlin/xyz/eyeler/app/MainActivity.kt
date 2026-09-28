@@ -1,3 +1,3 @@
-package com.eyeler.eyeler_mobile
+package xyz.eyeler.app
 import io.flutter.embedding.android.FlutterActivity
 class MainActivity: FlutterActivity()

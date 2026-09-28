@@ -9,7 +9,7 @@ Eyeler is the new product name. This release changes application copy, package n
 - New wallet challenges say Eyeler. An already-issued Keel challenge remains verifiable for its five-minute lifetime only when the stored message and wallet signature match. Existing server sessions remain valid. The server accepts the old session cookie during the transition and clears both names on logout.
 - On the same web origin, Flutter moves a saved session token and wallet address from old storage keys to Eyeler keys. A new domain has separate browser storage, so users sign in again there. Never transport a session token in a redirect or query string.
 - New Perpl enrollment requests use the `EYELER` label. Existing Perpl keys and stored connection rows retain their original labels and origins. Do not edit or re-enroll them as part of this rename. The client recognizes the previous `KEEL_LEDGER` API source when an older backend serves it.
-- The Android `applicationId` remains `com.keel.keel_mobile` so an installed build can receive an update. Its display name, namespace, and Kotlin package use Eyeler. Change the application ID only as a separate app-distribution decision.
+- Before first public distribution, Android `applicationId`, namespace, and Kotlin package changed to `xyz.eyeler.app`. Unpublished builds with the former ID cannot update in place; reinstall those development builds. The manifest has only a launcher intent filter, so no deep-link host needs migration.
 
 ## Domain cutover, after acquiring eyeler.xyz
 

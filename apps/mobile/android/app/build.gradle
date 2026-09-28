@@ -5,12 +5,11 @@ plugins {
 }
 
 android {
-    namespace 'com.eyeler.eyeler_mobile'
+    namespace 'xyz.eyeler.app'
     compileSdk flutter.compileSdkVersion
 
     defaultConfig {
-        // Keep the installed app's identity so Eyeler remains an update.
-        applicationId 'com.keel.keel_mobile'
+        applicationId 'xyz.eyeler.app'
         minSdk flutter.minSdkVersion
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
