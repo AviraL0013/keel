@@ -52,6 +52,24 @@ it('settles confirmed defense, ledger and audit atomically and once', async () =
       }),
     ).rejects.toThrow('UNCONFIRMED_DEPLOYMENT')
     expect((await db.query('SELECT * FROM reserve_ledger_entries')).rows).toHaveLength(1)
+    for (const amount of [0.1, 0.2, 0.000001]) {
+      const nextDecision = (
+        await db.query<{ id: string }>(
+          "INSERT INTO decisions(book_id,state,action,reason_codes,human_readable_reasons,risk_features) VALUES($1,'DEFEND','DEFEND','[]','[]','{}') RETURNING id",
+          [book],
+        )
+      ).rows[0].id
+      const nextAction = (
+        await db.query<{ id: string }>(
+          "INSERT INTO actions(book_id,decision_id,kind,amount,status,idempotency_key) VALUES($1,$2,'DEFEND',$3,'CONFIRMED',$4) RETURNING id",
+          [book, nextDecision, String(amount), `settlement-${amount}`],
+        )
+      ).rows[0].id
+      await db.transaction(async (tx) => settleDefense(tx, book, amount, nextAction, nextDecision))
+    }
+    expect((await db.query('SELECT available,deployed FROM reserves')).rows).toEqual([
+      { available: '79.699999', deployed: '20.300001' },
+    ])
   } finally {
     await db.close()
   }

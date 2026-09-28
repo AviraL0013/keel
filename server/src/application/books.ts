@@ -1,3 +1,4 @@
+import { moneyMicros } from '../../../packages/ausd/src/money.js'
 import type {
   BookPositionSeed,
   BookStatus,
@@ -112,6 +113,14 @@ function validateCreateBook(command: CreateBookCommand) {
       (!Number.isFinite(command.reserveAvailable) || command.reserveAvailable < 0))
   )
     throw new ValidationError('INVALID_BOOK_CONFIGURATION')
-  if (command.reserveAvailable !== undefined && command.defenseCap > command.reserveAvailable)
+  let capMicros: bigint
+  let reserveMicros: bigint | undefined
+  try {
+    capMicros = moneyMicros(command.defenseCap)
+    reserveMicros = command.reserveAvailable === undefined ? undefined : moneyMicros(command.reserveAvailable)
+  } catch {
+    throw new ValidationError('INVALID_BOOK_CONFIGURATION')
+  }
+  if (reserveMicros !== undefined && capMicros > reserveMicros)
     throw new ValidationError('Defense cap cannot exceed reserve.')
 }

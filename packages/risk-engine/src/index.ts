@@ -1,4 +1,6 @@
 import { sizeDefense } from './sizing.js'
+import Decimal from 'decimal.js'
+import { moneyMicros, formatMoney, reserveHeadroom as exactReserveHeadroom } from '../../ausd/src/money.js'
 export type { RiskState, BookStance as Stance } from '../../domain/src/index.js'
 import {
   defaultFreshnessThresholds,
@@ -121,6 +123,17 @@ export function deriveFeatures(
     Date.parse(book.createdAt),
   ]
   const freshnessFailures = telemetryFreshnessFailures(telemetry, position, now, config.freshnessWindowMs)
+  let moneyValid = true
+  try {
+    const available = moneyMicros(reserve.available)
+    const reserved = moneyMicros(reserve.reserved)
+    const deployed = moneyMicros(reserve.deployed)
+    const cap = moneyMicros(reserve.cap)
+    moneyMicros(book.defenseCap)
+    moneyValid = deployed + reserved <= cap && available + deployed + reserved <= cap
+  } catch {
+    moneyValid = false
+  }
   const fresh =
     telemetry.executionHealthy !== false &&
     freshnessFailures.codes.length === 0 &&
@@ -134,20 +147,23 @@ export function deriveFeatures(
     telemetry.volatility >= 0 &&
     position.size > 0 &&
     position.side === book.side &&
-    reserve.available >= 0 &&
-    reserve.reserved >= 0 &&
-    reserve.deployed >= 0 &&
-    reserve.deployed + reserve.reserved <= reserve.cap &&
+    moneyValid &&
     telemetry.timestamp <= now &&
     now - telemetry.timestamp <= config.freshnessWindowMs &&
     telemetry.freshnessMs >= 0 &&
     telemetry.freshnessMs <= config.freshnessWindowMs
   const depthCoverage =
     telemetry.depthNotional / Math.max(Math.abs(position.size * telemetry.mark), config.minDepthNotional)
-  const reserveHeadroom = Math.max(
-    0,
-    Math.min(reserve.available, book.defenseCap, reserve.cap - reserve.deployed - reserve.reserved),
-  )
+  const reserveHeadroom = moneyValid
+    ? Number(
+        formatMoney(
+          [
+            moneyMicros(exactReserveHeadroom(reserve.available, reserve.deployed, reserve.reserved, reserve.cap)),
+            moneyMicros(book.defenseCap),
+          ].reduce((a, b) => (a < b ? a : b)),
+        ),
+      )
+    : 0
   return {
     liquidationDistance: distance,
     fundingPressure: Math.max(0, telemetry.fundingRate * (position.side === 'LONG' ? 1 : -1)),
@@ -155,7 +171,10 @@ export function deriveFeatures(
     depthCoverage,
     volatility: telemetry.volatility,
     reserveHeadroom,
-    capUtilization: reserve.cap <= 0 ? 1 : reserve.deployed / reserve.cap,
+    capUtilization:
+      !moneyValid || moneyMicros(reserve.cap) === 0n
+        ? 1
+        : new Decimal(moneyMicros(reserve.deployed).toString()).div(moneyMicros(reserve.cap).toString()).toNumber(),
     timeRemainingMs,
     defenseEfficiency: priorDefenseEfficiency,
     fresh,
@@ -225,7 +244,7 @@ export function classifyDecision(
     reasons.push('Executable liquidity is deteriorating.')
     codes.push('DEPTH_BAD')
   } else codes.push('DEPTH_OK')
-  if (features.reserveHeadroom <= 0 || features.reserveHeadroom < amount) {
+  if (features.reserveHeadroom <= 0 || moneyMicros(features.reserveHeadroom) < moneyMicros(amount)) {
     reasons.push('Reserve headroom cannot fund another bounded action.')
     codes.push('RESERVE_LOW')
   } else codes.push('RESERVE_OK')
@@ -401,7 +420,11 @@ export function evaluateManualAction(
         ['DEFENSE_NOT_REQUIRED'],
         ['Liquidation distance is above the configured floor; no bounded defense amount is required.'],
       )
-    if (amount > book.defenseCap || amount > reserve.available || amount > features.reserveHeadroom)
+    if (
+      moneyMicros(amount) > moneyMicros(book.defenseCap) ||
+      moneyMicros(amount) > moneyMicros(reserve.available) ||
+      moneyMicros(amount) > moneyMicros(features.reserveHeadroom)
+    )
       return decision(
         'REDUCE',
         'REDUCE',

@@ -7,6 +7,7 @@ import {
 } from '../../../../packages/domain/src/index.js'
 import { validateBookControls } from '../../bookControls.js'
 import { ConflictError } from '../../application/errors.js'
+import { canonicalMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
 export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & {
   reserveAvailable?: number
   initialPosition?: BookPositionSeed
@@ -99,7 +100,7 @@ export class PostgresStore implements Store {
           input.side,
           input.stance,
           input.liquidationFloor,
-          input.defenseCap,
+          canonicalMoney(moneyMicros(input.defenseCap)),
           input.timeLimitMs,
           hasPosition && input.automationEnabled,
           status,
@@ -107,13 +108,20 @@ export class PostgresStore implements Store {
       )
       const book = mapBook(result.rows[0])
       const reserveAvailable = input.reserveAvailable ?? 0
-      if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('INVALID_BOOK_RESERVE')
-      if (!Number.isFinite(input.defenseCap) || input.defenseCap <= 0 || input.defenseCap > reserveAvailable)
-        throw new Error('Defense cap cannot exceed reserve.')
+      let reserveMicros: bigint
+      let capMicros: bigint
+      try {
+        reserveMicros = moneyMicros(reserveAvailable)
+        capMicros = moneyMicros(input.defenseCap)
+      } catch {
+        throw new Error('INVALID_BOOK_RESERVE')
+      }
+      if (capMicros <= 0n || capMicros > reserveMicros) throw new Error('Defense cap cannot exceed reserve.')
+      const exactReserve = canonicalMoney(reserveMicros)
       await client.query('INSERT INTO reserves(book_id,available,reserved,deployed,cap) VALUES($1,$2,0,0,$3)', [
         book.id,
-        reserveAvailable,
-        reserveAvailable,
+        exactReserve,
+        exactReserve,
       ])
       if (input.initialPosition) {
         const p = input.initialPosition
@@ -147,7 +155,7 @@ export class PostgresStore implements Store {
               t.spreadBps,
               t.depthNotional,
               t.volatility,
-              reserveAvailable,
+              exactReserve,
               t.freshnessMs ?? 0,
               t.source ?? 'replay',
               t.bid,
@@ -160,7 +168,7 @@ export class PostgresStore implements Store {
       }
       await client.query(
         "INSERT INTO reserve_ledger_entries(book_id,type,amount,external_reference) VALUES($1,'RESERVE_CREATED',$2,'book-creation')",
-        [book.id, reserveAvailable],
+        [book.id, exactReserve],
       )
       await client.query('COMMIT')
       return book

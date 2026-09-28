@@ -18,6 +18,7 @@ import {
 import type { VenueAdapter } from '../../../packages/perpl/src/index.js'
 import { PerplPreSubmissionError } from '../../../packages/perpl/src/trading.js'
 import { executionDisabled as isExecutionDisabled } from '../config/index.js'
+import { moneyMicros } from '../../../packages/ausd/src/money.js'
 export type ExecutionRepository = {
   getActionByIdempotency?(key: string): Promise<Action | null>
   getActiveAction(bookId: string): Promise<Action | null>
@@ -126,12 +127,13 @@ export class ExecutionWorker {
         )
     if (
       (!manualClose && decision.action !== refreshed.action) ||
-      (decision.action === 'DEFEND' && decision.amount !== refreshed.amount)
+      (decision.action === 'DEFEND' && moneyMicros(decision.amount) !== moneyMicros(refreshed.amount))
     )
       throw new Error('DECISION_SUPERSEDED')
     if (
       decision.action === 'DEFEND' &&
-      (decision.amount > context.reserve.available || decision.amount > context.book.defenseCap)
+      (moneyMicros(decision.amount) > moneyMicros(context.reserve.available) ||
+        moneyMicros(decision.amount) > moneyMicros(context.book.defenseCap))
     )
       throw new Error('RESERVE_CAP_EXCEEDED')
     const action: Action = {

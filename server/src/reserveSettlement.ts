@@ -1,3 +1,5 @@
+import { canonicalMoney, moneyMicros } from '../../packages/ausd/src/money.js'
+
 export interface TransactionClient {
   query(sql: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>
 }
@@ -10,7 +12,14 @@ export async function settleDefense(
   actionId: string,
   decisionId: string,
 ) {
-  if (!Number.isFinite(amount) || amount <= 0) throw new Error('INVALID_DEPLOYMENT_AMOUNT')
+  let amountMicros: bigint
+  try {
+    amountMicros = moneyMicros(amount)
+    if (amountMicros <= 0n) throw new Error()
+  } catch {
+    throw new Error('INVALID_DEPLOYMENT_AMOUNT')
+  }
+  const exactAmount = canonicalMoney(amountMicros)
   const action = await client.query('SELECT * FROM actions WHERE id=$1 AND book_id=$2 AND decision_id=$3 FOR UPDATE', [
     actionId,
     bookId,
@@ -20,7 +29,7 @@ export async function settleDefense(
     action.rows.length !== 1 ||
     action.rows[0].kind !== 'DEFEND' ||
     action.rows[0].status !== 'CONFIRMED' ||
-    Number(action.rows[0].amount) !== amount
+    moneyMicros(String(action.rows[0].amount)) !== amountMicros
   )
     throw new Error('UNCONFIRMED_DEPLOYMENT')
   const existing = await client.query(
@@ -31,16 +40,16 @@ export async function settleDefense(
   const result = await client.query(
     `UPDATE reserves r SET available=r.available-$1,deployed=r.deployed+$1,updated_at=now()
     FROM books b WHERE r.book_id=$2 AND b.id=r.book_id AND $1<=b.defense_cap AND r.deployed+r.reserved+$1<=r.cap AND r.available >= $1 RETURNING r.book_id`,
-    [amount, bookId],
+    [exactAmount, bookId],
   )
   if (result.rows.length !== 1) throw new Error('RESERVE_INVARIANT_VIOLATION')
   await client.query(
     `INSERT INTO reserve_ledger_entries(book_id,type,amount,action_id,decision_id,external_reference)
     VALUES($1,'RESERVE_DEPLOYED',$2,$3,$4,$5)`,
-    [bookId, amount, actionId, decisionId, action.rows[0].venue_reference ?? null],
+    [bookId, exactAmount, actionId, decisionId, action.rows[0].venue_reference ?? null],
   )
   await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'RESERVE_DEPLOYED',$2)", [
     bookId,
-    JSON.stringify({ amount, actionId, decisionId }),
+    JSON.stringify({ amount: exactAmount, actionId, decisionId }),
   ])
 }

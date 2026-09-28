@@ -1,6 +1,7 @@
 import type { Action, Book, Decision, NormalizedTelemetry, Position, Reserve } from '../../packages/domain/src/index.js'
 import type { Store, StoredSession, CreateBookInput } from './infrastructure/database/postgres-store.js'
 import { validateBookControls } from './bookControls.js'
+import { moneyMicros, canonicalMoney } from '../../packages/ausd/src/money.js'
 export class MemoryStore implements Store {
   private readonly books = new Map<string, Book>()
   private readonly positions = new Map<string, Position>()
@@ -80,9 +81,15 @@ export class MemoryStore implements Store {
     )
     if (input.automationEnabled && !bound) throw new Error('BOOK_POSITION_BINDING_REQUIRED')
     const reserveAvailable = input.reserveAvailable ?? 0
-    if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('INVALID_BOOK_RESERVE')
-    if (!Number.isFinite(input.defenseCap) || input.defenseCap <= 0 || input.defenseCap > reserveAvailable)
-      throw new Error('Defense cap cannot exceed reserve.')
+    let reserveMicros: bigint
+    let capMicros: bigint
+    try {
+      reserveMicros = moneyMicros(reserveAvailable)
+      capMicros = moneyMicros(input.defenseCap)
+    } catch {
+      throw new Error('INVALID_BOOK_RESERVE')
+    }
+    if (capMicros <= 0n || capMicros > reserveMicros) throw new Error('Defense cap cannot exceed reserve.')
     const book: Book = {
       ...input,
       automationEnabled: bound && input.automationEnabled,
@@ -219,10 +226,15 @@ export class MemoryStore implements Store {
   updateReserve(bookId: string, amount: number) {
     const reserve = this.reserves.get(bookId)
     if (!reserve) return
+    const requested = moneyMicros(amount)
+    const available = moneyMicros(reserve.available)
+    const deployed = moneyMicros(reserve.deployed)
+    if (requested > available || deployed + moneyMicros(reserve.reserved) + requested > moneyMicros(reserve.cap))
+      throw new Error('RESERVE_INVARIANT_VIOLATION')
     this.reserves.set(bookId, {
       ...reserve,
-      available: Math.max(0, reserve.available - amount),
-      deployed: reserve.deployed + amount,
+      available: Number(canonicalMoney(available - requested)),
+      deployed: Number(canonicalMoney(deployed + requested)),
       updatedAt: new Date().toISOString(),
     })
   }

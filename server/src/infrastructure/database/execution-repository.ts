@@ -1,6 +1,7 @@
 import { defenseSensitivity, measureDefense } from '../../../../packages/risk-engine/src/sizing.js'
 import { liquidationDistance } from '../../../../packages/risk-engine/src/index.js'
 import { settleDefense } from '../../reserveSettlement.js'
+import { canonicalMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
 import type {
   Action,
   AutopsyEvent,
@@ -54,7 +55,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
         action.bookId,
         action.decisionId,
         action.kind,
-        action.amount,
+        action.kind === 'DEFEND' ? canonicalMoney(moneyMicros(action.amount)) : String(action.amount),
         action.status,
         action.idempotencyKey,
         action.venueReference ?? null,
@@ -212,7 +213,13 @@ export class PostgresExecutionRepository implements ExecutionRepository {
           )
           await client.query(
             'INSERT INTO defense_performance(action_id,book_id,amount,efficiency,measurement) VALUES($1,$2,$3,$4,$5) ON CONFLICT(action_id) DO NOTHING',
-            [action.id, action.bookId, action.amount, measurement.efficiency, JSON.stringify(measurement)],
+            [
+              action.id,
+              action.bookId,
+              canonicalMoney(moneyMicros(action.amount)),
+              measurement.efficiency,
+              JSON.stringify(measurement),
+            ],
           )
           await client.query(
             "INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DEFENSE_EFFICIENCY_UPDATED',$2)",

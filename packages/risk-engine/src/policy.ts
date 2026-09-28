@@ -1,4 +1,5 @@
 import type { Book, RiskFeatures } from '../../domain/src/index.js'
+import { moneyMicros } from '../../ausd/src/money.js'
 export type PolicyResult = { permitted: boolean; codes: string[]; reasons: string[] }
 export type PolicyMode = 'AUTOMATED' | 'MANUAL'
 export function applyBookPolicy(
@@ -26,11 +27,26 @@ export function applyBookPolicy(
     codes.push('HARVEST_NO_RESCUE')
     reasons.push('Harvest stance does not permit collateral rescue.')
   }
-  if (!Number.isFinite(proposedAmount) || proposedAmount < 0) {
+  let proposedMicros: bigint | null = null
+  try {
+    proposedMicros = moneyMicros(proposedAmount)
+  } catch {
+    // Invalid money is a policy refusal, never an execution authorization.
+  }
+  if (proposedMicros === null) {
     codes.push('INVALID_AMOUNT')
     reasons.push('Proposed action amount is invalid.')
   }
-  if (proposedAmount > book.defenseCap || proposedAmount > reserveAvailable) {
+  let withinCap = false
+  try {
+    withinCap =
+      proposedMicros !== null &&
+      proposedMicros <= moneyMicros(book.defenseCap) &&
+      proposedMicros <= moneyMicros(reserveAvailable)
+  } catch {
+    withinCap = false
+  }
+  if (!withinCap) {
     codes.push('CAP_EXCEEDED')
     reasons.push('Proposed defense exceeds permitted reserve headroom.')
   }
