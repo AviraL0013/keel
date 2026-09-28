@@ -11,10 +11,10 @@ async function fixture(fetcher: typeof fetch, now: () => number = Date.now) {
     [userId],
   )
   const bookId = book.rows[0].id
-  const add = async (kind = 'SAFE_MODE') => {
+  const add = async (kind = 'SAFE_MODE', title = 'Private wallet 0x1234567890123456789012345678901234567890') => {
     const row = await db.query<{ id: string }>(
       'INSERT INTO notifications(user_id,book_id,kind,title,body,dedupe_key) VALUES($1,$2,$3,$4,$5,gen_random_uuid()::text) RETURNING id',
-      [userId, bookId, kind, 'Private wallet 0x1234567890123456789012345678901234567890', 'Internal error with secret'],
+      [userId, bookId, kind, title, 'Internal error with secret'],
     )
     return row.rows[0].id
   }
@@ -50,6 +50,60 @@ describe('Telegram notification delivery', () => {
       await value.close()
     }
   }, 20_000)
+
+  it('delivers a due batch at one-second spacing with market and side', async () => {
+    const clock = { at: Date.now() }
+    const sentAt: number[] = []
+    const messages: string[] = []
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      sentAt.push(clock.at)
+      messages.push((JSON.parse(String(init?.body)) as { text: string }).text)
+      return Response.json({ ok: true })
+    }) as typeof fetch
+    const value = await fixture(fetcher, () => clock.at)
+    try {
+      for (let i = 0; i < 3; i++) await value.add('ACTION_CONFIRMED', 'DEFEND: CONFIRMED')
+      const notifier = new TelegramNotifier(
+        value.store.pool,
+        { botToken: 'fake-token', chatId: 'operator-chat', appUrl: 'https://app.example' },
+        fetcher,
+        () => clock.at,
+        async (ms) => {
+          clock.at += ms
+        },
+      )
+      await notifier.pollOnce()
+      expect(fetcher).toHaveBeenCalledTimes(3)
+      expect(sentAt).toEqual([sentAt[0], sentAt[0] + 1000, sentAt[0] + 2000])
+      expect(messages).toEqual(Array(3).fill(expect.stringContaining('EYELER: DEFEND confirmed — ETH-PERP long')))
+    } finally {
+      await value.close()
+    }
+  }, 20_000)
+
+  it('limits each poll to ten notifications', async () => {
+    const clock = { at: Date.now() }
+    const fetcher = vi.fn(async () => Response.json({ ok: true })) as typeof fetch
+    const value = await fixture(fetcher, () => clock.at)
+    try {
+      for (let i = 0; i < 11; i++) await value.add('ACTION_CONFIRMED', 'EXIT: CONFIRMED')
+      const notifier = new TelegramNotifier(
+        value.store.pool,
+        { botToken: 'fake-token', chatId: 'operator-chat', appUrl: 'https://app.example' },
+        fetcher,
+        () => clock.at,
+        async (ms) => {
+          clock.at += ms
+        },
+      )
+      await notifier.pollOnce()
+      expect(fetcher).toHaveBeenCalledTimes(10)
+      await notifier.pollOnce()
+      expect(fetcher).toHaveBeenCalledTimes(11)
+    } finally {
+      await value.close()
+    }
+  }, 30_000)
 
   it('retries a definite Telegram rejection after backoff', async () => {
     const clock = { at: Date.now() }

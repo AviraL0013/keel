@@ -2,16 +2,26 @@ import type pg from 'pg'
 import { brandEnv, logger } from '../../config/index.js'
 
 export type TelegramConfig = { botToken: string; chatId: string; appUrl: string }
-type Alert = { id: string; kind: string; title: string; book_id: string; attempts: number }
+type Alert = {
+  id: string
+  kind: string
+  title: string
+  book_id: string
+  market: string
+  side: string
+  attempts: number
+}
 
 export class TelegramNotifier {
   private timer?: ReturnType<typeof setInterval>
   private inFlight?: Promise<void>
+  private lastSendAt?: number
   constructor(
     private readonly pool: pg.Pool,
     private readonly config: TelegramConfig,
     private readonly fetcher: typeof fetch = fetch,
     private readonly now: () => number = Date.now,
+    private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   ) {}
 
   start() {
@@ -20,7 +30,7 @@ export class TelegramNotifier {
       void this.pollOnce().catch(() =>
         logger.warn({ error: 'TELEGRAM_DELIVERY_WORKER_FAILED' }, 'Telegram delivery deferred'),
       )
-    }, 5000)
+    }, 1000)
     this.timer.unref()
     void this.pollOnce().catch(() =>
       logger.warn({ error: 'TELEGRAM_DELIVERY_WORKER_FAILED' }, 'Telegram delivery deferred'),
@@ -34,7 +44,7 @@ export class TelegramNotifier {
 
   pollOnce(): Promise<void> {
     if (this.inFlight) return this.inFlight
-    this.inFlight = this.deliverOne().finally(() => {
+    this.inFlight = this.deliverBatch().finally(() => {
       this.inFlight = undefined
     })
     return this.inFlight
@@ -49,7 +59,8 @@ export class TelegramNotifier {
         [new Date(this.now() - 60_000).toISOString()],
       )
       const result = await client.query(
-        `SELECT n.id,n.kind,n.title,n.book_id,d.attempts FROM notifications n LEFT JOIN telegram_deliveries d ON d.notification_id=n.id
+        `SELECT n.id,n.kind,n.title,n.book_id,b.market,b.side,d.attempts FROM notifications n
+        JOIN books b ON b.id=n.book_id LEFT JOIN telegram_deliveries d ON d.notification_id=n.id
         WHERE n.book_id IS NOT NULL AND (n.kind IN ('SAFE_MODE','SAFE_MODE_EXITED','DEFEND','REDUCE','EXIT','AUTOMATION_RETRY_EXHAUSTED') OR n.kind LIKE 'ACTION_%')
         AND (d.notification_id IS NULL OR (d.status='PENDING' AND d.next_attempt_at<=$1))
         ORDER BY n.created_at,n.id LIMIT 1 FOR UPDATE OF n SKIP LOCKED`,
@@ -90,12 +101,23 @@ export class TelegramNotifier {
             : actionTitle
               ? `${actionTitle[1]} ${actionTitle[2]}`
               : 'Book action update'
-    return `EYELER: ${label}\nOpen Book: ${this.config.appUrl}/?book=${encodeURIComponent(alert.book_id)}`
+    const market = /^[A-Za-z0-9_-]{1,24}$/.test(alert.market) ? alert.market : 'Book'
+    const side = alert.side === 'LONG' ? 'long' : alert.side === 'SHORT' ? 'short' : ''
+    return `EYELER: ${label.replace(/\b(CONFIRMED|QUEUED|FAILED|CANCELED|EXPIRED|UNKNOWN|PARTIAL)\b/g, (word) => word.toLowerCase())} — ${market}${side ? ` ${side}` : ''}\nOpen Book: ${this.config.appUrl}/?book=${encodeURIComponent(alert.book_id)}`
   }
 
-  private async deliverOne() {
+  private async deliverBatch() {
+    for (let i = 0; i < 10; i++) if (!(await this.deliverOne())) return
+  }
+
+  private async deliverOne(): Promise<boolean> {
     const alert = await this.claim()
-    if (!alert) return
+    if (!alert) return false
+    if (this.lastSendAt !== undefined) {
+      const waitMs = Math.max(0, 1000 - (this.now() - this.lastSendAt))
+      if (waitMs > 0) await this.delay(waitMs)
+    }
+    this.lastSendAt = this.now()
     let definiteFailure = false
     let failureCode = 'TELEGRAM_REJECTED'
     try {
@@ -119,7 +141,7 @@ export class TelegramNotifier {
             "UPDATE telegram_deliveries SET status='SENT',delivered_at=$2,last_error=NULL WHERE notification_id=$1 AND status='SENDING'",
             [alert.id, new Date(this.now()).toISOString()],
           )
-          return
+          return true
         }
         definiteFailure = true
       }
@@ -137,6 +159,7 @@ export class TelegramNotifier {
         "UPDATE telegram_deliveries SET status='UNKNOWN',last_error='OUTCOME_UNKNOWN' WHERE notification_id=$1 AND status='SENDING'",
         [alert.id],
       )
+    return true
   }
 }
 
