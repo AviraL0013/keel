@@ -4,14 +4,19 @@ export class MonitorScheduler {
   private running = false
   private lastError?: string
   private inFlight?: Promise<unknown>
+  private startedAt?: number
+  private lastCompletedTickAt?: number
   constructor(
     private readonly monitor: MonitorLoop,
     private readonly intervalMs = 1000,
     private readonly onError: (error: unknown) => void = () => undefined,
+    private readonly now: () => number = Date.now,
   ) {}
   start() {
     if (this.timer) return
     this.running = true
+    this.startedAt = this.now()
+    this.lastCompletedTickAt = undefined
     this.timer = setInterval(() => {
       void this.runOnce()
     }, this.intervalMs)
@@ -33,6 +38,7 @@ export class MonitorScheduler {
     try {
       return await this.inFlight
     } finally {
+      this.lastCompletedTickAt = this.now()
       this.inFlight = undefined
     }
   }
@@ -43,6 +49,11 @@ export class MonitorScheduler {
     await this.inFlight
   }
   health() {
-    return { running: this.running, lastError: this.lastError }
+    const last = this.lastCompletedTickAt ?? this.startedAt
+    return {
+      running: this.running,
+      lastError: this.lastError,
+      lastTickAgeMs: last === undefined ? null : Math.max(0, this.now() - last),
+    }
   }
 }

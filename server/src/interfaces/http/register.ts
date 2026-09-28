@@ -79,16 +79,23 @@ export function registerRoutes(context: HttpContext) {
   }))
   app.get('/health', async () => ({ ok: true, environment: config.environment }))
   app.get('/ready', async (_request, reply) => {
+    const health = context.runtime?.health()
+    const detail = {
+      lastTickAgeMs: health?.lastTickAgeMs ?? null,
+      venueReady: health?.venueReady ?? false,
+      lockOwned: health?.lockOwned ?? false,
+    }
     if (!(persistence instanceof PostgresStore))
-      return reply.code(503).send({ ready: false, reason: 'DATABASE_NOT_CONFIGURED' })
+      return reply.code(503).send({ ready: false, reason: 'DATABASE_NOT_CONFIGURED', ...detail })
     try {
       await persistence.pool.query('SELECT 1')
-      const health = context.runtime?.health()
       if (!health?.executionReady || !health.running)
-        return reply.code(503).send({ ready: false, reason: 'WORKER_OR_VENUE_UNAVAILABLE', worker: health })
-      return { ready: true }
+        return reply.code(503).send({ ready: false, reason: 'WORKER_OR_VENUE_UNAVAILABLE', ...detail, worker: health })
+      if (detail.lastTickAgeMs !== null && detail.lastTickAgeMs > config.tickStaleMs)
+        return reply.code(503).send({ ready: false, reason: 'MONITOR_TICK_STALE', ...detail })
+      return { ready: true, ...detail }
     } catch {
-      return reply.code(503).send({ ready: false, reason: 'DATABASE_UNAVAILABLE' })
+      return reply.code(503).send({ ready: false, reason: 'DATABASE_UNAVAILABLE', ...detail })
     }
   })
   app.get('/metrics', async () => ({

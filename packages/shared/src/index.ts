@@ -11,6 +11,7 @@ export type Config = {
   corsOrigin: string
   allowedWallets: string[]
   safeModeResumeTicks: number
+  tickStaleMs: number
 }
 export type WalletAccess = 'ALLOWED' | 'WALLET_NOT_ALLOWED' | 'WALLET_ALLOWLIST_NOT_CONFIGURED'
 export function walletAccess(config: Config, address: string): WalletAccess {
@@ -45,6 +46,8 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   const safeModeResumeTicks = Number(brandEnv(env, 'SAFE_MODE_RESUME_TICKS') ?? 5)
   if (!Number.isSafeInteger(safeModeResumeTicks) || safeModeResumeTicks < 1)
     throw new Error('INVALID_EYELER_SAFE_MODE_RESUME_TICKS')
+  const tickStaleMs = Number(brandEnv(env, 'TICK_STALE_MS') ?? 15_000)
+  if (!Number.isSafeInteger(tickStaleMs) || tickStaleMs < 1) throw new Error('INVALID_EYELER_TICK_STALE_MS')
   return {
     environment,
     port: Number(env.PORT ?? 8787),
@@ -57,6 +60,7 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
     corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173',
     allowedWallets,
     safeModeResumeTicks,
+    tickStaleMs,
   }
 }
 export function assertProductionConfig(config: Config, env: Record<string, string | undefined> = process.env) {

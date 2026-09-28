@@ -87,7 +87,7 @@ export class EyelerRuntime {
     private readonly safeModeResumeTicks = 5,
   ) {
     this.repository = new PostgresExecutionRepository(store)
-    this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000)
+    this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000, () => undefined, now)
   }
   async start() {
     await this.venue?.start?.()
@@ -105,7 +105,9 @@ export class EyelerRuntime {
     this.scheduler.start()
   }
   health() {
-    return { ...this.scheduler.health(), executionReady: Boolean(this.lease && this.venue?.ready()) }
+    const lockOwned = Boolean(this.lease)
+    const venueReady = Boolean(this.venue?.ready())
+    return { ...this.scheduler.health(), lockOwned, venueReady, executionReady: lockOwned && venueReady }
   }
   async stop() {
     try {
