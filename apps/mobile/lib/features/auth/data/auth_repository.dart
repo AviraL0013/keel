@@ -51,11 +51,14 @@ class AuthController extends StateNotifier<AuthState> {
     }
     try {
       final session = await repository.session();
-      final address = session['walletAddress'] as String? ??
-          await storage.readAddress();
+      final address =
+          session['walletAddress'] as String? ?? await storage.readAddress();
       if (address == null) throw StateError('SESSION_WALLET_MISSING');
       await storage.saveAddress(address);
-      state = AuthState(authenticated: true, address: address, walletStatus: WalletStatus.authenticated);
+      state = AuthState(
+          authenticated: true,
+          address: address,
+          walletStatus: WalletStatus.authenticated);
     } catch (_) {
       await storage.clear();
       state = const AuthState(authenticated: false);

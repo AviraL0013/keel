@@ -1,7 +1,12 @@
 import '../../../shared/models/telemetry_freshness.dart';
 
 class BookCreationReadiness {
-  const BookCreationReadiness({required this.allowed, required this.code, required this.reason, required this.market, required this.position});
+  const BookCreationReadiness(
+      {required this.allowed,
+      required this.code,
+      required this.reason,
+      required this.market,
+      required this.position});
   final bool allowed;
   final String code;
   final String reason;
@@ -9,7 +14,8 @@ class BookCreationReadiness {
   final TelemetryFreshnessPoint position;
 
   factory BookCreationReadiness.fromJson(Object? raw) {
-    final value = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final value =
+        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     return BookCreationReadiness(
       allowed: value['allowed'] == true,
       code: value['code'] as String? ?? 'POSITION_TELEMETRY_UNKNOWN',

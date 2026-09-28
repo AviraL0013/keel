@@ -29,7 +29,10 @@ class _AppShellState extends ConsumerState<AppShell> {
           if (book.id != linkedBookId) continue;
           _openedLinkedBook = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BookDetailScreen(book: book)));
+            if (mounted) {
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => BookDetailScreen(book: book)));
+            }
           });
           break;
         }

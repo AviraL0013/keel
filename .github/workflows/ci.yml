@@ -11,6 +11,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
       - run: npm test
       - run: npm run server:typecheck
       - run: npm run build
@@ -28,5 +29,6 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter analyze
+      - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter test
 

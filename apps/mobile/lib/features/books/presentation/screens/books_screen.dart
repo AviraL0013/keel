@@ -197,18 +197,19 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
             Text('EYELER'),
           ]),
           actions: [
-            if (MediaQuery.sizeOf(context).width >= 360) SizedBox(
-                width: 104,
-                child: Center(
-                    child: Text(
-                        _syncing
-                            ? 'SYNCING'
-                            : _updated
-                                ? 'UPDATED'
-                                : _syncError != null
-                                    ? 'RESYNC FAILED'
-                                    : '',
-                        style: EyelerTypography.label))),
+            if (MediaQuery.sizeOf(context).width >= 360)
+              SizedBox(
+                  width: 104,
+                  child: Center(
+                      child: Text(
+                          _syncing
+                              ? 'SYNCING'
+                              : _updated
+                                  ? 'UPDATED'
+                                  : _syncError != null
+                                      ? 'RESYNC FAILED'
+                                      : '',
+                          style: EyelerTypography.label))),
             IconButton(
                 tooltip: 'Resync Books',
                 onPressed: _syncing ? null : _resync,
@@ -233,8 +234,8 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
             onRefresh: _resync,
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
-                  EyelerSpacing.md, EyelerSpacing.xl),
+              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md,
+                  EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
               itemCount: visible.length + 1,
               itemBuilder: (context, index) {
                 if (index > 0) {

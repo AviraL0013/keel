@@ -17,8 +17,12 @@ const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let output = ''
-child.stdout.on('data', chunk => { output += chunk.toString() })
-child.stderr.on('data', chunk => { output += chunk.toString() })
+child.stdout.on('data', (chunk) => {
+  output += chunk.toString()
+})
+child.stderr.on('data', (chunk) => {
+  output += chunk.toString()
+})
 
 try {
   let healthy = false
@@ -26,17 +30,22 @@ try {
   while (Date.now() < deadline && child.exitCode === null) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/health`)
-      if (response.status === 200) { healthy = true; break }
-    } catch { /* Server still starting. */ }
-    await new Promise(resolve => setTimeout(resolve, 100))
+      if (response.status === 200) {
+        healthy = true
+        break
+      }
+    } catch {
+      /* Server still starting. */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
   if (!healthy) throw new Error(`PRODUCTION_SMOKE_FAILED: ${output.slice(-500)}`)
   console.log('production smoke: /health 200')
 } finally {
   child.kill('SIGTERM')
   await Promise.race([
-    new Promise(resolve => child.once('exit', resolve)),
-    new Promise(resolve => setTimeout(resolve, 3_000)),
+    new Promise((resolve) => child.once('exit', resolve)),
+    new Promise((resolve) => setTimeout(resolve, 3_000)),
   ])
   if (child.exitCode === null) child.kill('SIGKILL')
 }

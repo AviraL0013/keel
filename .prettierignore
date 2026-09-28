@@ -1,0 +1,8 @@
+docs/vendor/
+dist/
+build/
+node_modules/
+apps/mobile/
+package-lock.json
+**/*.g.dart
+**/*.freezed.dart

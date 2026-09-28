@@ -28,8 +28,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-          padding: const EdgeInsets.fromLTRB(
-              EyelerSpacing.md, EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
+          padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
+              EyelerSpacing.md, EyelerSpacing.xl),
           children: [
             const Text('Your EYELER settings', style: EyelerTypography.display),
             const SizedBox(height: EyelerSpacing.lg),

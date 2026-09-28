@@ -1,37 +1,196 @@
 export type BookStance = 'DEFEND' | 'HARVEST' | 'KILL'
 export type RiskState = 'HOLD' | 'DEFEND' | 'REDUCE' | 'EXIT' | 'SAFE_MODE'
 export type ActionKind = 'DEFEND' | 'REDUCE' | 'EXIT'
-export type ActionStatus = 'QUEUED' | 'VALIDATING' | 'SUBMITTING' | 'SUBMITTED' | 'VERIFYING' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'FAILED' | 'UNKNOWN'
+export type ActionStatus =
+  | 'QUEUED'
+  | 'VALIDATING'
+  | 'SUBMITTING'
+  | 'SUBMITTED'
+  | 'VERIFYING'
+  | 'CONFIRMED'
+  | 'PARTIAL'
+  | 'CANCELED'
+  | 'EXPIRED'
+  | 'FAILED'
+  | 'UNKNOWN'
 export type PositionSide = 'LONG' | 'SHORT'
 export type BookStatus = 'ACTIVE' | 'PAUSED' | 'CLOSED' | 'SAFE_MODE'
 export type PositionStatus = 'OPEN' | 'CLOSED' | 'LIQUIDATED' | 'DELEVERAGED' | 'UNWOUND' | 'FAILED'
 export type BookPositionSeed = Omit<Position, 'bookId'>
-export type BookTelemetrySeed = Omit<NormalizedTelemetry, 'source' | 'freshnessMs'> & { source?: NormalizedTelemetry['source']; freshnessMs?: number }
+export type BookTelemetrySeed = Omit<NormalizedTelemetry, 'source' | 'freshnessMs'> & {
+  source?: NormalizedTelemetry['source']
+  freshnessMs?: number
+}
 export type SafeModeReason = 'DATA_UNAVAILABLE' | 'VENUE_UNAVAILABLE' | 'UNRESOLVED_ACTION' | 'RUNTIME_FAILURE'
-export type Book = { id: string; userId: string; market: string; marketId?: number; venueAccountId?: number; venuePositionId?: number; side: PositionSide; stance: BookStance; liquidationFloor: number; defenseCap: number; timeLimitMs: number; automationEnabled: boolean; status: BookStatus; safeModeReason?: SafeModeReason | null; safeModeSince?: string | null; createdAt: string; updatedAt: string }
-export type Position = { bookId: string; side: PositionSide; size: number; entryPrice: number; markPrice: number; liquidationPrice: number; liquidationEstimated?: boolean; leverage: number; unrealizedPnl: number; margin: number; status: PositionStatus; timestamp?: number; observedAt?: number; collateralPerDistancePoint?: number }
-export type Reserve = { bookId: string; available: number; reserved: number; deployed: number; cap: number; updatedAt: string }
+export type Book = {
+  id: string
+  userId: string
+  market: string
+  marketId?: number
+  venueAccountId?: number
+  venuePositionId?: number
+  side: PositionSide
+  stance: BookStance
+  liquidationFloor: number
+  defenseCap: number
+  timeLimitMs: number
+  automationEnabled: boolean
+  status: BookStatus
+  safeModeReason?: SafeModeReason | null
+  safeModeSince?: string | null
+  createdAt: string
+  updatedAt: string
+}
+export type Position = {
+  bookId: string
+  side: PositionSide
+  size: number
+  entryPrice: number
+  markPrice: number
+  liquidationPrice: number
+  liquidationEstimated?: boolean
+  leverage: number
+  unrealizedPnl: number
+  margin: number
+  status: PositionStatus
+  timestamp?: number
+  observedAt?: number
+  collateralPerDistancePoint?: number
+}
+export type Reserve = {
+  bookId: string
+  available: number
+  reserved: number
+  deployed: number
+  cap: number
+  updatedAt: string
+}
 export type FreshnessStatus = 'FRESH' | 'STALE' | 'UNKNOWN'
 export type FreshnessThresholds = { marketMs: number; positionMs: number; fundingMs: number; orderbookMs: number }
-export const defaultFreshnessThresholds: FreshnessThresholds = { marketMs: 10_000, positionMs: 10_000, fundingMs: 10_000, orderbookMs: 10_000 }
-export type TelemetryFreshnessPoint = { status: FreshnessStatus; updatedAt?: number; effectiveAt?: number; ageMs?: number; thresholdMs: number }
-export type TelemetryFreshness = { market: TelemetryFreshnessPoint; position: TelemetryFreshnessPoint; funding: TelemetryFreshnessPoint; orderbook: TelemetryFreshnessPoint; thresholdsMs: FreshnessThresholds }
-export type BookCreationReadinessCode = 'READY' | 'POSITION_NOT_OPEN' | 'POSITION_INVALID' | 'MARKET_INVALID' | 'MARKET_TELEMETRY_UNKNOWN' | 'MARKET_TELEMETRY_STALE' | 'POSITION_TELEMETRY_UNKNOWN' | 'POSITION_TELEMETRY_STALE'
-export type BookCreationReadiness = { allowed: boolean; code: BookCreationReadinessCode; reason: string; market: TelemetryFreshnessPoint; position: TelemetryFreshnessPoint }
-export function freshnessPoint(updatedAt: number | undefined, now = Date.now(), thresholdMs = defaultFreshnessThresholds.marketMs): TelemetryFreshnessPoint {
-  if (updatedAt === undefined || !Number.isFinite(updatedAt) || updatedAt <= 0) return { status: 'UNKNOWN', thresholdMs }
+export const defaultFreshnessThresholds: FreshnessThresholds = {
+  marketMs: 10_000,
+  positionMs: 10_000,
+  fundingMs: 10_000,
+  orderbookMs: 10_000,
+}
+export type TelemetryFreshnessPoint = {
+  status: FreshnessStatus
+  updatedAt?: number
+  effectiveAt?: number
+  ageMs?: number
+  thresholdMs: number
+}
+export type TelemetryFreshness = {
+  market: TelemetryFreshnessPoint
+  position: TelemetryFreshnessPoint
+  funding: TelemetryFreshnessPoint
+  orderbook: TelemetryFreshnessPoint
+  thresholdsMs: FreshnessThresholds
+}
+export type BookCreationReadinessCode =
+  | 'READY'
+  | 'POSITION_NOT_OPEN'
+  | 'POSITION_INVALID'
+  | 'MARKET_INVALID'
+  | 'MARKET_TELEMETRY_UNKNOWN'
+  | 'MARKET_TELEMETRY_STALE'
+  | 'POSITION_TELEMETRY_UNKNOWN'
+  | 'POSITION_TELEMETRY_STALE'
+export type BookCreationReadiness = {
+  allowed: boolean
+  code: BookCreationReadinessCode
+  reason: string
+  market: TelemetryFreshnessPoint
+  position: TelemetryFreshnessPoint
+}
+export function freshnessPoint(
+  updatedAt: number | undefined,
+  now = Date.now(),
+  thresholdMs = defaultFreshnessThresholds.marketMs,
+): TelemetryFreshnessPoint {
+  if (updatedAt === undefined || !Number.isFinite(updatedAt) || updatedAt <= 0)
+    return { status: 'UNKNOWN', thresholdMs }
   const ageMs = now >= updatedAt ? now - updatedAt : 0
   return { status: ageMs <= thresholdMs ? 'FRESH' : 'STALE', updatedAt, ageMs, thresholdMs }
 }
-export function buildTelemetryFreshness(input: { marketUpdatedAt?: number; positionUpdatedAt?: number; fundingUpdatedAt?: number; orderbookUpdatedAt?: number }, now = Date.now(), thresholds = defaultFreshnessThresholds): TelemetryFreshness {
-  return { market: freshnessPoint(input.marketUpdatedAt, now, thresholds.marketMs), position: freshnessPoint(input.positionUpdatedAt, now, thresholds.positionMs), funding: freshnessPoint(input.fundingUpdatedAt, now, thresholds.fundingMs), orderbook: freshnessPoint(input.orderbookUpdatedAt, now, thresholds.orderbookMs), thresholdsMs: thresholds }
+export function buildTelemetryFreshness(
+  input: {
+    marketUpdatedAt?: number
+    positionUpdatedAt?: number
+    fundingUpdatedAt?: number
+    orderbookUpdatedAt?: number
+  },
+  now = Date.now(),
+  thresholds = defaultFreshnessThresholds,
+): TelemetryFreshness {
+  return {
+    market: freshnessPoint(input.marketUpdatedAt, now, thresholds.marketMs),
+    position: freshnessPoint(input.positionUpdatedAt, now, thresholds.positionMs),
+    funding: freshnessPoint(input.fundingUpdatedAt, now, thresholds.fundingMs),
+    orderbook: freshnessPoint(input.orderbookUpdatedAt, now, thresholds.orderbookMs),
+    thresholdsMs: thresholds,
+  }
 }
-export type NormalizedTelemetry = { mark: number; oracle: number; bid: number; ask: number; mid: number; spreadBps: number; fundingRate: number; depthNotional: number; volatility: number; volume24h: number; openInterest: number; block: number; timestamp: number; marketTimestamp?: number; positionTimestamp?: number; fundingTimestamp?: number; orderbookTimestamp?: number; combinedTimestamp?: number; marketFreshnessMs?: number; positionFreshnessMs?: number; fundingFreshnessMs?: number; orderbookFreshnessMs?: number; freshness?: TelemetryFreshness; source: 'perpl-rest' | 'perpl-ws' | 'replay'; freshnessMs: number; executionHealthy?: boolean }
+export type NormalizedTelemetry = {
+  mark: number
+  oracle: number
+  bid: number
+  ask: number
+  mid: number
+  spreadBps: number
+  fundingRate: number
+  depthNotional: number
+  volatility: number
+  volume24h: number
+  openInterest: number
+  block: number
+  timestamp: number
+  marketTimestamp?: number
+  positionTimestamp?: number
+  fundingTimestamp?: number
+  orderbookTimestamp?: number
+  combinedTimestamp?: number
+  marketFreshnessMs?: number
+  positionFreshnessMs?: number
+  fundingFreshnessMs?: number
+  orderbookFreshnessMs?: number
+  freshness?: TelemetryFreshness
+  source: 'perpl-rest' | 'perpl-ws' | 'replay'
+  freshnessMs: number
+  executionHealthy?: boolean
+}
 export type TelemetrySnapshot = NormalizedTelemetry
 export type CapitalAvailability = 'AVAILABLE' | 'UNAVAILABLE' | 'UNKNOWN'
 export type CapitalFreshness = 'FRESH' | 'STALE' | 'UNKNOWN'
-export type CapitalAmount = { amount: string | null; asset: string; decimals: number; source: string; availability: CapitalAvailability; freshness: CapitalFreshness; ageMs?: number; updatedAt?: string; reason?: string }
-export type AgoraActivity = { status: 'AVAILABLE' | 'UNAVAILABLE'; reason?: string; checkedAt?: string; limited?: boolean; rows: Array<{ id: string; type: string; status: string; source: string; destination: string; asset: string; amount: string; timestamp: string; match: 'POSSIBLE_MATCH' | 'UNMATCHED'; evidence: 'WALLET_TRANSFER' | 'WALLET_AND_PERPL' | 'NONE' }> }
+export type CapitalAmount = {
+  amount: string | null
+  asset: string
+  decimals: number
+  source: string
+  availability: CapitalAvailability
+  freshness: CapitalFreshness
+  ageMs?: number
+  updatedAt?: string
+  reason?: string
+}
+export type AgoraActivity = {
+  status: 'AVAILABLE' | 'UNAVAILABLE'
+  reason?: string
+  checkedAt?: string
+  limited?: boolean
+  rows: Array<{
+    id: string
+    type: string
+    status: string
+    source: string
+    destination: string
+    asset: string
+    amount: string
+    timestamp: string
+    match: 'POSSIBLE_MATCH' | 'UNMATCHED'
+    evidence: 'WALLET_TRANSFER' | 'WALLET_AND_PERPL' | 'NONE'
+  }>
+}
 export type CapitalSnapshot = {
   status: 'VALID' | 'UNAVAILABLE'
   accountId?: number
@@ -45,8 +204,66 @@ export type CapitalSnapshot = {
   ausd?: { raw: string; decimals: number; symbol: string; token: string; chainId: number }
   agora?: Record<string, unknown>
 }
-export type RiskFeatures = { liquidationDistance: number; fundingPressure: number; spreadBps: number; depthCoverage: number; volatility: number; reserveHeadroom: number; capUtilization: number; timeRemainingMs: number; defenseEfficiency: number; fresh: boolean }
-export type Decision = { id: string; bookId: string; state: RiskState; action: ActionKind | 'HOLD' | 'SAFE_MODE'; amount: number; reasonCodes: string[]; humanReadableReasons: string[]; riskFeatures: RiskFeatures; createdAt: string }
-export type VenueProgress = { requestId: string; clientSequence: number; admitted: boolean; requestedLastExecBlock: number; effectiveLastExecBlock?: number; response: 'ADMITTED' | 'REJECTED' | 'ORDER_UPDATE' | 'TIMEOUT' | 'TRANSPORT_AMBIGUOUS'; code?: number; orderStatus?: number; orderReason?: number }
-export type Action = { id: string; bookId: string; decisionId: string; kind: ActionKind; amount: number; status: ActionStatus; idempotencyKey: string; beforeState?: { position: Position; reserve: Reserve; telemetry: NormalizedTelemetry }; venueReference?: string; venueProgress?: VenueProgress; submittedAt?: string; confirmedAt?: string; failedAt?: string; error?: string }
-export type AutopsyEvent = { id: string; bookId: string; type: string; payload: Record<string, unknown>; block?: number; timestamp: string; decision?: Decision; action?: Action; venueResult?: Record<string, unknown>; postState?: Record<string, unknown>; reserveEffect?: Record<string, unknown> }
+export type RiskFeatures = {
+  liquidationDistance: number
+  fundingPressure: number
+  spreadBps: number
+  depthCoverage: number
+  volatility: number
+  reserveHeadroom: number
+  capUtilization: number
+  timeRemainingMs: number
+  defenseEfficiency: number
+  fresh: boolean
+}
+export type Decision = {
+  id: string
+  bookId: string
+  state: RiskState
+  action: ActionKind | 'HOLD' | 'SAFE_MODE'
+  amount: number
+  reasonCodes: string[]
+  humanReadableReasons: string[]
+  riskFeatures: RiskFeatures
+  createdAt: string
+}
+export type VenueProgress = {
+  requestId: string
+  clientSequence: number
+  admitted: boolean
+  requestedLastExecBlock: number
+  effectiveLastExecBlock?: number
+  response: 'ADMITTED' | 'REJECTED' | 'ORDER_UPDATE' | 'TIMEOUT' | 'TRANSPORT_AMBIGUOUS'
+  code?: number
+  orderStatus?: number
+  orderReason?: number
+}
+export type Action = {
+  id: string
+  bookId: string
+  decisionId: string
+  kind: ActionKind
+  amount: number
+  status: ActionStatus
+  idempotencyKey: string
+  beforeState?: { position: Position; reserve: Reserve; telemetry: NormalizedTelemetry }
+  venueReference?: string
+  venueProgress?: VenueProgress
+  submittedAt?: string
+  confirmedAt?: string
+  failedAt?: string
+  error?: string
+}
+export type AutopsyEvent = {
+  id: string
+  bookId: string
+  type: string
+  payload: Record<string, unknown>
+  block?: number
+  timestamp: string
+  decision?: Decision
+  action?: Action
+  venueResult?: Record<string, unknown>
+  postState?: Record<string, unknown>
+  reserveEffect?: Record<string, unknown>
+}

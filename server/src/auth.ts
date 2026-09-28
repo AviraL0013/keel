@@ -5,13 +5,49 @@ import type { WalletAccess } from './config/index.js'
 import { AuthorizationError } from './application/errors.js'
 export type Session = { userId: string; walletAddress: string; expiresAt: number }
 export class AuthService {
-  constructor(private readonly store: Store, private readonly secret: string, private readonly walletAccess: (address: string) => WalletAccess = () => 'ALLOWED') {}
-  private requireWalletAccess(address: string) { const access = this.walletAccess(address); if (access !== 'ALLOWED') throw new AuthorizationError(access) }
-  async challenge(address: string) { this.requireWalletAccess(address); const nonce = randomBytes(24).toString('base64url'); const expiresAt = Date.now() + 5 * 60_000; const message = `Eyeler wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: ${new Date(expiresAt).toISOString()}`; await this.store.createChallenge(address, nonce, expiresAt, message); return { message, nonce, expiresAt } }
+  constructor(
+    private readonly store: Store,
+    private readonly secret: string,
+    private readonly walletAccess: (address: string) => WalletAccess = () => 'ALLOWED',
+  ) {}
+  private requireWalletAccess(address: string) {
+    const access = this.walletAccess(address)
+    if (access !== 'ALLOWED') throw new AuthorizationError(access)
+  }
+  async challenge(address: string) {
+    this.requireWalletAccess(address)
+    const nonce = randomBytes(24).toString('base64url')
+    const expiresAt = Date.now() + 5 * 60_000
+    const message = `Eyeler wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: ${new Date(expiresAt).toISOString()}`
+    await this.store.createChallenge(address, nonce, expiresAt, message)
+    return { message, nonce, expiresAt }
+  }
   // An old challenge expires after five minutes; its exact stored message and signature remain required.
-  async verify(address: string, nonce: string, message: string, signature: `0x${string}`) { if (!isAddress(address)) throw new Error('INVALID_WALLET_ADDRESS'); if (!['Eyeler', 'Keel'].some(brand => message.startsWith(`${brand} wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: `))) throw new Error('AUTH_MESSAGE_INVALID'); if (!await this.store.consumeChallenge(address, nonce, message)) throw new Error('AUTH_CHALLENGE_INVALID'); if (!await verifyMessage({ address: address as `0x${string}`, message, signature })) throw new Error('AUTH_SIGNATURE_INVALID'); this.requireWalletAccess(address); const userId = await this.store.ensureUser(address); const token = createHmac('sha256', this.secret).update(`${userId}:${Date.now()}:${randomBytes(16).toString('hex')}`).digest('hex'); const session = { userId, walletAddress: address.toLowerCase(), expiresAt: Date.now() + 7 * 24 * 60 * 60_000 }; await this.store.createSession(token, session); return { token, session } }
-  async get(token?: string) { const session = token ? await this.store.getSession(token) : null; return session && this.walletAccess(session.walletAddress) === 'ALLOWED' ? session : null }
-  async revoke(token?: string) { if (token) await this.store.revokeSession(token) }
+  async verify(address: string, nonce: string, message: string, signature: `0x${string}`) {
+    if (!isAddress(address)) throw new Error('INVALID_WALLET_ADDRESS')
+    if (
+      !['Eyeler', 'Keel'].some((brand) =>
+        message.startsWith(`${brand} wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: `),
+      )
+    )
+      throw new Error('AUTH_MESSAGE_INVALID')
+    if (!(await this.store.consumeChallenge(address, nonce, message))) throw new Error('AUTH_CHALLENGE_INVALID')
+    if (!(await verifyMessage({ address: address as `0x${string}`, message, signature })))
+      throw new Error('AUTH_SIGNATURE_INVALID')
+    this.requireWalletAccess(address)
+    const userId = await this.store.ensureUser(address)
+    const token = createHmac('sha256', this.secret)
+      .update(`${userId}:${Date.now()}:${randomBytes(16).toString('hex')}`)
+      .digest('hex')
+    const session = { userId, walletAddress: address.toLowerCase(), expiresAt: Date.now() + 7 * 24 * 60 * 60_000 }
+    await this.store.createSession(token, session)
+    return { token, session }
+  }
+  async get(token?: string) {
+    const session = token ? await this.store.getSession(token) : null
+    return session && this.walletAccess(session.walletAddress) === 'ALLOWED' ? session : null
+  }
+  async revoke(token?: string) {
+    if (token) await this.store.revokeSession(token)
+  }
 }
-
-

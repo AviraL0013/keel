@@ -4,7 +4,8 @@ import 'package:eyeler_mobile/core/storage/session_storage.dart';
 import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
 
 void main() {
-  test('migrates same-origin Keel session keys and clears both names', () async {
+  test('migrates same-origin Keel session keys and clears both names',
+      () async {
     FlutterSecureStorage.setMockInitialValues({
       'keel_session_token': 'existing-session',
       'keel_wallet_address': '0xabc',
@@ -21,7 +22,9 @@ void main() {
   });
 
   test('reads a legacy ledger source from an older backend', () {
-    final amount = CapitalAmount.fromJson({'amount': '10', 'source': 'KEEL_LEDGER'}, asset: 'AUSD', source: 'EYELER_LEDGER');
+    final amount = CapitalAmount.fromJson(
+        {'amount': '10', 'source': 'KEEL_LEDGER'},
+        asset: 'AUSD', source: 'EYELER_LEDGER');
     expect(amount.source, 'EYELER_LEDGER');
   });
 }

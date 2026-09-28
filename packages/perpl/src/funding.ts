@@ -17,10 +17,21 @@ export function normalizeContextFunding(market: FundingMarket, chain: unknown, n
   const eventBlock = event.feb
   const interval = market.funding_interval_blocks
   let verifiedAt: number | undefined
-  if (Number.isFinite(rate) && effectiveAt !== undefined && headAt !== undefined && headAt <= now &&
-      typeof headBlock === 'number' && Number.isSafeInteger(headBlock) && headBlock > 0 &&
-      typeof eventBlock === 'number' && Number.isSafeInteger(eventBlock) && eventBlock > 0 &&
-      typeof interval === 'number' && Number.isSafeInteger(interval) && interval > 0) {
+  if (
+    Number.isFinite(rate) &&
+    effectiveAt !== undefined &&
+    headAt !== undefined &&
+    headAt <= now &&
+    typeof headBlock === 'number' &&
+    Number.isSafeInteger(headBlock) &&
+    headBlock > 0 &&
+    typeof eventBlock === 'number' &&
+    Number.isSafeInteger(eventBlock) &&
+    eventBlock > 0 &&
+    typeof interval === 'number' &&
+    Number.isSafeInteger(interval) &&
+    interval > 0
+  ) {
     // The latest event may be scheduled ahead of the head. A missed full
     // interval must remain stale even when the context endpoint is reachable.
     if (Math.abs(headBlock - eventBlock) < interval) verifiedAt = headAt

@@ -23,8 +23,8 @@ class CapitalScreen extends ConsumerWidget {
             icon: const Icon(Icons.refresh))
       ]),
       body: ListView(
-          padding: const EdgeInsets.fromLTRB(
-              EyelerSpacing.md, EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
+          padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
+              EyelerSpacing.md, EyelerSpacing.xl),
           children: [
             const Text('Your capital across different sources',
                 style: EyelerTypography.body),
@@ -149,8 +149,9 @@ class _CapitalSection extends StatelessWidget {
       Row(children: [
         EyelerIconTile(
             icon: icon,
-            color:
-                title == 'Wallet / AUSD' ? EyelerColors.info : EyelerColors.accent),
+            color: title == 'Wallet / AUSD'
+                ? EyelerColors.info
+                : EyelerColors.accent),
         const SizedBox(width: EyelerSpacing.md),
         Expanded(child: Text(title, style: EyelerTypography.title)),
       ]),

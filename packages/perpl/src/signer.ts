@@ -4,7 +4,11 @@ import type { ApiKeySigner } from './index.js'
 
 export class Ed25519PerplSigner implements ApiKeySigner {
   private readonly privateKey: Uint8Array
-  constructor(public readonly apiKey: string, secretHex: string, private readonly chainId = 143) {
+  constructor(
+    public readonly apiKey: string,
+    secretHex: string,
+    private readonly chainId = 143,
+  ) {
     const normalized = secretHex.replace(/^0x/, '')
     if (!/^[0-9a-f]{64}$/i.test(normalized)) throw new Error('PERPL_API_KEY_SECRET_INVALID')
     this.privateKey = Uint8Array.from(Buffer.from(normalized, 'hex'))
@@ -25,4 +29,6 @@ export function createPerplSignerFromEnv(env: Record<string, string | undefined>
   if (!env.PERPL_API_KEY || !env.PERPL_API_KEY_SECRET) throw new Error('PERPL_SIGNER_NOT_CONFIGURED')
   return new Ed25519PerplSigner(env.PERPL_API_KEY, env.PERPL_API_KEY_SECRET, Number(env.PERPL_CHAIN_ID ?? 143))
 }
-export function createNonce() { return randomBytes(16).toString('base64url') }
+export function createNonce() {
+  return randomBytes(16).toString('base64url')
+}

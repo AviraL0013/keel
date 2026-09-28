@@ -11,9 +11,15 @@ export class PerplRequestIdAllocator {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
-      await client.query('INSERT INTO perpl_request_ids(account_id,last_rq) VALUES($1,0) ON CONFLICT DO NOTHING', [accountId])
-      const counter = await client.query('SELECT last_rq FROM perpl_request_ids WHERE account_id=$1 FOR UPDATE', [accountId])
-      const actions = await client.query('SELECT venue_reference FROM actions WHERE venue_reference LIKE $1', [`${accountId}:%`])
+      await client.query('INSERT INTO perpl_request_ids(account_id,last_rq) VALUES($1,0) ON CONFLICT DO NOTHING', [
+        accountId,
+      ])
+      const counter = await client.query('SELECT last_rq FROM perpl_request_ids WHERE account_id=$1 FOR UPDATE', [
+        accountId,
+      ])
+      const actions = await client.query('SELECT venue_reference FROM actions WHERE venue_reference LIKE $1', [
+        `${accountId}:%`,
+      ])
       let highest = lfr
       // Preserve a known forwarded rejection even after a local database reset.
       // Direct/on-chain order-history IDs are never used as an API high-water mark.
@@ -30,7 +36,11 @@ export class PerplRequestIdAllocator {
       await client.query('UPDATE perpl_request_ids SET last_rq=$2 WHERE account_id=$1', [accountId, selected])
       await client.query('COMMIT')
       return selected
-    } catch (error) { await client.query('ROLLBACK'); throw error }
-    finally { client.release() }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
   }
 }

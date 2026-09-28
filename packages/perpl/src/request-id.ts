@@ -26,7 +26,8 @@ export function validForwardedRequestId(candidate: string, baseline: string): bo
 
 /** Smallest unused uint64 above the durable high-water mark in the venue's serial window. */
 export function nextForwardedRequestId(baseline: string, highWater: string): string {
-  const last = requestId(baseline), highest = requestId(highWater)
+  const last = requestId(baseline),
+    highest = requestId(highWater)
   let next = (highest > last ? highest : last) + 1n
   const delta = BigInt.asUintN(32, next - last)
   if (delta === 0n) next += 1n

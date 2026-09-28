@@ -36,8 +36,8 @@ class AuthScreen extends ConsumerWidget {
                         _BrandHeader(status: backend),
                         const SizedBox(height: EyelerSpacing.xl),
                         Text('Protect positions\nwith confidence.',
-                            style:
-                                EyelerTypography.display.copyWith(fontSize: 42)),
+                            style: EyelerTypography.display
+                                .copyWith(fontSize: 42)),
                         const SizedBox(height: EyelerSpacing.md),
                         Text(
                             'EYELER watches position, reserve, market depth, and execution evidence behind every bounded action.',
@@ -112,7 +112,8 @@ class AuthScreen extends ConsumerWidget {
                                                               alpha: .06),
                                                       borderRadius:
                                                           BorderRadius.circular(
-                                                              EyelerRadii.small)),
+                                                              EyelerRadii
+                                                                  .small)),
                                                   child: Row(children: [
                                                     Expanded(
                                                         child: Text(
@@ -154,13 +155,16 @@ class AuthScreen extends ConsumerWidget {
                                                               .bodyMedium
                                                               ?.color))),
                                       if (auth.error != null) ...[
-                                        const SizedBox(height: EyelerSpacing.md),
+                                        const SizedBox(
+                                            height: EyelerSpacing.md),
                                         Text(_friendly(auth.error!),
-                                            style: EyelerTypography.body.copyWith(
-                                                color: EyelerColors.exit))
+                                            style: EyelerTypography.body
+                                                .copyWith(
+                                                    color: EyelerColors.exit))
                                       ],
                                       if (auth.loading) ...[
-                                        const SizedBox(height: EyelerSpacing.md),
+                                        const SizedBox(
+                                            height: EyelerSpacing.md),
                                         const LinearProgressIndicator(
                                             minHeight: 4)
                                       ],

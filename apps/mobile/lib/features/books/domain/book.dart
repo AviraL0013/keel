@@ -77,7 +77,13 @@ class BookTelemetry {
   final double? liquidationDistance;
   final int? freshnessMs;
   final TelemetryFreshnessModel? freshness;
-  final String? riskState, riskStatus, riskReason, executionState, executionReason, executionActionId, positionStatus;
+  final String? riskState,
+      riskStatus,
+      riskReason,
+      executionState,
+      executionReason,
+      executionActionId,
+      positionStatus;
   final List<String> reasonCodes;
   final List<String> reasons;
   bool get stale {
@@ -86,10 +92,15 @@ class BookTelemetry {
         [value.market, value.position, value.funding, value.orderbook]
             .any((point) => point.stale);
   }
+
   bool get freshnessUnknown =>
       freshness == null ||
-      [freshness!.market, freshness!.position, freshness!.funding, freshness!.orderbook]
-          .any((point) => point.status == 'UNKNOWN');
+      [
+        freshness!.market,
+        freshness!.position,
+        freshness!.funding,
+        freshness!.orderbook
+      ].any((point) => point.status == 'UNKNOWN');
 }
 
 class BookDashboardState {
@@ -111,10 +122,14 @@ class BookConfiguration {
   final String? stance;
   final bool automation;
   String? validate() {
-    if (!liquidationFloor.isFinite || liquidationFloor <= 0 || liquidationFloor > 100) {
+    if (!liquidationFloor.isFinite ||
+        liquidationFloor <= 0 ||
+        liquidationFloor > 100) {
       return 'Liquidation floor must be between 0 and 100.';
     }
-    if (!defenseCap.isFinite || defenseCap <= 0) return 'Defense cap must be positive.';
+    if (!defenseCap.isFinite || defenseCap <= 0) {
+      return 'Defense cap must be positive.';
+    }
     if (!reserve.isFinite || reserve < 0) return 'Reserve cannot be negative.';
     if (defenseCap > reserve) return 'Defense cap cannot exceed reserve.';
     if (timeLimit <= Duration.zero) return 'Time limit must be positive.';

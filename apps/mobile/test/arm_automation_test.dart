@@ -14,8 +14,15 @@ import 'package:eyeler_mobile/features/books/domain/book.dart';
 import 'package:eyeler_mobile/features/books/presentation/screens/book_detail_screen.dart';
 
 const testBook = Book(
-    id: 'eth', market: 'ETH', side: 'LONG', stance: 'DEFEND', status: 'ACTIVE',
-    automationEnabled: false, liquidationFloor: 5, defenseCap: 5, timeLimitMs: 86400000);
+    id: 'eth',
+    market: 'ETH',
+    side: 'LONG',
+    stance: 'DEFEND',
+    status: 'ACTIVE',
+    automationEnabled: false,
+    liquidationFloor: 5,
+    defenseCap: 5,
+    timeLimitMs: 86400000);
 
 class TestSessionStorage extends SessionStorage {
   const TestSessionStorage();
@@ -33,14 +40,21 @@ class ArmRepository extends BooksRepository {
   @override
   Future<BookDashboardState> state(String id) async => BookDashboardState(
       book: book,
-      telemetry: const BookTelemetry(riskState: 'HOLD', executionState: 'NO_ACTIVE_EXECUTION',
-          liquidationDistance: 6, reserveAvailable: 10, mark: 100));
+      telemetry: const BookTelemetry(
+          riskState: 'HOLD',
+          executionState: 'NO_ACTIVE_EXECUTION',
+          liquidationDistance: 6,
+          reserveAvailable: 10,
+          mark: 100));
   @override
   Future<Book> control(String id, String action) async {
     calls.add(action);
-    if (rejectArm) throw const EyelerException('KILL_SWITCH_ENGAGED', statusCode: 409);
+    if (rejectArm) {
+      throw const EyelerException('KILL_SWITCH_ENGAGED', statusCode: 409);
+    }
     return testBook;
   }
+
   @override
   Future<Book> armWithStance(String id, String stance) async {
     calls.add('patch:$stance');
@@ -49,20 +63,30 @@ class ArmRepository extends BooksRepository {
 }
 
 void main() {
-  test('stance path patches automation and stance without submitting an action', () async {
+  test('stance path patches automation and stance without submitting an action',
+      () async {
     final requests = <http.Request>[];
     final client = MockClient((request) async {
       requests.add(request);
-      return http.Response(jsonEncode({
-        'id': 'eth', 'market': 'ETH', 'side': 'LONG', 'stance': 'DEFEND',
-        'status': 'ACTIVE', 'automationEnabled': true,
-        'liquidationFloor': 5, 'defenseCap': 5, 'timeLimitMs': 86400000,
-      }), 200);
+      return http.Response(
+          jsonEncode({
+            'id': 'eth',
+            'market': 'ETH',
+            'side': 'LONG',
+            'stance': 'DEFEND',
+            'status': 'ACTIVE',
+            'automationEnabled': true,
+            'liquidationFloor': 5,
+            'defenseCap': 5,
+            'timeLimitMs': 86400000,
+          }),
+          200);
     });
     addTearDown(client.close);
     final repository = BooksRepository(EyelerApiClient(
         const EyelerConfig(apiBaseUrl: 'http://unused'),
-        const TestSessionStorage(), client));
+        const TestSessionStorage(),
+        client));
     await repository.armWithStance('eth', 'DEFEND');
     expect(requests, hasLength(1));
     expect(requests.single.method, 'PATCH');
@@ -82,8 +106,8 @@ void main() {
     final repository = ArmRepository(rejectArm, book, client);
     await tester.pumpWidget(ProviderScope(
       overrides: [booksRepositoryProvider.overrideWithValue(repository)],
-      child: MaterialApp(theme: EyelerTheme.dark,
-          home: BookDetailScreen(book: book)),
+      child: MaterialApp(
+          theme: EyelerTheme.dark, home: BookDetailScreen(book: book)),
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -94,7 +118,9 @@ void main() {
     return repository;
   }
 
-  testWidgets('arming shows cap, reserve, reduce-only authority and pause before consent', (tester) async {
+  testWidgets(
+      'arming shows cap, reserve, reduce-only authority and pause before consent',
+      (tester) async {
     final repository = await showBook(tester);
     await tester.tap(find.text('ARM AUTOMATION'));
     await tester.pumpAndSettle();
@@ -117,14 +143,17 @@ void main() {
     expect(repository.calls, ['arm']);
   });
 
-  testWidgets('kill switch 409 offers stance picker then patches stance and automation', (tester) async {
+  testWidgets(
+      'kill switch 409 offers stance picker then patches stance and automation',
+      (tester) async {
     final repository = await showBook(tester, rejectArm: true);
     await tester.tap(find.text('ARM AUTOMATION'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('ARM AUTOMATION').last);
     await tester.pumpAndSettle();
     expect(find.text('Choose a stance'), findsOneWidget);
-    expect(find.text('Never rescue. Exit when a limit breaks.'), findsOneWidget);
+    expect(
+        find.text('Never rescue. Exit when a limit breaks.'), findsOneWidget);
     await tester.tap(find.descendant(
         of: find.byType(SimpleDialog), matching: find.text('DEFEND')));
     await tester.pumpAndSettle();
@@ -132,18 +161,26 @@ void main() {
   });
 
   for (final entry in {
-    'DATA_UNAVAILABLE': 'Waiting for live data — automation resumes automatically.',
-    'VENUE_UNAVAILABLE': 'Waiting for live data — automation resumes automatically.',
+    'DATA_UNAVAILABLE':
+        'Waiting for live data — automation resumes automatically.',
+    'VENUE_UNAVAILABLE':
+        'Waiting for live data — automation resumes automatically.',
     'UNRESOLVED_ACTION': 'Checking an action with Perpl — review needed.',
     'RUNTIME_FAILURE': 'Automation stopped — review needed.',
   }.entries) {
     testWidgets('explains ${entry.key} without an arm button', (tester) async {
       final safeBook = Book(
-          id: 'eth', market: 'ETH', side: 'LONG', stance: 'DEFEND',
-          status: 'SAFE_MODE', safeModeReason: entry.key,
+          id: 'eth',
+          market: 'ETH',
+          side: 'LONG',
+          stance: 'DEFEND',
+          status: 'SAFE_MODE',
+          safeModeReason: entry.key,
           automationEnabled: entry.key == 'DATA_UNAVAILABLE' ||
               entry.key == 'VENUE_UNAVAILABLE',
-          liquidationFloor: 5, defenseCap: 5, timeLimitMs: 86400000);
+          liquidationFloor: 5,
+          defenseCap: 5,
+          timeLimitMs: 86400000);
       await showBook(tester, book: safeBook);
       await tester.ensureVisible(find.text(entry.value));
       await tester.pumpAndSettle();

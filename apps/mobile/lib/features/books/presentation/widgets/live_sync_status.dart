@@ -22,7 +22,10 @@ class _LiveSyncStatusState extends State<LiveSyncStatus> {
     if (widget.value.isLoading) {
       _timer?.cancel();
       _updated = false;
-    } else if (!widget.value.hasError && widget.value.hasValue && oldWidget.value.hasValue && oldWidget.value.value != widget.value.value) {
+    } else if (!widget.value.hasError &&
+        widget.value.hasValue &&
+        oldWidget.value.hasValue &&
+        oldWidget.value.value != widget.value.value) {
       _updated = true;
       _timer?.cancel();
       _timer = Timer(const Duration(seconds: 2), () {
@@ -43,6 +46,12 @@ class _LiveSyncStatusState extends State<LiveSyncStatus> {
       child: Align(
           alignment: Alignment.centerRight,
           child: Text(
-              widget.value.isLoading ? 'SYNCING' : widget.value.hasError ? 'CONNECTION LOST · RETRYING' : _updated ? 'UPDATED' : '',
+              widget.value.isLoading
+                  ? 'SYNCING'
+                  : widget.value.hasError
+                      ? 'CONNECTION LOST · RETRYING'
+                      : _updated
+                          ? 'UPDATED'
+                          : '',
               style: EyelerTypography.label)));
 }

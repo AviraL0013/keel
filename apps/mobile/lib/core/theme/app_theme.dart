@@ -130,7 +130,8 @@ class EyelerTheme {
     final isDark = brightness == Brightness.dark;
     final background =
         isDark ? EyelerColors.darkBackground : EyelerColors.lightBackground;
-    final surface = isDark ? EyelerColors.darkSurface : EyelerColors.lightSurface;
+    final surface =
+        isDark ? EyelerColors.darkSurface : EyelerColors.lightSurface;
     final text = isDark ? EyelerColors.darkText : EyelerColors.lightText;
     final muted = isDark ? EyelerColors.darkMuted : EyelerColors.lightMuted;
     final border = isDark ? EyelerColors.darkBorder : EyelerColors.lightBorder;
@@ -173,7 +174,8 @@ class EyelerTheme {
           border: inputBorder,
           enabledBorder: inputBorder,
           focusedBorder: inputBorder.copyWith(
-              borderSide: const BorderSide(color: EyelerColors.accent, width: 2)),
+              borderSide:
+                  const BorderSide(color: EyelerColors.accent, width: 2)),
           labelStyle: EyelerTypography.body.copyWith(color: muted)),
       filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(

@@ -9,7 +9,9 @@ import 'package:eyeler_mobile/features/books/data/books_repository.dart';
 import 'package:eyeler_mobile/features/books/domain/book.dart';
 
 class DelayedBooksRepository extends BooksRepository {
-  DelayedBooksRepository(http.Client client) : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
+  DelayedBooksRepository(http.Client client)
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
+            const SessionStorage(), client));
   final requests = <Completer<BookDashboardState>>[];
   @override
   Future<BookDashboardState> state(String id) {
@@ -19,27 +21,43 @@ class DelayedBooksRepository extends BooksRepository {
   }
 }
 
-const book = Book(id: '1', market: 'BTC', side: 'LONG', stance: 'DEFEND', status: 'ACTIVE', automationEnabled: false, liquidationFloor: 6, defenseCap: 5, timeLimitMs: 86400000);
+const book = Book(
+    id: '1',
+    market: 'BTC',
+    side: 'LONG',
+    stance: 'DEFEND',
+    status: 'ACTIVE',
+    automationEnabled: false,
+    liquidationFloor: 6,
+    defenseCap: 5,
+    timeLimitMs: 86400000);
 
 void main() {
-  testWidgets('card and detail share polling; slow reads do not overlap; disposal stops polling', (tester) async {
+  testWidgets(
+      'card and detail share polling; slow reads do not overlap; disposal stops polling',
+      (tester) async {
     final client = http.Client();
     final repository = DelayedBooksRepository(client);
-    final container = ProviderContainer(overrides: [booksRepositoryProvider.overrideWithValue(repository)]);
+    final container = ProviderContainer(
+        overrides: [booksRepositoryProvider.overrideWithValue(repository)]);
     final card = container.listen(bookDashboardProvider('1'), (_, __) {});
     final detail = container.listen(bookDashboardProvider('1'), (_, __) {});
     await tester.pump();
     expect(repository.requests.length, 1);
     await tester.pump(const Duration(seconds: 9));
     expect(repository.requests.length, 1);
-    repository.requests[0].complete(const BookDashboardState(book: book, telemetry: BookTelemetry(mark: 100)));
+    repository.requests[0].complete(const BookDashboardState(
+        book: book, telemetry: BookTelemetry(mark: 100)));
     await tester.pump();
-    expect(container.read(bookDashboardProvider('1')).value?.telemetry.mark, 100);
+    expect(
+        container.read(bookDashboardProvider('1')).value?.telemetry.mark, 100);
     await tester.pump(const Duration(seconds: 3));
     expect(repository.requests.length, 2);
-    repository.requests[1].complete(const BookDashboardState(book: book, telemetry: BookTelemetry(mark: 101)));
+    repository.requests[1].complete(const BookDashboardState(
+        book: book, telemetry: BookTelemetry(mark: 101)));
     await tester.pump();
-    expect(container.read(bookDashboardProvider('1')).value?.telemetry.mark, 101);
+    expect(
+        container.read(bookDashboardProvider('1')).value?.telemetry.mark, 101);
     card.close();
     detail.close();
     container.dispose();

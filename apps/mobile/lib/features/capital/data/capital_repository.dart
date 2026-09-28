@@ -11,7 +11,8 @@ class CapitalRepository {
           CapitalSnapshot.fromJson(Map<String, dynamic>.from(value as Map)));
   Future<AgoraActivity> getAgoraActivity() => api.get(
       '/capital/agora-activity',
-      (value) => AgoraActivity.fromJson(Map<String, dynamic>.from(value as Map)));
+      (value) =>
+          AgoraActivity.fromJson(Map<String, dynamic>.from(value as Map)));
 }
 
 final capitalRepositoryProvider = Provider<CapitalRepository>(

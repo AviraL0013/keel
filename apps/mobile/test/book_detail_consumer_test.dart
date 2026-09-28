@@ -121,7 +121,8 @@ void main() {
               .overrideWithValue(DetailRepository(dashboard, client)),
         ],
         child: MaterialApp(
-            theme: EyelerTheme.dark, home: const BookDetailScreen(book: book))));
+            theme: EyelerTheme.dark,
+            home: const BookDetailScreen(book: book))));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Book closed'), findsOneWidget);

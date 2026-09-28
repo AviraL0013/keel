@@ -6,6 +6,8 @@
     "scripts": {
         "build": "tsc -p tsconfig.build.json",
         "lint": "oxlint",
+        "format:check": "prettier --check \"**/*.{ts,js,mjs,cjs}\"",
+        "format": "prettier --write \"**/*.{ts,js,mjs,cjs}\"",
         "test:risk": "vitest run tests/risk-engine.test.ts tests/risk-stale.test.ts",
         "test": "vitest run",
         "server:dev": "node --env-file-if-exists=.env --import tsx server/src/index.ts",
@@ -36,6 +38,7 @@
         "@types/pg": "^8.23.1",
         "@types/ws": "^8.18.1",
         "oxlint": "^1.81.0",
+        "prettier": "^3.9.9",
         "tsx": "^4.23.13",
         "typescript": "~6.0.2",
         "vitest": "^4.1.11"

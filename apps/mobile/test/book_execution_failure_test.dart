@@ -57,7 +57,8 @@ void main() {
           booksRepositoryProvider.overrideWithValue(FailedBookRepository())
         ],
         child: MaterialApp(
-            theme: EyelerTheme.dark, home: const BookDetailScreen(book: book))));
+            theme: EyelerTheme.dark,
+            home: const BookDetailScreen(book: book))));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await tester.scrollUntilVisible(

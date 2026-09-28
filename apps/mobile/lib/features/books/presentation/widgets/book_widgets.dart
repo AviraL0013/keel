@@ -205,8 +205,8 @@ class _MetricGrid extends StatelessWidget {
                                       ?.color)),
                           const SizedBox(height: 5),
                           Text(entry.value ?? 'Unavailable',
-                              style:
-                                  EyelerTypography.metric.copyWith(fontSize: 16))
+                              style: EyelerTypography.metric
+                                  .copyWith(fontSize: 16))
                         ])))
                 .toList());
       });

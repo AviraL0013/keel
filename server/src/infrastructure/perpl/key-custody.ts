@@ -24,7 +24,8 @@ export class DevelopmentKeyCustody implements KeyCustody {
   open(sealed: string, context: string): string {
     try {
       const [version, nonce, tag, body, extra] = sealed.split(':')
-      if (version !== 'v2' || !context || !nonce || !tag || body === undefined || extra !== undefined) throw new Error('INVALID_SEALED_CREDENTIAL')
+      if (version !== 'v2' || !context || !nonce || !tag || body === undefined || extra !== undefined)
+        throw new Error('INVALID_SEALED_CREDENTIAL')
       const nonceBytes = Buffer.from(nonce, 'base64url')
       const tagBytes = Buffer.from(tag, 'base64url')
       if (nonceBytes.length !== 12 || tagBytes.length !== 16) throw new Error('INVALID_SEALED_CREDENTIAL')
@@ -32,7 +33,11 @@ export class DevelopmentKeyCustody implements KeyCustody {
       decipher.setAAD(Buffer.from(context, 'utf8'))
       decipher.setAuthTag(tagBytes)
       return Buffer.concat([decipher.update(Buffer.from(body, 'base64url')), decipher.final()]).toString('utf8')
-    } catch { throw new Error('INVALID_SEALED_CREDENTIAL') }
+    } catch {
+      throw new Error('INVALID_SEALED_CREDENTIAL')
+    }
   }
-  shred(): null { return null }
+  shred(): null {
+    return null
+  }
 }

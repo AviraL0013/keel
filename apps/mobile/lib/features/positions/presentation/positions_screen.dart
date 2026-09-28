@@ -34,8 +34,8 @@ class PositionsScreen extends ConsumerWidget {
             ref.invalidate(perplConnectionProvider);
           },
           child: ListView(
-              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
-                  EyelerSpacing.md, EyelerSpacing.xl),
+              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md,
+                  EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
               children: [
                 const Text('Your positions', style: EyelerTypography.display),
                 const SizedBox(height: EyelerSpacing.xs),

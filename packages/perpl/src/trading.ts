@@ -3,19 +3,86 @@ import { createNonce, type Ed25519PerplSigner } from './signer.js'
 import type { Action, VenueProgress } from '../../domain/src/index.js'
 import type { PerplConfig } from './index.js'
 import { PerplStateStore } from './decoder.js'
-import { forwardedRequestDelta, orderFrameWithRequestId, parsePerplRequestIds, requestId, validForwardedRequestId } from './request-id.js'
+import {
+  forwardedRequestDelta,
+  orderFrameWithRequestId,
+  parsePerplRequestIds,
+  requestId,
+  validForwardedRequestId,
+} from './request-id.js'
 
-export type PerplOrder = { mkt: number; acc: number; t: number; s: number; lv: number; a?: string; lb?: number; p?: number; ms?: number; lp?: number }
+export type PerplOrder = {
+  mkt: number
+  acc: number
+  t: number
+  s: number
+  lv: number
+  a?: string
+  lb?: number
+  p?: number
+  ms?: number
+  lp?: number
+}
 export type PerplSubmitStatus = 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'FAILED' | 'UNKNOWN'
-export type PerplSubmitResult = { venueReference: string; status: PerplSubmitStatus; reason?: string; venueProgress?: VenueProgress }
-export class PerplPreSubmissionError extends Error { readonly preSubmission = true; constructor(message: string, readonly statusCode?: number) { super(message) } }
-type Pending = { rq: string; accountId: number; action: Action; resolve: (value: PerplSubmitResult) => void; timer: ReturnType<typeof setTimeout>; admitted: boolean; requestedLastExecBlock: number }
-function progress(pending: Pending, sequence: number, response: VenueProgress['response'], details: Partial<VenueProgress> = {}): VenueProgress {
-  return { requestId: pending.rq, clientSequence: sequence, admitted: pending.admitted, requestedLastExecBlock: pending.requestedLastExecBlock, response, ...details }
+export type PerplSubmitResult = {
+  venueReference: string
+  status: PerplSubmitStatus
+  reason?: string
+  venueProgress?: VenueProgress
+}
+export class PerplPreSubmissionError extends Error {
+  readonly preSubmission = true
+  constructor(
+    message: string,
+    readonly statusCode?: number,
+  ) {
+    super(message)
+  }
+}
+type Pending = {
+  rq: string
+  accountId: number
+  action: Action
+  resolve: (value: PerplSubmitResult) => void
+  timer: ReturnType<typeof setTimeout>
+  admitted: boolean
+  requestedLastExecBlock: number
+}
+function progress(
+  pending: Pending,
+  sequence: number,
+  response: VenueProgress['response'],
+  details: Partial<VenueProgress> = {},
+): VenueProgress {
+  return {
+    requestId: pending.rq,
+    clientSequence: sequence,
+    admitted: pending.admitted,
+    requestedLastExecBlock: pending.requestedLastExecBlock,
+    response,
+    ...details,
+  }
 }
 
-type TradingMessage = { mt?: number; cid?: number; rq?: string | number; st?: number; oid?: number; status?: { code?: number; error?: string }; d?: Array<{ rq?: string | number; st?: number; sr?: number; oid?: number; lb?: number; r?: boolean }> }
-export type PerplTradingLifecycle = 'DISCONNECTED' | 'CONNECTING' | 'AUTHENTICATING' | 'AUTHENTICATED' | 'SNAPSHOTS_READY' | 'READY' | 'STALE' | 'RECONNECTING' | 'FAILED'
+type TradingMessage = {
+  mt?: number
+  cid?: number
+  rq?: string | number
+  st?: number
+  oid?: number
+  status?: { code?: number; error?: string }
+  d?: Array<{ rq?: string | number; st?: number; sr?: number; oid?: number; lb?: number; r?: boolean }>
+}
+export type PerplTradingLifecycle =
+  | 'DISCONNECTED'
+  | 'CONNECTING'
+  | 'AUTHENTICATING'
+  | 'AUTHENTICATED'
+  | 'SNAPSHOTS_READY'
+  | 'READY'
+  | 'STALE'
+  | 'RECONNECTING'
+  | 'FAILED'
 type ForwardedRequestBaseline = { lfr: string; rejectedForwardedRq: string }
 type HistoricalOrderRequest = { acc: number; rq?: string | number; st?: number; sr?: number }
 export function highestOrderDescIdRejection(orders: HistoricalOrderRequest[], accountId: number): bigint {
@@ -50,7 +117,24 @@ export class PerplTradingClient {
   private lastHeartbeatDiagnosticAt = 0
   private readyWaiter?: { resolve: () => void; reject: (error: Error) => void }
   private readonly diagnostic: (line: string) => void
-  constructor(private readonly config: PerplConfig, private readonly signer: Ed25519PerplSigner, diagnostic: (line: string) => void = line => console.info(line), private readonly allocateRequestId: (accountId: number, lfr: string, actionId: string, rejectedForwardedRq: string) => Promise<string> = async () => { throw new Error('PERPL_REQUEST_ID_ALLOCATOR_UNCONFIGURED') }, private readonly authoritativeBaseline: (accountId: number) => Promise<ForwardedRequestBaseline> = accountId => this.readAuthoritativeBaseline(accountId), private readonly keepAliveIntervalMs = 30_000) { this.diagnostic = diagnostic }
+  constructor(
+    private readonly config: PerplConfig,
+    private readonly signer: Ed25519PerplSigner,
+    diagnostic: (line: string) => void = (line) => console.info(line),
+    private readonly allocateRequestId: (
+      accountId: number,
+      lfr: string,
+      actionId: string,
+      rejectedForwardedRq: string,
+    ) => Promise<string> = async () => {
+      throw new Error('PERPL_REQUEST_ID_ALLOCATOR_UNCONFIGURED')
+    },
+    private readonly authoritativeBaseline: (accountId: number) => Promise<ForwardedRequestBaseline> = (accountId) =>
+      this.readAuthoritativeBaseline(accountId),
+    private readonly keepAliveIntervalMs = 30_000,
+  ) {
+    this.diagnostic = diagnostic
+  }
   async connect(): Promise<void> {
     if (this.connecting) return this.connecting
     this.stopped = false
@@ -64,64 +148,133 @@ export class PerplTradingClient {
     })
     return this.connecting
   }
-  async submit(action: Action, order: PerplOrder, beforeSend: (reference: string) => Promise<void> = async () => undefined, verifyBeforeSend: () => Promise<void> = async () => undefined): Promise<PerplSubmitResult> {
-    if (!this.socket || this.socket.readyState !== WS.OPEN) throw new PerplPreSubmissionError('PERPL_TRADING_NOT_CONNECTED')
+  async submit(
+    action: Action,
+    order: PerplOrder,
+    beforeSend: (reference: string) => Promise<void> = async () => undefined,
+    verifyBeforeSend: () => Promise<void> = async () => undefined,
+  ): Promise<PerplSubmitResult> {
+    if (!this.socket || this.socket.readyState !== WS.OPEN)
+      throw new PerplPreSubmissionError('PERPL_TRADING_NOT_CONNECTED')
     if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
-    const account = this.state.snapshot().accounts.find(item => item.id === order.acc)
+    const account = this.state.snapshot().accounts.find((item) => item.id === order.acc)
     if (!account) throw new PerplPreSubmissionError('PERPL_ACCOUNT_NOT_FOUND', 403)
     if (account.fr) throw new PerplPreSubmissionError('PERPL_ACCOUNT_FROZEN', 403)
     if (!account.fw) throw new PerplPreSubmissionError('PERPL_ORDER_FORWARDING_DISABLED', 403)
     let baseline: ForwardedRequestBaseline
-    try { baseline = await this.authoritativeBaseline(order.acc) }
-    catch { throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_UNAVAILABLE') }
+    try {
+      baseline = await this.authoritativeBaseline(order.acc)
+    } catch {
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_UNAVAILABLE')
+    }
     let lfr: bigint
-    try { lfr = requestId(baseline.lfr); requestId(baseline.rejectedForwardedRq) }
-    catch { throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_INVALID') }
+    try {
+      lfr = requestId(baseline.lfr)
+      requestId(baseline.rejectedForwardedRq)
+    } catch {
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_INVALID')
+    }
     this.diagnostic(`PERPL_RQ_BASELINE account=${order.acc} lfr=${lfr}`)
     const streamLfr = this.state.requestIdBaseline(order.acc)
     const baselineDelta = forwardedRequestDelta(lfr.toString(), streamLfr)
-    if (BigInt.asUintN(32, requestId(streamLfr)) !== BigInt.asUintN(32, lfr) && baselineDelta <= 0n) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CONTRADICTORY')
+    if (BigInt.asUintN(32, requestId(streamLfr)) !== BigInt.asUintN(32, lfr) && baselineDelta <= 0n)
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CONTRADICTORY')
     // A numerically larger ID can still fail the contract's signed-32 serial comparison.
     // Only that explained rejection may be superseded. A serial-valid rejected ID stays blocked.
     if (requestId(baseline.rejectedForwardedRq) > lfr) {
       if (forwardedRequestDelta(baseline.rejectedForwardedRq, lfr.toString()) > 0n) {
-        this.diagnostic(`PERPL_RQ_REJECTION_UNRESOLVED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq}`)
+        this.diagnostic(
+          `PERPL_RQ_REJECTION_UNRESOLVED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq}`,
+        )
         throw new PerplPreSubmissionError('PERPL_REQUEST_ID_FORWARDED_REJECTION_UNRESOLVED')
       }
-      this.diagnostic(`PERPL_RQ_REJECTION_EXPLAINED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq} reason=SIGNED_32_WINDOW`)
+      this.diagnostic(
+        `PERPL_RQ_REJECTION_EXPLAINED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq} reason=SIGNED_32_WINDOW`,
+      )
     }
     let rq: string
-    try { rq = await this.allocateRequestId(order.acc, lfr.toString(), action.id, baseline.rejectedForwardedRq) }
-    catch { throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_FAILED') }
-    if (!validForwardedRequestId(rq, lfr.toString()) || requestId(rq) <= requestId(baseline.rejectedForwardedRq)) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_INVALID')
-    this.diagnostic(`PERPL_RQ_ALLOCATED account=${order.acc} rq=${rq} serialDelta=${forwardedRequestDelta(rq, lfr.toString())}`)
-    const sn = ++this.sequence, reference = `${order.acc}:${rq}`
+    try {
+      rq = await this.allocateRequestId(order.acc, lfr.toString(), action.id, baseline.rejectedForwardedRq)
+    } catch {
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_FAILED')
+    }
+    if (!validForwardedRequestId(rq, lfr.toString()) || requestId(rq) <= requestId(baseline.rejectedForwardedRq))
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_ALLOCATION_INVALID')
+    this.diagnostic(
+      `PERPL_RQ_ALLOCATED account=${order.acc} rq=${rq} serialDelta=${forwardedRequestDelta(rq, lfr.toString())}`,
+    )
+    const sn = ++this.sequence,
+      reference = `${order.acc}:${rq}`
     await beforeSend(reference)
     // REST/history reads and durable persistence may outlast WS authority.
     if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
-    const latestAccount = this.state.snapshot().accounts.find(item => item.id === order.acc)
-    if (!latestAccount || latestAccount.fr || !latestAccount.fw) throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
-    if (!validForwardedRequestId(rq, String(latestAccount.lfr))) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
-    try { await verifyBeforeSend() }
-    catch (error) { throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PERPL_PRE_SEND_VERIFICATION_FAILED') }
-    if (!this.socket || this.socket.readyState !== WS.OPEN || !this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
-    const sendAccount = this.state.snapshot().accounts.find(item => item.id === order.acc)
-    if (!sendAccount || sendAccount.fr || !sendAccount.fw) throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
-    if (!validForwardedRequestId(rq, String(sendAccount.lfr))) throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
-    return await new Promise(resolve => {
-      const timer = setTimeout(() => { const pending = this.pending.get(sn); this.pending.delete(sn); this.diagnostic(`PERPL_WS_ORDER_TIMEOUT actionId=${action.id} rq=${rq} sn=${sn}`); resolve({ venueReference: reference, status: 'UNKNOWN', reason: 'PERPL_ORDER_RESPONSE_TIMEOUT', venueProgress: pending && progress(pending, sn, 'TIMEOUT') }) }, 15_000)
-      this.pending.set(sn, { rq, accountId: order.acc, action, timer, resolve, admitted: false, requestedLastExecBlock: order.lb ?? 0 })
-      this.diagnostic(`PERPL_WS_ORDER_SEND actionId=${action.id} mt=22 rq=${rq} sn=${sn} accountId=${order.acc} marketId=${order.mkt}`)
-      this.socket!.send(orderFrameWithRequestId({ mt: 22, sn, ...order, fl: 4 }, rq), error => {
-        if (!error) { this.diagnostic(`PERPL_WS_ORDER_WRITE_OK actionId=${action.id} rq=${rq} sn=${sn}`); return }
-        this.diagnostic(`PERPL_WS_ORDER_WRITE_ERROR actionId=${action.id} rq=${rq} sn=${sn} reason=${JSON.stringify(error.message)}`)
+    const latestAccount = this.state.snapshot().accounts.find((item) => item.id === order.acc)
+    if (!latestAccount || latestAccount.fr || !latestAccount.fw)
+      throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
+    if (!validForwardedRequestId(rq, String(latestAccount.lfr)))
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
+    try {
+      await verifyBeforeSend()
+    } catch (error) {
+      throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PERPL_PRE_SEND_VERIFICATION_FAILED')
+    }
+    if (!this.socket || this.socket.readyState !== WS.OPEN || !this.state.ready())
+      throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
+    const sendAccount = this.state.snapshot().accounts.find((item) => item.id === order.acc)
+    if (!sendAccount || sendAccount.fr || !sendAccount.fw)
+      throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
+    if (!validForwardedRequestId(rq, String(sendAccount.lfr)))
+      throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => {
         const pending = this.pending.get(sn)
-        clearTimeout(timer); this.pending.delete(sn); resolve({ venueReference: reference, status: 'UNKNOWN', reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS', venueProgress: pending && progress(pending, sn, 'TRANSPORT_AMBIGUOUS') })
+        this.pending.delete(sn)
+        this.diagnostic(`PERPL_WS_ORDER_TIMEOUT actionId=${action.id} rq=${rq} sn=${sn}`)
+        resolve({
+          venueReference: reference,
+          status: 'UNKNOWN',
+          reason: 'PERPL_ORDER_RESPONSE_TIMEOUT',
+          venueProgress: pending && progress(pending, sn, 'TIMEOUT'),
+        })
+      }, 15_000)
+      this.pending.set(sn, {
+        rq,
+        accountId: order.acc,
+        action,
+        timer,
+        resolve,
+        admitted: false,
+        requestedLastExecBlock: order.lb ?? 0,
+      })
+      this.diagnostic(
+        `PERPL_WS_ORDER_SEND actionId=${action.id} mt=22 rq=${rq} sn=${sn} accountId=${order.acc} marketId=${order.mkt}`,
+      )
+      this.socket!.send(orderFrameWithRequestId({ mt: 22, sn, ...order, fl: 4 }, rq), (error) => {
+        if (!error) {
+          this.diagnostic(`PERPL_WS_ORDER_WRITE_OK actionId=${action.id} rq=${rq} sn=${sn}`)
+          return
+        }
+        this.diagnostic(
+          `PERPL_WS_ORDER_WRITE_ERROR actionId=${action.id} rq=${rq} sn=${sn} reason=${JSON.stringify(error.message)}`,
+        )
+        const pending = this.pending.get(sn)
+        clearTimeout(timer)
+        this.pending.delete(sn)
+        resolve({
+          venueReference: reference,
+          status: 'UNKNOWN',
+          reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS',
+          venueProgress: pending && progress(pending, sn, 'TRANSPORT_AMBIGUOUS'),
+        })
       })
     })
   }
-  stateSnapshot() { return this.state.snapshot() }
-  positionSnapshot(accountId: number, marketId: number, positionId?: number) { return this.state.positionSnapshot(accountId, marketId, positionId) }
+  stateSnapshot() {
+    return this.state.snapshot()
+  }
+  positionSnapshot(accountId: number, marketId: number, positionId?: number) {
+    return this.state.positionSnapshot(accountId, marketId, positionId)
+  }
   isReady() {
     const ready = this.state.ready()
     if (ready && this.lifecycle === 'AUTHENTICATED') this.lifecycle = 'SNAPSHOTS_READY'
@@ -129,32 +282,61 @@ export class PerplTradingClient {
     if (!ready && this.lifecycle === 'READY') this.lifecycle = 'STALE'
     return ready
   }
-  lifecycleState() { return this.lifecycle }
-  close() { this.stopped = true; if (this.reconnectTimer) clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.stopKeepAlive(); this.socket?.close(); this.socket = undefined; this.state.disconnect(); this.lifecycle = 'DISCONNECTED'; this.failPending('UNKNOWN') }
+  lifecycleState() {
+    return this.lifecycle
+  }
+  close() {
+    this.stopped = true
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    this.stopKeepAlive()
+    this.socket?.close()
+    this.socket = undefined
+    this.state.disconnect()
+    this.lifecycle = 'DISCONNECTED'
+    this.failPending('UNKNOWN')
+  }
   private async signedRead(target: string): Promise<string> {
-    const timestamp = String(Date.now()), nonce = createNonce()
+    const timestamp = String(Date.now()),
+      nonce = createNonce()
     const signature = await this.signer.sign('GET', target, '', timestamp, nonce)
-    const response = await fetch(`${this.config.restUrl.replace(/\/$/, '')}${target}`, { cache: 'no-store', signal: AbortSignal.timeout(10_000), headers: { 'X-API-Key': this.signer.apiKey, 'X-API-Timestamp': timestamp, 'X-API-Nonce': nonce, 'X-API-Signature': signature } })
+    const response = await fetch(`${this.config.restUrl.replace(/\/$/, '')}${target}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        'X-API-Key': this.signer.apiKey,
+        'X-API-Timestamp': timestamp,
+        'X-API-Nonce': nonce,
+        'X-API-Signature': signature,
+      },
+    })
     if (!response.ok) throw new Error(`PERPL_BASELINE_HTTP_${response.status}`)
     return response.text()
   }
   private async readAuthoritativeBaseline(accountId: number): Promise<ForwardedRequestBaseline> {
-    const wallet = parsePerplRequestIds(await this.signedRead('/v1/trading/wallet')) as { as?: Array<{ id: number; lfr?: string | number }> }
-    const account = wallet.as?.find(value => value.id === accountId)
+    const wallet = parsePerplRequestIds(await this.signedRead('/v1/trading/wallet')) as {
+      as?: Array<{ id: number; lfr?: string | number }>
+    }
+    const account = wallet.as?.find((value) => value.id === accountId)
     if (!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED')
     const lfr = requestId(account.lfr)
-    let rejected = 0n, page: string | undefined
+    let rejected = 0n,
+      page: string | undefined
     const seen = new Set<string>()
     for (let index = 0; index < 100; index++) {
       const query = new URLSearchParams({ count: '100' })
       if (page) query.set('page', page)
-      const history = parsePerplRequestIds(await this.signedRead(`/v1/trading/order-history?${query}`)) as { d?: HistoricalOrderRequest[]; np?: string }
+      const history = parsePerplRequestIds(await this.signedRead(`/v1/trading/order-history?${query}`)) as {
+        d?: HistoricalOrderRequest[]
+        np?: string
+      }
       if (!Array.isArray(history.d)) throw new Error('PERPL_ORDER_HISTORY_INVALID')
       const pageRejection = highestOrderDescIdRejection(history.d, accountId)
       if (pageRejection > rejected) rejected = pageRejection
       if (!history.np) return { lfr: lfr.toString(), rejectedForwardedRq: rejected.toString() }
       if (seen.has(history.np)) throw new Error('PERPL_ORDER_HISTORY_CURSOR_LOOP')
-      seen.add(history.np); page = history.np
+      seen.add(history.np)
+      page = history.np
     }
     throw new Error('PERPL_ORDER_HISTORY_SCAN_LIMIT')
   }
@@ -162,50 +344,97 @@ export class PerplTradingClient {
     const socket = new WS(`${this.config.wsUrl}/ws/v1/trading`, { handshakeTimeout: 10_000 })
     this.lastHeartbeatDiagnosticAt = 0
     this.socket = socket
-    socket.on('message', data => this.handleMessage(String(data)))
+    socket.on('message', (data) => this.handleMessage(String(data)))
     socket.on('close', (code, reason) => {
       this.diagnostic(`PERPL_WS_CLOSE code=${code} reason=${JSON.stringify(String(reason))}`)
       this.stopKeepAlive()
-      this.state.disconnect(); this.failPending('UNKNOWN'); this.socket = undefined
-      const waiter = this.readyWaiter; this.readyWaiter = undefined; waiter?.reject(new Error('PERPL_WS_DISCONNECTED'))
-      if (!this.stopped && !this.authenticationFailed) { this.lifecycle = 'RECONNECTING'; this.scheduleReconnect() } else if (!this.stopped) this.lifecycle = 'FAILED'
+      this.state.disconnect()
+      this.failPending('UNKNOWN')
+      this.socket = undefined
+      const waiter = this.readyWaiter
+      this.readyWaiter = undefined
+      waiter?.reject(new Error('PERPL_WS_DISCONNECTED'))
+      if (!this.stopped && !this.authenticationFailed) {
+        this.lifecycle = 'RECONNECTING'
+        this.scheduleReconnect()
+      } else if (!this.stopped) this.lifecycle = 'FAILED'
     })
-    socket.on('error', error => { this.diagnostic(`PERPL_WS_ERROR reason=${JSON.stringify(error instanceof Error ? error.message : String(error))}`); this.state.disconnect(); this.failPending('UNKNOWN') })
+    socket.on('error', (error) => {
+      this.diagnostic(`PERPL_WS_ERROR reason=${JSON.stringify(error instanceof Error ? error.message : String(error))}`)
+      this.state.disconnect()
+      this.failPending('UNKNOWN')
+    })
     try {
-      await new Promise<void>((resolve, reject) => { socket.once('open', () => resolve()); socket.once('error', reject) })
+      await new Promise<void>((resolve, reject) => {
+        socket.once('open', () => resolve())
+        socket.once('error', reject)
+      })
     } catch (error) {
       this.diagnostic(`PERPL_WS_ERROR reason=${JSON.stringify(error instanceof Error ? error.message : String(error))}`)
-      this.state.disconnect(); this.lifecycle = 'RECONNECTING'; this.scheduleReconnect(); throw new Error('PERPL_WS_CONNECT_FAILED')
+      this.state.disconnect()
+      this.lifecycle = 'RECONNECTING'
+      this.scheduleReconnect()
+      throw new Error('PERPL_WS_CONNECT_FAILED')
     }
-    this.lifecycle = 'AUTHENTICATING'; this.diagnostic('PERPL_WS_OPEN')
-    const timestamp = String(Date.now()); const nonce = createNonce(); const signature = await this.signer.signWebSocket(timestamp, nonce)
-    socket.send(JSON.stringify({ mt: 29, chain_id: this.config.chainId, api_key: this.signer.apiKey, timestamp, nonce, signature }))
+    this.lifecycle = 'AUTHENTICATING'
+    this.diagnostic('PERPL_WS_OPEN')
+    const timestamp = String(Date.now())
+    const nonce = createNonce()
+    const signature = await this.signer.signWebSocket(timestamp, nonce)
+    socket.send(
+      JSON.stringify({
+        mt: 29,
+        chain_id: this.config.chainId,
+        api_key: this.signer.apiKey,
+        timestamp,
+        nonce,
+        signature,
+      }),
+    )
     this.diagnostic('PERPL_WS_SIGNIN_SENT')
     this.stopKeepAlive()
     this.keepAliveTimer = setInterval(() => {
       if (this.socket !== socket || socket.readyState !== WS.OPEN) return
-      socket.send(JSON.stringify({ mt: 1, t: Date.now() }), error => {
-        if (error) { this.diagnostic(`PERPL_WS_KEEPALIVE_ERROR reason=${JSON.stringify(error.message)}`); socket.close() }
+      socket.send(JSON.stringify({ mt: 1, t: Date.now() }), (error) => {
+        if (error) {
+          this.diagnostic(`PERPL_WS_KEEPALIVE_ERROR reason=${JSON.stringify(error.message)}`)
+          socket.close()
+        }
       })
     }, this.keepAliveIntervalMs)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       await new Promise<void>((resolve, reject) => {
         this.readyWaiter = { resolve, reject }
-        timer = setTimeout(() => { this.readyWaiter = undefined; reject(new Error('PERPL_WS_SNAPSHOT_TIMEOUT')) }, 15_000)
+        timer = setTimeout(() => {
+          this.readyWaiter = undefined
+          reject(new Error('PERPL_WS_SNAPSHOT_TIMEOUT'))
+        }, 15_000)
       })
       return
     } catch (error) {
-      if (error instanceof Error && error.message === 'PERPL_WS_SNAPSHOT_TIMEOUT') { this.lifecycle = 'STALE'; this.diagnostic('PERPL_WS_SNAPSHOT_TIMEOUT'); this.scheduleReconnect() }
+      if (error instanceof Error && error.message === 'PERPL_WS_SNAPSHOT_TIMEOUT') {
+        this.lifecycle = 'STALE'
+        this.diagnostic('PERPL_WS_SNAPSHOT_TIMEOUT')
+        this.scheduleReconnect()
+      }
       throw error
-    } finally { if (timer) clearTimeout(timer) }
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
   private scheduleReconnect() {
     if (this.stopped || this.authenticationFailed || this.reconnectTimer || this.connecting) return
     const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt++, 5))
-    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = undefined; void this.connect().catch(() => undefined) }, delay)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined
+      void this.connect().catch(() => undefined)
+    }, delay)
   }
-  private stopKeepAlive() { if (this.keepAliveTimer) clearInterval(this.keepAliveTimer); this.keepAliveTimer = undefined }
+  private stopKeepAlive() {
+    if (this.keepAliveTimer) clearInterval(this.keepAliveTimer)
+    this.keepAliveTimer = undefined
+  }
   private handleMessage(raw: string) {
     let message: TradingMessage
     try {
@@ -217,33 +446,113 @@ export class PerplTradingClient {
       if (message.mt === 23) this.diagnostic('PERPL_WS_SNAPSHOT mt=23')
       if (message.mt === 26) this.diagnostic('PERPL_WS_SNAPSHOT mt=26')
       if (message.mt === 100) {
-        if (logHeartbeat) { this.lastHeartbeatDiagnosticAt = Date.now(); this.diagnostic('PERPL_WS_HEARTBEAT mt=100') }
-        if (applied && 'accepted' in applied && applied.accepted === false) { this.diagnostic(`PERPL_WS_HEARTBEAT_REJECTED reason=${applied.reason}`); this.lifecycle = 'STALE'; this.socket?.close(); return }
+        if (logHeartbeat) {
+          this.lastHeartbeatDiagnosticAt = Date.now()
+          this.diagnostic('PERPL_WS_HEARTBEAT mt=100')
+        }
+        if (applied && 'accepted' in applied && applied.accepted === false) {
+          this.diagnostic(`PERPL_WS_HEARTBEAT_REJECTED reason=${applied.reason}`)
+          this.lifecycle = 'STALE'
+          this.socket?.close()
+          return
+        }
       }
       if (message.mt === 19 && this.lifecycle === 'AUTHENTICATING') this.lifecycle = 'AUTHENTICATED'
       if (this.state.snapshotsReady() && this.lifecycle === 'AUTHENTICATED') this.lifecycle = 'SNAPSHOTS_READY'
-      if (this.state.ready()) { if (this.lifecycle !== 'READY') this.diagnostic('PERPL_WS_READY'); this.lifecycle = 'READY'; this.reconnectAttempt = 0; const waiter = this.readyWaiter; this.readyWaiter = undefined; waiter?.resolve() }
+      if (this.state.ready()) {
+        if (this.lifecycle !== 'READY') this.diagnostic('PERPL_WS_READY')
+        this.lifecycle = 'READY'
+        this.reconnectAttempt = 0
+        const waiter = this.readyWaiter
+        this.readyWaiter = undefined
+        waiter?.resolve()
+      }
     } catch (error) {
-      this.diagnostic(`PERPL_WS_DECODE_ERROR reason=${JSON.stringify(error instanceof Error ? error.message : String(error))}`)
-      this.state.disconnect(); this.lifecycle = 'STALE'; this.failPending('UNKNOWN'); const waiter = this.readyWaiter; this.readyWaiter = undefined; waiter?.reject(new Error('PERPL_WS_DECODE_FAILED')); this.socket?.close(); return
+      this.diagnostic(
+        `PERPL_WS_DECODE_ERROR reason=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
+      )
+      this.state.disconnect()
+      this.lifecycle = 'STALE'
+      this.failPending('UNKNOWN')
+      const waiter = this.readyWaiter
+      this.readyWaiter = undefined
+      waiter?.reject(new Error('PERPL_WS_DECODE_FAILED'))
+      this.socket?.close()
+      return
     }
     if (message.mt === 3) {
       const pending = message.cid === undefined ? undefined : this.pending.get(message.cid)
       if (pending) {
-        this.diagnostic(`PERPL_WS_ORDER_STATUS actionId=${pending.action.id} cid=${message.cid} rq=${pending.rq} code=${message.status?.code ?? 'unknown'} reason=${JSON.stringify(message.status?.error ?? '')}`)
-        if (message.status?.code === 0) { pending.admitted = true; return } // Admission is not a fill; mt:24/reconciliation decides outcome.
-        clearTimeout(pending.timer); this.pending.delete(message.cid!)
-        pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}`, status: 'FAILED', reason: message.status?.code === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : `PERPL_ORDER_REJECTED_${message.status?.code ?? 'UNKNOWN'}`, venueProgress: progress(pending, message.cid!, 'REJECTED', { code: message.status?.code }) })
+        this.diagnostic(
+          `PERPL_WS_ORDER_STATUS actionId=${pending.action.id} cid=${message.cid} rq=${pending.rq} code=${message.status?.code ?? 'unknown'} reason=${JSON.stringify(message.status?.error ?? '')}`,
+        )
+        if (message.status?.code === 0) {
+          pending.admitted = true
+          return
+        } // Admission is not a fill; mt:24/reconciliation decides outcome.
+        clearTimeout(pending.timer)
+        this.pending.delete(message.cid!)
+        pending.resolve({
+          venueReference: `${pending.accountId}:${pending.rq}`,
+          status: 'FAILED',
+          reason:
+            message.status?.code === 32
+              ? 'ORDER_REQUEST_ID_TOO_LOW'
+              : `PERPL_ORDER_REJECTED_${message.status?.code ?? 'UNKNOWN'}`,
+          venueProgress: progress(pending, message.cid!, 'REJECTED', { code: message.status?.code }),
+        })
         return
       }
-      if (this.lifecycle !== 'AUTHENTICATING' && this.lifecycle !== 'AUTHENTICATED') { this.diagnostic(`PERPL_WS_UNMATCHED_STATUS cid=${message.cid ?? 'unknown'} code=${message.status?.code ?? 'unknown'}`); return }
+      if (this.lifecycle !== 'AUTHENTICATING' && this.lifecycle !== 'AUTHENTICATED') {
+        this.diagnostic(
+          `PERPL_WS_UNMATCHED_STATUS cid=${message.cid ?? 'unknown'} code=${message.status?.code ?? 'unknown'}`,
+        )
+        return
+      }
       this.diagnostic(`PERPL_WS_AUTH_RESPONSE code=${message.status?.code ?? 'unknown'}`)
-      if (message.status?.code !== 0) { this.authenticationFailed = true; this.lifecycle = 'FAILED'; const waiter = this.readyWaiter; this.readyWaiter = undefined; waiter?.reject(new Error('PERPL_WS_AUTH_FAILED')); this.socket?.close(); return }
+      if (message.status?.code !== 0) {
+        this.authenticationFailed = true
+        this.lifecycle = 'FAILED'
+        const waiter = this.readyWaiter
+        this.readyWaiter = undefined
+        waiter?.reject(new Error('PERPL_WS_AUTH_FAILED'))
+        this.socket?.close()
+        return
+      }
       this.lifecycle = 'AUTHENTICATED'
       return
     }
     if (message.mt !== 24 || !message.d) return
-    for (const order of message.d) { const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq)); if (!entry) continue; const [sn, pending] = entry; const status = mapPerplOrderStatus(order.st ?? 0); if (status === 'SUBMITTED') continue; clearTimeout(pending.timer); this.pending.delete(sn); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`, status: status === 'FAILED' ? 'UNKNOWN' : status, reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined, venueProgress: progress(pending, sn, 'ORDER_UPDATE', { orderStatus: order.st, orderReason: order.sr, ...(Number.isSafeInteger(order.lb) && order.lb! > 0 ? { effectiveLastExecBlock: order.lb } : {}) }) }) }
+    for (const order of message.d) {
+      const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq))
+      if (!entry) continue
+      const [sn, pending] = entry
+      const status = mapPerplOrderStatus(order.st ?? 0)
+      if (status === 'SUBMITTED') continue
+      clearTimeout(pending.timer)
+      this.pending.delete(sn)
+      pending.resolve({
+        venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`,
+        status: status === 'FAILED' ? 'UNKNOWN' : status,
+        reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined,
+        venueProgress: progress(pending, sn, 'ORDER_UPDATE', {
+          orderStatus: order.st,
+          orderReason: order.sr,
+          ...(Number.isSafeInteger(order.lb) && order.lb! > 0 ? { effectiveLastExecBlock: order.lb } : {}),
+        }),
+      })
+    }
   }
-  private failPending(status: PerplSubmitStatus) { for (const [sn, pending] of this.pending) { clearTimeout(pending.timer); pending.resolve({ venueReference: `${pending.accountId}:${pending.rq}`, status, reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS', venueProgress: progress(pending, sn, 'TRANSPORT_AMBIGUOUS') }); this.pending.delete(sn) } }
+  private failPending(status: PerplSubmitStatus) {
+    for (const [sn, pending] of this.pending) {
+      clearTimeout(pending.timer)
+      pending.resolve({
+        venueReference: `${pending.accountId}:${pending.rq}`,
+        status,
+        reason: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS',
+        venueProgress: progress(pending, sn, 'TRANSPORT_AMBIGUOUS'),
+      })
+      this.pending.delete(sn)
+    }
+  }
 }

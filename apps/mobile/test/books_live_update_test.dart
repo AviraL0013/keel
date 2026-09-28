@@ -77,9 +77,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     final client = http.Client();
     final repository = ControlledRepository(client);
-    await tester.pumpWidget(ProviderScope(
-        overrides: [booksRepositoryProvider.overrideWithValue(repository)],
-        child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
+    await tester.pumpWidget(ProviderScope(overrides: [
+      booksRepositoryProvider.overrideWithValue(repository)
+    ], child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     repository.lists.single.complete([book]);
     await tester.pump();
@@ -105,8 +105,8 @@ void main() {
     expect(find.text('Needs attention'), findsOneWidget);
     expect(find.textContaining('32485'), findsNothing);
     expect(find.text('UPDATED'), findsOneWidget);
-    expect(
-        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
+    expect(identical(card, tester.element(find.byType(EyelerPanel).first)),
+        isTrue);
     expect(identical(screen, tester.element(find.byType(BooksScreen))), isTrue);
     expect(
         identical(scroll,
@@ -126,8 +126,8 @@ void main() {
     expect(find.text('Unrealized P&L  3.00'), findsOneWidget);
     expect(find.text('Watching'), findsOneWidget);
     expect(find.text('UPDATED'), findsWidgets);
-    expect(
-        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
+    expect(identical(card, tester.element(find.byType(EyelerPanel).first)),
+        isTrue);
     expect(tester.takeException(), isNull);
 
     await tester.pump(const Duration(seconds: 3));
@@ -135,16 +135,16 @@ void main() {
     await tester.pump();
     expect(find.text('Unrealized P&L  3.00'), findsOneWidget);
     expect(find.text('Watching'), findsOneWidget);
-    expect(
-        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
+    expect(identical(card, tester.element(find.byType(EyelerPanel).first)),
+        isTrue);
     await tester.pump(const Duration(seconds: 3));
     repository.snapshots.last.complete(snapshot(4, 'FRESH'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Watching'), findsOneWidget);
     expect(find.text('Unrealized P&L  4.00'), findsOneWidget);
-    expect(
-        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
+    expect(identical(card, tester.element(find.byType(EyelerPanel).first)),
+        isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
     client.close();
   });

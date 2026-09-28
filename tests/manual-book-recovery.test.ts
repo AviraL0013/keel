@@ -7,14 +7,48 @@ import type { Action } from '../packages/domain/src/index.js'
 
 function bookInput(): CreateBookInput {
   const now = Date.now()
-  return { market: 'BTC-PERP', marketId: 1, venueAccountId: 7, venuePositionId: 9,
-    side: 'LONG', stance: 'DEFEND', liquidationFloor: 6, defenseCap: 5,
-    timeLimitMs: 3600000, automationEnabled: false, status: 'SAFE_MODE', reserveAvailable: 10,
-    initialPosition: { side: 'LONG', size: 1, entryPrice: 100, markPrice: 100, liquidationPrice: 90,
-      leverage: 5, unrealizedPnl: 0, margin: 20, status: 'OPEN', timestamp: now },
-    initialTelemetry: { mark: 100, oracle: 100, bid: 99.9, ask: 100.1, mid: 100,
-      spreadBps: 20, fundingRate: 0.0001, depthNotional: 10000, volatility: 0.01,
-      volume24h: 10, openInterest: 100, block: 1, timestamp: now, source: 'replay' } }
+  return {
+    market: 'BTC-PERP',
+    marketId: 1,
+    venueAccountId: 7,
+    venuePositionId: 9,
+    side: 'LONG',
+    stance: 'DEFEND',
+    liquidationFloor: 6,
+    defenseCap: 5,
+    timeLimitMs: 3600000,
+    automationEnabled: false,
+    status: 'SAFE_MODE',
+    reserveAvailable: 10,
+    initialPosition: {
+      side: 'LONG',
+      size: 1,
+      entryPrice: 100,
+      markPrice: 100,
+      liquidationPrice: 90,
+      leverage: 5,
+      unrealizedPnl: 0,
+      margin: 20,
+      status: 'OPEN',
+      timestamp: now,
+    },
+    initialTelemetry: {
+      mark: 100,
+      oracle: 100,
+      bid: 99.9,
+      ask: 100.1,
+      mid: 100,
+      spreadBps: 20,
+      fundingRate: 0.0001,
+      depthNotional: 10000,
+      volatility: 0.01,
+      volume24h: 10,
+      openInterest: 100,
+      block: 1,
+      timestamp: now,
+      source: 'replay',
+    },
+  }
 }
 
 describe('manual-only Book recovery', () => {
@@ -23,18 +57,52 @@ describe('manual-only Book recovery', () => {
     try {
       const user = await store.ensureUser('owner')
       const book = await store.createBook(user, { ...bookInput(), status: 'ACTIVE' })
-      const decision = await db.query<{ id: string }>("INSERT INTO decisions(book_id,state,action,reason_codes,human_readable_reasons,risk_features) VALUES($1,'REDUCE','REDUCE','[]','[]','{}') RETURNING id", [book.id])
-      const action: Action = { id: crypto.randomUUID(), bookId: book.id, decisionId: decision.rows[0].id, kind: 'REDUCE', amount: 0, status: 'UNKNOWN', idempotencyKey: 'restart-reduce', venueReference: '7:45', error: 'VENUE_OUTCOME_PENDING', venueProgress: { requestId: '45', clientSequence: 2, admitted: true, requestedLastExecBlock: 0, response: 'TIMEOUT' } }
+      const decision = await db.query<{ id: string }>(
+        "INSERT INTO decisions(book_id,state,action,reason_codes,human_readable_reasons,risk_features) VALUES($1,'REDUCE','REDUCE','[]','[]','{}') RETURNING id",
+        [book.id],
+      )
+      const action: Action = {
+        id: crypto.randomUUID(),
+        bookId: book.id,
+        decisionId: decision.rows[0].id,
+        kind: 'REDUCE',
+        amount: 0,
+        status: 'UNKNOWN',
+        idempotencyKey: 'restart-reduce',
+        venueReference: '7:45',
+        error: 'VENUE_OUTCOME_PENDING',
+        venueProgress: {
+          requestId: '45',
+          clientSequence: 2,
+          admitted: true,
+          requestedLastExecBlock: 0,
+          response: 'TIMEOUT',
+        },
+      }
       const repo = new PostgresExecutionRepository(store)
       await repo.saveAction(action)
       await repo.finalize(action)
       expect(await store.safetyActionForBook(book.id)).toBe(action.id)
       expect((await store.getBook(user, book.id))?.status).toBe('SAFE_MODE')
-      await expect(new EyelerRuntime(store, { ready: () => true, refresh: async () => {}, submit: vi.fn() } as unknown as RuntimeVenue).recoverBook(user, book.id)).rejects.toThrow('POSITION_EXECUTION_UNRESOLVED')
+      await expect(
+        new EyelerRuntime(store, {
+          ready: () => true,
+          refresh: async () => {},
+          submit: vi.fn(),
+        } as unknown as RuntimeVenue).recoverBook(user, book.id),
+      ).rejects.toThrow('POSITION_EXECUTION_UNRESOLVED')
 
-      const confirmed: Action = { ...action, status: 'CONFIRMED', error: undefined, confirmedAt: new Date().toISOString() }
+      const confirmed: Action = {
+        ...action,
+        status: 'CONFIRMED',
+        error: undefined,
+        confirmedAt: new Date().toISOString(),
+      }
       await repo.finalize(confirmed)
-      const persisted = await db.query<{ venue_progress: typeof action.venueProgress }>('SELECT venue_progress FROM actions WHERE id=$1', [action.id])
+      const persisted = await db.query<{ venue_progress: typeof action.venueProgress }>(
+        'SELECT venue_progress FROM actions WHERE id=$1',
+        [action.id],
+      )
       expect(persisted.rows[0].venue_progress).toMatchObject({ requestId: '45', admitted: true, response: 'TIMEOUT' })
       const submit = vi.fn()
       const venue = { ready: () => true, refresh: vi.fn(async () => {}), submit } as unknown as RuntimeVenue
@@ -45,26 +113,44 @@ describe('manual-only Book recovery', () => {
       expect((await store.getBook(user, book.id))?.automationEnabled).toBe(false)
       expect(await store.safetyActionForBook(book.id)).toBeNull()
       expect(submit).not.toHaveBeenCalled()
-      expect((await store.listAutopsy(user, book.id)).some(row => (row as { type: string }).type === 'BOOK_RECOVERED_AFTER_VERIFIED_ACTION')).toBe(true)
-    } finally { await db.close() }
+      expect(
+        (await store.listAutopsy(user, book.id)).some(
+          (row) => (row as { type: string }).type === 'BOOK_RECOVERED_AFTER_VERIFIED_ACTION',
+        ),
+      ).toBe(true)
+    } finally {
+      await db.close()
+    }
   }, 20000)
   it('persists each repeated explicit manual decision before creating its action', async () => {
     const { db, store } = await databaseFixture()
     try {
       const user = await store.ensureUser('owner')
       const book = await store.createBook(user, { ...bookInput(), status: 'ACTIVE' })
-      const submit = vi.fn(async () => ({ status: 'FAILED', venueReference: 'fake-venue-rejection', reason: 'TEST_REJECTED' }))
-      const runtime = new EyelerRuntime(store, { ready: () => true, refresh: async () => {}, submit } as unknown as RuntimeVenue)
+      const submit = vi.fn(async () => ({
+        status: 'FAILED',
+        venueReference: 'fake-venue-rejection',
+        reason: 'TEST_REJECTED',
+      }))
+      const runtime = new EyelerRuntime(store, {
+        ready: () => true,
+        refresh: async () => {},
+        submit,
+      } as unknown as RuntimeVenue)
       const first = await runtime.executeAction(user, book.id, 'REDUCE')
       const second = await runtime.executeAction(user, book.id, 'REDUCE')
       expect(first.status).toBe('FAILED')
       expect(second.status).toBe('FAILED')
       expect(first.actionId).not.toBe(second.actionId)
-      const actions = await db.query<{ decision_id: string }>('SELECT decision_id FROM actions WHERE book_id=$1', [book.id])
+      const actions = await db.query<{ decision_id: string }>('SELECT decision_id FROM actions WHERE book_id=$1', [
+        book.id,
+      ])
       expect(actions.rows).toHaveLength(2)
-      expect(new Set(actions.rows.map(row => row.decision_id)).size).toBe(2)
+      expect(new Set(actions.rows.map((row) => row.decision_id)).size).toBe(2)
       expect(submit).toHaveBeenCalledTimes(2)
-    } finally { await db.close() }
+    } finally {
+      await db.close()
+    }
   }, 20000)
 
   it('recovers a safe-mode Book with fresh bound state without submitting or enabling automation', async () => {
@@ -80,8 +166,14 @@ describe('manual-only Book recovery', () => {
       expect(recovered.automationEnabled).toBe(false)
       expect(refresh).toHaveBeenCalledOnce()
       expect(submit).not.toHaveBeenCalled()
-      expect((await store.listAutopsy(user, book.id)).some(row => (row as { type: string }).type === 'BOOK_RECOVERED_MANUAL_ONLY')).toBe(true)
-    } finally { await db.close() }
+      expect(
+        (await store.listAutopsy(user, book.id)).some(
+          (row) => (row as { type: string }).type === 'BOOK_RECOVERED_MANUAL_ONLY',
+        ),
+      ).toBe(true)
+    } finally {
+      await db.close()
+    }
   }, 20000)
 
   it('fails closed for stale telemetry, closed position, unresolved execution, and unavailable venue', async () => {
@@ -103,17 +195,29 @@ describe('manual-only Book recovery', () => {
       await db.query("UPDATE positions SET status='CLOSED' WHERE book_id=$1", [book.id])
       await assertBlocked('POSITION_NOT_OPEN')
       await db.query("UPDATE positions SET status='OPEN' WHERE book_id=$1", [book.id])
-      await db.query("INSERT INTO decisions(id,book_id,state,action,reason_codes,human_readable_reasons,risk_features,created_at) VALUES(gen_random_uuid(),$1,'HOLD','HOLD','[]','[]','{}',now())", [book.id])
-      await db.query("INSERT INTO actions(id,book_id,decision_id,kind,amount,status,idempotency_key) SELECT gen_random_uuid(),$1,id,'REDUCE',0,'UNKNOWN','recovery-test' FROM decisions WHERE book_id=$1 LIMIT 1", [book.id])
+      await db.query(
+        "INSERT INTO decisions(id,book_id,state,action,reason_codes,human_readable_reasons,risk_features,created_at) VALUES(gen_random_uuid(),$1,'HOLD','HOLD','[]','[]','{}',now())",
+        [book.id],
+      )
+      await db.query(
+        "INSERT INTO actions(id,book_id,decision_id,kind,amount,status,idempotency_key) SELECT gen_random_uuid(),$1,id,'REDUCE',0,'UNKNOWN','recovery-test' FROM decisions WHERE book_id=$1 LIMIT 1",
+        [book.id],
+      )
       await assertBlocked('POSITION_EXECUTION_UNRESOLVED')
       await expect(store.recoverBookManualOnly(user, book.id)).rejects.toThrow('POSITION_EXECUTION_UNRESOLVED')
       await db.query('DELETE FROM actions WHERE book_id=$1', [book.id])
       await db.query("UPDATE books SET stance='KILL' WHERE id=$1", [book.id])
       await assertBlocked('BOOK_RECOVERY_NOT_ALLOWED')
       await db.query("UPDATE books SET stance='DEFEND' WHERE id=$1", [book.id])
-      const unavailable = new EyelerRuntime(store, { ready: () => false, refresh: async () => {}, submit } as unknown as RuntimeVenue)
+      const unavailable = new EyelerRuntime(store, {
+        ready: () => false,
+        refresh: async () => {},
+        submit,
+      } as unknown as RuntimeVenue)
       await expect(unavailable.recoverBook(user, book.id)).rejects.toThrow('VENUE_UNAVAILABLE')
       expect(submit).not.toHaveBeenCalled()
-    } finally { await db.close() }
+    } finally {
+      await db.close()
+    }
   }, 20000)
 })

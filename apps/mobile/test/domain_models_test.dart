@@ -6,15 +6,33 @@ import 'package:eyeler_mobile/features/positions/domain/position.dart';
 
 void main() {
   test('Book configuration rejects unsafe values', () {
-    const config = BookConfiguration(liquidationFloor: 6, defenseCap: 100, reserve: 50, timeLimit: Duration(hours: 8), stance: 'DEFEND', automation: false);
+    const config = BookConfiguration(
+        liquidationFloor: 6,
+        defenseCap: 100,
+        reserve: 50,
+        timeLimit: Duration(hours: 8),
+        stance: 'DEFEND',
+        automation: false);
     expect(config.validate(), 'Defense cap cannot exceed reserve.');
   });
   test('Book configuration allows reserve above single-defense cap', () {
-    const config = BookConfiguration(liquidationFloor: 6, defenseCap: 5, reserve: 10, timeLimit: Duration(hours: 24), stance: 'DEFEND', automation: false);
+    const config = BookConfiguration(
+        liquidationFloor: 6,
+        defenseCap: 5,
+        reserve: 10,
+        timeLimit: Duration(hours: 24),
+        stance: 'DEFEND',
+        automation: false);
     expect(config.validate(), isNull);
   });
   test('Book configuration rejects defense cap above reserve', () {
-    const config = BookConfiguration(liquidationFloor: 6, defenseCap: 10, reserve: 5, timeLimit: Duration(hours: 24), stance: 'DEFEND', automation: false);
+    const config = BookConfiguration(
+        liquidationFloor: 6,
+        defenseCap: 10,
+        reserve: 5,
+        timeLimit: Duration(hours: 24),
+        stance: 'DEFEND',
+        automation: false);
     expect(config.validate(), 'Defense cap cannot exceed reserve.');
   });
   test('capital keeps unavailable values unknown', () {
@@ -44,7 +62,22 @@ void main() {
     expect(capital.perplAvailable.ageMs, 12000);
   });
   test('position preserves documented lifecycle status', () {
-    final position = Position.fromJson({'marketId': 1, 'accountId': 2, 'market': 'BTC-PERP', 'positionId': 3, 'position': {'side': 'LONG', 'size': 1, 'entryPrice': 100, 'markPrice': 101, 'liquidationPrice': 90, 'leverage': 5, 'margin': 20, 'status': 'DELEVERAGED'}});
+    final position = Position.fromJson({
+      'marketId': 1,
+      'accountId': 2,
+      'market': 'BTC-PERP',
+      'positionId': 3,
+      'position': {
+        'side': 'LONG',
+        'size': 1,
+        'entryPrice': 100,
+        'markPrice': 101,
+        'liquidationPrice': 90,
+        'leverage': 5,
+        'margin': 20,
+        'status': 'DELEVERAGED'
+      }
+    });
     expect(position.status, 'DELEVERAGED');
   });
   test('position parses typed Book creation readiness from the API', () {
@@ -66,7 +99,8 @@ void main() {
       'bookCreation': {
         'allowed': true,
         'code': 'READY',
-        'reason': 'Live market and position telemetry are within the configured safety threshold.',
+        'reason':
+            'Live market and position telemetry are within the configured safety threshold.',
         'market': {
           'status': 'FRESH',
           'updatedAt': 1789966135000,
@@ -88,7 +122,13 @@ void main() {
     expect(position.bookCreation?.position.ageMs, 454);
   });
   test('notification exposes unread state', () {
-    final item = NotificationItem.fromJson({'id': '1', 'title': 'Risk', 'body': 'SAFE_MODE', 'kind': 'SAFE_MODE', 'createdAt': '2026-09-20T00:00:00Z'});
+    final item = NotificationItem.fromJson({
+      'id': '1',
+      'title': 'Risk',
+      'body': 'SAFE_MODE',
+      'kind': 'SAFE_MODE',
+      'createdAt': '2026-09-20T00:00:00Z'
+    });
     expect(item.unread, isTrue);
   });
 }

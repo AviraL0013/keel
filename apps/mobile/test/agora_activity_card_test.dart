@@ -14,25 +14,29 @@ void main() {
     tester.view.physicalSize = const Size(427, 1800);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
-    await tester.pumpWidget(ProviderScope(overrides: [
-      capitalProvider.overrideWith(
-          (ref) async => CapitalSnapshot.fromJson({'status': 'VALID'})),
-      agoraActivityProvider.overrideWith((ref) async => AgoraActivity.fromJson({
-            'status': 'AVAILABLE',
-            'rows': [
-              {
-                'type': 'mint',
-                'status': 'settled',
-                'source': 'Other bank account',
-                'destination': 'Your Monad wallet',
-                'asset': 'AUSD',
-                'amount': '12.000000',
-                'timestamp': '2026-09-27T00:01:00Z',
-                'match': 'POSSIBLE_MATCH',
-              }
-            ],
-          })),
-    ], child: MaterialApp(theme: EyelerTheme.dark, home: const CapitalScreen())));
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          capitalProvider.overrideWith(
+              (ref) async => CapitalSnapshot.fromJson({'status': 'VALID'})),
+          agoraActivityProvider
+              .overrideWith((ref) async => AgoraActivity.fromJson({
+                    'status': 'AVAILABLE',
+                    'rows': [
+                      {
+                        'type': 'mint',
+                        'status': 'settled',
+                        'source': 'Other bank account',
+                        'destination': 'Your Monad wallet',
+                        'asset': 'AUSD',
+                        'amount': '12.000000',
+                        'timestamp': '2026-09-27T00:01:00Z',
+                        'match': 'POSSIBLE_MATCH',
+                      }
+                    ],
+                  })),
+        ],
+        child:
+            MaterialApp(theme: EyelerTheme.dark, home: const CapitalScreen())));
     await tester.pumpAndSettle();
     expect(find.text('Agora account activity'), findsOneWidget);
     expect(find.text('Transaction history. Not a balance or funds available.'),

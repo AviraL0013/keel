@@ -167,8 +167,8 @@ class MetricGauge extends StatelessWidget {
                         (threshold! / maximum!).clamp(0.0, 1.0)) -
                     1,
                 top: -3,
-                child:
-                    Container(width: 3, height: 16, color: EyelerColors.reduce)),
+                child: Container(
+                    width: 3, height: 16, color: EyelerColors.reduce)),
         ]);
       }),
       if (thresholdLabel != null) ...[
@@ -200,13 +200,16 @@ class TelemetryFreshness extends StatelessWidget {
             _source(context, 'DEPTH', freshness!.orderbook),
           ]);
     }
-    return Wrap(spacing: EyelerSpacing.sm, runSpacing: EyelerSpacing.xs, children: [
-      for (final source in ['MARKET', 'POSITION', 'FUNDING', 'DEPTH'])
-        StatusPill(
-            label: '$source UNKNOWN',
-            color: EyelerColors.hold,
-            icon: Icons.help_outline),
-    ]);
+    return Wrap(
+        spacing: EyelerSpacing.sm,
+        runSpacing: EyelerSpacing.xs,
+        children: [
+          for (final source in ['MARKET', 'POSITION', 'FUNDING', 'DEPTH'])
+            StatusPill(
+                label: '$source UNKNOWN',
+                color: EyelerColors.hold,
+                icon: Icons.help_outline),
+        ]);
   }
 
   Widget _source(

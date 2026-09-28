@@ -33,8 +33,8 @@ class BookDetailScreen extends ConsumerWidget {
         data: (dashboard) => RefreshIndicator(
           onRefresh: () async => ref.invalidate(bookDashboardProvider(book.id)),
           child: ListView(
-              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
-                  EyelerSpacing.md, EyelerSpacing.xl),
+              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md,
+                  EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
               children: [
                 Builder(builder: (context) {
                   final summary =
@@ -86,7 +86,8 @@ class BookDetailScreen extends ConsumerWidget {
                                             'Checking status',
                                             'Review position'
                                           }.contains(summary.label)) ...[
-                                        const SizedBox(height: EyelerSpacing.sm),
+                                        const SizedBox(
+                                            height: EyelerSpacing.sm),
                                         Text(dashboard.telemetry.riskReason!,
                                             style: EyelerTypography.body),
                                       ],
@@ -104,11 +105,11 @@ class BookDetailScreen extends ConsumerWidget {
                         if (action.isLoading) const LinearProgressIndicator(),
                         if (action.hasError)
                           Padding(
-                              padding:
-                                  const EdgeInsets.only(bottom: EyelerSpacing.md),
+                              padding: const EdgeInsets.only(
+                                  bottom: EyelerSpacing.md),
                               child: Text(friendlyError(action.error!),
-                                  style:
-                                      const TextStyle(color: EyelerColors.exit))),
+                                  style: const TextStyle(
+                                      color: EyelerColors.exit))),
                         if (dashboard.book.status != 'CLOSED') ...[
                           ActionButtonRow(
                               disabled: action.isLoading ||
@@ -149,7 +150,8 @@ class BookDetailScreen extends ConsumerWidget {
                                         TelemetryFreshness(
                                             freshness:
                                                 dashboard.telemetry.freshness),
-                                        const SizedBox(height: EyelerSpacing.md),
+                                        const SizedBox(
+                                            height: EyelerSpacing.md),
                                         RiskBanner(
                                             state:
                                                 dashboard.telemetry.riskState,
@@ -181,7 +183,8 @@ class BookDetailScreen extends ConsumerWidget {
                                               'Execution reason: ${dashboard.telemetry.executionReason}',
                                               style: EyelerTypography.body),
                                         ],
-                                        const SizedBox(height: EyelerSpacing.md),
+                                        const SizedBox(
+                                            height: EyelerSpacing.md),
                                         BookTechnicalMetrics(
                                             telemetry: dashboard.telemetry),
                                       ]))
@@ -299,11 +302,14 @@ class BookDetailScreen extends ConsumerWidget {
                       onPressed: () => Navigator.pop(context, 'KILL'),
                       child: const ListTile(
                           title: Text('KILL'),
-                          subtitle: Text('Never rescue. Exit when a limit breaks.'))),
+                          subtitle:
+                              Text('Never rescue. Exit when a limit breaks.'))),
                 ],
               ));
       if (stance != null) {
-        await ref.read(bookActionProvider.notifier).armWithStance(book.id, stance);
+        await ref
+            .read(bookActionProvider.notifier)
+            .armWithStance(book.id, stance);
       }
     }
     ref.invalidate(bookDashboardProvider(book.id));
@@ -317,7 +323,8 @@ class BookDetailScreen extends ConsumerWidget {
     if (state.reasons.isNotEmpty) return state.reasons;
     return state.reasonCodes
         .map((code) => switch (code) {
-              'STALE_STATE' => "Telemetry is stale, so EYELER has paused action.",
+              'STALE_STATE' =>
+                "Telemetry is stale, so EYELER has paused action.",
               'AUTOMATION_PAUSED' => 'Automation is paused for this Book.',
               'TIME_LIMIT' => 'The Book time limit has been reached.',
               'USER_KILL' => 'The kill stance forbids further rescue.',
@@ -374,8 +381,17 @@ class _ExecutionCard extends StatelessWidget {
                     const Text('LAST ACTION', style: EyelerTypography.label),
                     const SizedBox(height: 4),
                     Text(title, style: EyelerTypography.section),
-                    if (none || unknown || status == 'FAILED' || status == 'PARTIAL' ||
-                        const {'QUEUED', 'VALIDATING', 'SUBMITTING', 'SUBMITTED', 'VERIFYING'}.contains(status))
+                    if (none ||
+                        unknown ||
+                        status == 'FAILED' ||
+                        status == 'PARTIAL' ||
+                        const {
+                          'QUEUED',
+                          'VALIDATING',
+                          'SUBMITTING',
+                          'SUBMITTED',
+                          'VERIFYING'
+                        }.contains(status))
                       Text(
                           status == 'FAILED' && state.executionReason != null
                               ? state.executionReason!
@@ -398,7 +414,10 @@ class _ExecutionCard extends StatelessWidget {
 
 class _ControlCard extends StatelessWidget {
   const _ControlCard(
-      {required this.book, required this.disabled, required this.onArm, required this.onControl});
+      {required this.book,
+      required this.disabled,
+      required this.onArm,
+      required this.onControl});
   final Book book;
   final bool disabled;
   final VoidCallback onArm;
@@ -440,7 +459,8 @@ class _ControlCard extends StatelessWidget {
             Text(
                 book.status == 'SAFE_MODE'
                     ? switch (book.safeModeReason) {
-                        'DATA_UNAVAILABLE' || 'VENUE_UNAVAILABLE' =>
+                        'DATA_UNAVAILABLE' ||
+                        'VENUE_UNAVAILABLE' =>
                           'Waiting for live data — automation resumes automatically.',
                         'UNRESOLVED_ACTION' =>
                           'Checking an action with Perpl — review needed.',
@@ -452,7 +472,7 @@ class _ControlCard extends StatelessWidget {
                     : book.automationEnabled
                         ? 'EYELER may act within this Book policy.'
                         : book.status == 'PAUSED'
-                        ? 'Book is paused. Automation is off; manual controls remain explicit.'
+                            ? 'Book is paused. Automation is off; manual controls remain explicit.'
                             : 'Automation is off; manual controls remain explicit.',
                 style: EyelerTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color)),

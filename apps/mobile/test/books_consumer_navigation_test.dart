@@ -43,8 +43,8 @@ void main() {
   test('plain labels preserve execution and risk priority', () {
     final active = book('a', 'BTC', 'ACTIVE');
     expect(
-        BookSummary.from(
-                active, const BookTelemetry(freshness: fresh, riskState: 'HOLD'))
+        BookSummary.from(active,
+                const BookTelemetry(freshness: fresh, riskState: 'HOLD'))
             .label,
         'Watching');
     expect(
@@ -80,8 +80,7 @@ void main() {
             .label,
         'Book closed');
     expect(
-        BookSummary.from(
-                book('c', 'ETH', 'CLOSED'),
+        BookSummary.from(book('c', 'ETH', 'CLOSED'),
                 const BookTelemetry(executionState: 'FAILED'))
             .label,
         'Book closed');

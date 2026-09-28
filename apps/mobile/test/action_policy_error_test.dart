@@ -14,16 +14,28 @@ class TestStorage extends SessionStorage {
 }
 
 void main() {
-  testWidgets('HTTP policy refusal renders backend reason, not offline or raw code', (tester) async {
+  testWidgets(
+      'HTTP policy refusal renders backend reason, not offline or raw code',
+      (tester) async {
     const reason = 'Automation is paused; no automated action is authorized.';
-    final httpClient = MockClient((request) async => http.Response(jsonEncode({
-      'error': 'POLICY_REJECTED',
-      'details': {'state': 'HOLD', 'requestedAction': 'DEFEND', 'reasons': [reason]},
-    }), 409));
-    final api = EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://localhost:8787'), TestStorage(), httpClient);
+    final httpClient = MockClient((request) async => http.Response(
+        jsonEncode({
+          'error': 'POLICY_REJECTED',
+          'details': {
+            'state': 'HOLD',
+            'requestedAction': 'DEFEND',
+            'reasons': [reason]
+          },
+        }),
+        409));
+    final api = EyelerApiClient(
+        const EyelerConfig(apiBaseUrl: 'http://localhost:8787'),
+        TestStorage(),
+        httpClient);
     late EyelerException rejection;
     try {
-      await api.post('/books/test/actions', body: {'kind': 'DEFEND'}, decode: (value) => value);
+      await api.post('/books/test/actions',
+          body: {'kind': 'DEFEND'}, decode: (value) => value);
       fail('Expected policy rejection');
     } on EyelerException catch (error) {
       rejection = error;

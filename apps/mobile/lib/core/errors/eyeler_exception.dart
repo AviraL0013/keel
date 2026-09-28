@@ -34,7 +34,8 @@ class EyelerException implements Exception {
     if (message == 'POSITION_EXECUTION_UNRESOLVED') {
       return 'Book not recovered. An execution for this position still needs reconciliation.';
     }
-    if (message == 'VENUE_UNAVAILABLE' || message == 'VENUE_STATE_UNAVAILABLE') {
+    if (message == 'VENUE_UNAVAILABLE' ||
+        message == 'VENUE_STATE_UNAVAILABLE') {
       return 'Book not recovered. Live Perpl state is unavailable.';
     }
     if (statusCode != null && statusCode! >= 500) {

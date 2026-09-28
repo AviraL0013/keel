@@ -1,5 +1,14 @@
 class CapitalAmount {
-  const CapitalAmount({required this.amount, required this.asset, required this.decimals, required this.source, required this.availability, required this.freshness, this.ageMs, this.updatedAt, this.reason});
+  const CapitalAmount(
+      {required this.amount,
+      required this.asset,
+      required this.decimals,
+      required this.source,
+      required this.availability,
+      required this.freshness,
+      this.ageMs,
+      this.updatedAt,
+      this.reason});
   final String? amount;
   final String asset;
   final int decimals;
@@ -12,16 +21,50 @@ class CapitalAmount {
   bool get isAvailable => availability == 'AVAILABLE' && amount != null;
   double? get numeric => amount == null ? null : double.tryParse(amount!);
 
-  factory CapitalAmount.fromJson(Object? value, {required String asset, required String source, int decimals = 6, String? fallbackReason}) {
-    if (value is! Map) return CapitalAmount(amount: _text(value), asset: asset, decimals: decimals, source: source, availability: _text(value) == null ? 'UNAVAILABLE' : 'AVAILABLE', freshness: _text(value) == null ? 'UNKNOWN' : 'UNKNOWN', reason: fallbackReason);
+  factory CapitalAmount.fromJson(Object? value,
+      {required String asset,
+      required String source,
+      int decimals = 6,
+      String? fallbackReason}) {
+    if (value is! Map) {
+      return CapitalAmount(
+          amount: _text(value),
+          asset: asset,
+          decimals: decimals,
+          source: source,
+          availability: _text(value) == null ? 'UNAVAILABLE' : 'AVAILABLE',
+          freshness: _text(value) == null ? 'UNKNOWN' : 'UNKNOWN',
+          reason: fallbackReason);
+    }
     final map = Map<String, dynamic>.from(value);
     final parsed = _text(map['amount']);
-    return CapitalAmount(amount: parsed, asset: map['asset'] as String? ?? asset, decimals: (map['decimals'] as num?)?.toInt() ?? decimals, source: map['source'] == 'KEEL_LEDGER' ? 'EYELER_LEDGER' : (map['source'] as String? ?? source), availability: map['availability'] as String? ?? (parsed == null ? 'UNAVAILABLE' : 'AVAILABLE'), freshness: map['freshness'] as String? ?? 'UNKNOWN', ageMs: (map['ageMs'] as num?)?.toInt(), updatedAt: _date(map['updatedAt']), reason: map['reason'] as String? ?? fallbackReason);
+    return CapitalAmount(
+        amount: parsed,
+        asset: map['asset'] as String? ?? asset,
+        decimals: (map['decimals'] as num?)?.toInt() ?? decimals,
+        source: map['source'] == 'KEEL_LEDGER'
+            ? 'EYELER_LEDGER'
+            : (map['source'] as String? ?? source),
+        availability: map['availability'] as String? ??
+            (parsed == null ? 'UNAVAILABLE' : 'AVAILABLE'),
+        freshness: map['freshness'] as String? ?? 'UNKNOWN',
+        ageMs: (map['ageMs'] as num?)?.toInt(),
+        updatedAt: _date(map['updatedAt']),
+        reason: map['reason'] as String? ?? fallbackReason);
   }
 }
 
 class CapitalSnapshot {
-  const CapitalSnapshot({required this.status, required this.walletAusd, required this.perplAvailable, required this.perplLocked, required this.bookReserved, required this.bookDeployed, required this.bookRemaining, required this.unreservedCapital, this.accountId});
+  const CapitalSnapshot(
+      {required this.status,
+      required this.walletAusd,
+      required this.perplAvailable,
+      required this.perplLocked,
+      required this.bookReserved,
+      required this.bookDeployed,
+      required this.bookRemaining,
+      required this.unreservedCapital,
+      this.accountId});
   final String status;
   final int? accountId;
   final CapitalAmount walletAusd;
@@ -32,14 +75,70 @@ class CapitalSnapshot {
   final CapitalAmount bookRemaining;
   final CapitalAmount unreservedCapital;
   String? get ausdBalance => walletAusd.amount;
-  factory CapitalSnapshot.fromJson(Map<String, dynamic> json) => CapitalSnapshot(status: json['status'] as String? ?? 'UNAVAILABLE', accountId: (json['accountId'] as num?)?.toInt(), walletAusd: CapitalAmount.fromJson(json['walletAusd'] ?? json['ausdBalance'], asset: 'AUSD', source: 'MONAD_AUSD', fallbackReason: json['walletAusd'] == null ? 'WALLET_BALANCE_NOT_RETURNED' : null), perplAvailable: CapitalAmount.fromJson(json['perplAvailable'], asset: 'AUSD', source: 'PERPL_COLLATERAL'), perplLocked: CapitalAmount.fromJson(json['perplLocked'], asset: 'AUSD', source: 'PERPL_COLLATERAL'), bookReserved: CapitalAmount.fromJson(json['bookReserved'], asset: 'AUSD', source: 'EYELER_LEDGER'), bookDeployed: CapitalAmount.fromJson(json['bookDeployed'], asset: 'AUSD', source: 'EYELER_LEDGER'), bookRemaining: CapitalAmount.fromJson(json['bookRemaining'], asset: 'AUSD', source: 'EYELER_LEDGER'), unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'], asset: 'AUSD', source: 'EYELER_LEDGER'));
+  factory CapitalSnapshot.fromJson(Map<String, dynamic> json) =>
+      CapitalSnapshot(
+          status: json['status'] as String? ?? 'UNAVAILABLE',
+          accountId: (json['accountId'] as num?)?.toInt(),
+          walletAusd: CapitalAmount.fromJson(
+              json['walletAusd'] ?? json['ausdBalance'],
+              asset: 'AUSD',
+              source: 'MONAD_AUSD',
+              fallbackReason:
+                  json[
+                              'walletAusd'] ==
+                          null
+                      ? 'WALLET_BALANCE_NOT_RETURNED'
+                      : null),
+          perplAvailable:
+              CapitalAmount
+                  .fromJson(
+                      json['perplAvailable'],
+                      asset: 'AUSD',
+                      source: 'PERPL_COLLATERAL'),
+          perplLocked:
+              CapitalAmount
+                  .fromJson(
+                      json['perplLocked'],
+                      asset: 'AUSD',
+                      source: 'PERPL_COLLATERAL'),
+          bookReserved:
+              CapitalAmount
+                  .fromJson(
+                      json['bookReserved'],
+                      asset: 'AUSD',
+                      source: 'EYELER_LEDGER'),
+          bookDeployed:
+              CapitalAmount
+                  .fromJson(
+                      json['bookDeployed'],
+                      asset: 'AUSD',
+                      source: 'EYELER_LEDGER'),
+          bookRemaining:
+              CapitalAmount
+                  .fromJson(json['bookRemaining'],
+                      asset: 'AUSD', source: 'EYELER_LEDGER'),
+          unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'],
+              asset: 'AUSD', source: 'EYELER_LEDGER'));
 }
 
-String? _text(Object? value) => value is num ? value.toString() : value is String ? value : null;
-DateTime? _date(Object? value) => value is String ? DateTime.tryParse(value) : null;
+String? _text(Object? value) => value is num
+    ? value.toString()
+    : value is String
+        ? value
+        : null;
+DateTime? _date(Object? value) =>
+    value is String ? DateTime.tryParse(value) : null;
 
 class AgoraActivityRow {
-  const AgoraActivityRow({required this.type, required this.status, required this.source, required this.destination, required this.asset, required this.amount, required this.timestamp, required this.match});
+  const AgoraActivityRow(
+      {required this.type,
+      required this.status,
+      required this.source,
+      required this.destination,
+      required this.asset,
+      required this.amount,
+      required this.timestamp,
+      required this.match});
   final String type;
   final String status;
   final String source;
@@ -48,14 +147,32 @@ class AgoraActivityRow {
   final String amount;
   final DateTime? timestamp;
   final String match;
-  factory AgoraActivityRow.fromJson(Map<String, dynamic> json) => AgoraActivityRow(type: json['type'] as String? ?? 'Activity', status: json['status'] as String? ?? 'Unknown', source: json['source'] as String? ?? 'Unknown', destination: json['destination'] as String? ?? 'Unknown', asset: json['asset'] as String? ?? 'Unknown', amount: json['amount'] as String? ?? '', timestamp: _date(json['timestamp']), match: json['match'] as String? ?? 'UNMATCHED');
+  factory AgoraActivityRow.fromJson(Map<String, dynamic> json) =>
+      AgoraActivityRow(
+          type: json['type'] as String? ?? 'Activity',
+          status: json['status'] as String? ?? 'Unknown',
+          source: json['source'] as String? ?? 'Unknown',
+          destination: json['destination'] as String? ?? 'Unknown',
+          asset: json['asset'] as String? ?? 'Unknown',
+          amount: json['amount'] as String? ?? '',
+          timestamp: _date(json['timestamp']),
+          match: json['match'] as String? ?? 'UNMATCHED');
 }
 
 class AgoraActivity {
-  const AgoraActivity({required this.status, required this.rows, this.reason, this.limited});
+  const AgoraActivity(
+      {required this.status, required this.rows, this.reason, this.limited});
   final String status;
   final String? reason;
   final bool? limited;
   final List<AgoraActivityRow> rows;
-  factory AgoraActivity.fromJson(Map<String, dynamic> json) => AgoraActivity(status: json['status'] as String? ?? 'UNAVAILABLE', reason: json['reason'] as String?, limited: json['limited'] as bool?, rows: (json['rows'] as List? ?? const []).whereType<Map>().map((row) => AgoraActivityRow.fromJson(Map<String, dynamic>.from(row))).toList());
+  factory AgoraActivity.fromJson(Map<String, dynamic> json) => AgoraActivity(
+      status: json['status'] as String? ?? 'UNAVAILABLE',
+      reason: json['reason'] as String?,
+      limited: json['limited'] as bool?,
+      rows: (json['rows'] as List? ?? const [])
+          .whereType<Map>()
+          .map((row) =>
+              AgoraActivityRow.fromJson(Map<String, dynamic>.from(row)))
+          .toList());
 }

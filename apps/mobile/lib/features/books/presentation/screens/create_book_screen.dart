@@ -33,11 +33,20 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
   Future<void>? positionRefresh;
   bool positionAvailable = true;
   bool positionRefreshFailed = false;
-  bool get telemetryReady => selectedPosition.status == 'OPEN' && positionAvailable && !positionRefreshFailed && selectedPosition.bookCreation?.allowed == true;
+  bool get telemetryReady =>
+      selectedPosition.status == 'OPEN' &&
+      positionAvailable &&
+      !positionRefreshFailed &&
+      selectedPosition.bookCreation?.allowed == true;
   String get telemetryReason {
-    if (!positionAvailable) return 'Selected Perpl position is no longer available.';
-    if (positionRefreshFailed) return 'Live position and market telemetry could not be refreshed. Retry shortly.';
-    return selectedPosition.bookCreation?.reason ?? 'Backend has not confirmed live telemetry readiness.';
+    if (!positionAvailable) {
+      return 'Selected Perpl position is no longer available.';
+    }
+    if (positionRefreshFailed) {
+      return 'Live position and market telemetry could not be refreshed. Retry shortly.';
+    }
+    return selectedPosition.bookCreation?.reason ??
+        'Backend has not confirmed live telemetry readiness.';
   }
 
   @override
@@ -45,10 +54,12 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
     super.initState();
     selectedPosition = widget.position;
     unawaited(refreshPosition());
-    telemetryTimer = Timer.periodic(const Duration(seconds: 3), (_) => unawaited(refreshPosition()));
+    telemetryTimer = Timer.periodic(
+        const Duration(seconds: 3), (_) => unawaited(refreshPosition()));
   }
 
-  Future<void> refreshPosition() => positionRefresh ??= _loadPosition().whenComplete(() => positionRefresh = null);
+  Future<void> refreshPosition() => positionRefresh ??=
+      _loadPosition().whenComplete(() => positionRefresh = null);
 
   Future<void> _loadPosition() async {
     try {
@@ -209,7 +220,8 @@ class BookReviewScreen extends ConsumerWidget {
           ),
           if (!telemetryReady) ...[
             const SizedBox(height: 12),
-            Text(position.bookCreation?.reason ?? 'Backend has not confirmed live telemetry readiness.'),
+            Text(position.bookCreation?.reason ??
+                'Backend has not confirmed live telemetry readiness.'),
           ],
           const SizedBox(height: 16),
           _CapitalPreview(snapshot: ref.watch(capitalProvider)),
@@ -267,7 +279,8 @@ class _CapitalPreview extends StatelessWidget {
                         Text('AUSD wallet: ${_value(value.walletAusd.amount)}'),
                         Text(
                             'Perpl available: ${_value(value.perplAvailable.amount)}'),
-                        Text('Perpl locked: ${_value(value.perplLocked.amount)}'),
+                        Text(
+                            'Perpl locked: ${_value(value.perplLocked.amount)}'),
                         const SizedBox(height: 4),
                         const Text(
                             'Wallet balance and Perpl collateral are shown separately.')

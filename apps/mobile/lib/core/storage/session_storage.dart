@@ -17,18 +17,21 @@ class SessionStorage {
     }
     return old;
   }
+
   Future<String?> readToken() => _readAndMigrate(_key, _oldKey);
   Future<void> saveToken(String token) async {
     const storage = FlutterSecureStorage();
     await storage.write(key: _key, value: token);
     await storage.delete(key: _oldKey);
   }
+
   Future<String?> readAddress() => _readAndMigrate(_addressKey, _oldAddressKey);
   Future<void> saveAddress(String address) async {
     const storage = FlutterSecureStorage();
     await storage.write(key: _addressKey, value: address);
     await storage.delete(key: _oldAddressKey);
   }
+
   Future<void> clear() async {
     const storage = FlutterSecureStorage();
     await storage.delete(key: _key);

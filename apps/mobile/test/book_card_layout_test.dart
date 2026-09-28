@@ -71,8 +71,8 @@ void main() {
                           freshnessMs: point.ageMs)),
                   client)),
             ],
-            child:
-                MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
+            child: MaterialApp(
+                theme: EyelerTheme.dark, home: const BooksScreen())));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 200));
         expect(tester.takeException(), isNull);

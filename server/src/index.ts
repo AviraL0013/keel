@@ -19,7 +19,11 @@ import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
 export type ServerServices = {
   venue?: RuntimeVenue
   closeBook?: (userId: string, bookId: string) => Promise<{ actionId: string; status: string }>
-  executeAction?: (userId: string, bookId: string, kind: 'DEFEND' | 'REDUCE') => Promise<{ actionId: string; status: string }>
+  executeAction?: (
+    userId: string,
+    bookId: string,
+    kind: 'DEFEND' | 'REDUCE',
+  ) => Promise<{ actionId: string; status: string }>
   enrollment?: PerplEnrollmentService
 }
 
@@ -29,27 +33,98 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   // Venue authentication can wait for its 15-second snapshot deadline. Keep
   // HTTP startup alive so health remains available while trading fails closed.
   const app = Fastify({ logger: false, pluginTimeout: 30_000 })
-  const persistence = store ?? (config.databaseUrl ? new PostgresStore(config.databaseUrl) : config.environment === 'test' ? new MemoryStore() : new UnconfiguredStore())
-  const auth = new AuthService(persistence, config.sessionSecret, address => walletAccess(config, address))
+  const persistence =
+    store ??
+    (config.databaseUrl
+      ? new PostgresStore(config.databaseUrl)
+      : config.environment === 'test'
+        ? new MemoryStore()
+        : new UnconfiguredStore())
+  const auth = new AuthService(persistence, config.sessionSecret, (address) => walletAccess(config, address))
   const notificationStore = persistence instanceof PostgresStore ? new NotificationStore(persistence.pool) : null
-  const telegram = persistence instanceof PostgresStore && ['testnet','mainnet'].includes(config.environment) ? createTelegramNotifier(persistence.pool, process.env) : undefined
-  const origins = new Set(config.corsOrigin.split(',').map(origin => origin.trim()).filter(Boolean))
-  if (config.environment === 'test' || config.environment === 'development') for (const port of [8082, 8083]) { origins.add(`http://localhost:${port}`); origins.add(`http://127.0.0.1:${port}`) }
-  void app.register(cors, { origin: config.environment === 'test' || config.environment === 'development' ? true : [...origins], credentials: true })
+  const telegram =
+    persistence instanceof PostgresStore && ['testnet', 'mainnet'].includes(config.environment)
+      ? createTelegramNotifier(persistence.pool, process.env)
+      : undefined
+  const origins = new Set(
+    config.corsOrigin
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  )
+  if (config.environment === 'test' || config.environment === 'development')
+    for (const port of [8082, 8083]) {
+      origins.add(`http://localhost:${port}`)
+      origins.add(`http://127.0.0.1:${port}`)
+    }
+  void app.register(cors, {
+    origin: config.environment === 'test' || config.environment === 'development' ? true : [...origins],
+    credentials: true,
+  })
   void app.register(cookie, { secret: config.sessionSecret })
   void app.register(rateLimit, { max: 120, timeWindow: '1 minute' })
-  const testRuntime = persistence instanceof MemoryStore && brandEnv(process.env, 'TEST_VENUE') === 'true' ? new DeterministicTestRuntime(persistence) : undefined
+  const testRuntime =
+    persistence instanceof MemoryStore && brandEnv(process.env, 'TEST_VENUE') === 'true'
+      ? new DeterministicTestRuntime(persistence)
+      : undefined
   let venue = services.venue ?? testRuntime?.venue
   if (!venue && persistence instanceof PostgresStore) {
-    try { venue = createPerplRuntime(persistence) } catch (error) { logger.warn({ error: error instanceof Error ? error.message : 'PERPL_CONFIGURATION_INVALID' }, 'Perpl live adapter unavailable; readiness will fail closed') }
+    try {
+      venue = createPerplRuntime(persistence)
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : 'PERPL_CONFIGURATION_INVALID' },
+        'Perpl live adapter unavailable; readiness will fail closed',
+      )
+    }
   }
-  const runtime = persistence instanceof PostgresStore ? new EyelerRuntime(persistence, venue, Date.now, config.safeModeResumeTicks) : undefined
-  const enrollment = services.enrollment ?? (persistence instanceof PostgresStore ? createPerplEnrollmentService(persistence, config, process.env) : undefined)
-  const closeBook = services.closeBook ?? (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
-  const executeAction = services.executeAction ?? (runtime ? runtime.executeAction.bind(runtime) : testRuntime ? testRuntime.executeAction.bind(testRuntime) : undefined)
-  app.addHook('onReady', async () => { enrollment?.startCleanup(); await runtime?.start(); telegram?.start() })
-  app.addHook('onClose', async () => { enrollment?.stopCleanup(); try { await runtime?.stop() } finally { try { await telegram?.stop() } finally { if (persistence instanceof PostgresStore) await persistence.pool.end() } } })
-  registerRoutes({ app, config, persistence, auth, notificationStore, venue, runtime, closeBook, executeAction, testRuntime, enrollment })
+  const runtime =
+    persistence instanceof PostgresStore
+      ? new EyelerRuntime(persistence, venue, Date.now, config.safeModeResumeTicks)
+      : undefined
+  const enrollment =
+    services.enrollment ??
+    (persistence instanceof PostgresStore ? createPerplEnrollmentService(persistence, config, process.env) : undefined)
+  const closeBook =
+    services.closeBook ??
+    (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
+  const executeAction =
+    services.executeAction ??
+    (runtime
+      ? runtime.executeAction.bind(runtime)
+      : testRuntime
+        ? testRuntime.executeAction.bind(testRuntime)
+        : undefined)
+  app.addHook('onReady', async () => {
+    enrollment?.startCleanup()
+    await runtime?.start()
+    telegram?.start()
+  })
+  app.addHook('onClose', async () => {
+    enrollment?.stopCleanup()
+    try {
+      await runtime?.stop()
+    } finally {
+      try {
+        await telegram?.stop()
+      } finally {
+        if (persistence instanceof PostgresStore) await persistence.pool.end()
+      }
+    }
+  })
+  registerRoutes({
+    app,
+    config,
+    persistence,
+    auth,
+    notificationStore,
+    venue,
+    runtime,
+    closeBook,
+    executeAction,
+    testRuntime,
+    enrollment,
+  })
   return app
 }
 
@@ -63,5 +138,3 @@ export async function startServer() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void startServer()
-
-
