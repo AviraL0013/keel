@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+node_modules
+dist
+apps/mobile
+tests
+docs/vendor
+coverage
+logs
+*.log
