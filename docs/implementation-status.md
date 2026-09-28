@@ -1,19 +1,19 @@
-# Implementation status
+# Implementation status — 2026-09-29
 
-## Current architecture
+Eyeler is a Flutter client and a TypeScript/Fastify modular monolith. The server owns wallet-session authentication, the deterministic risk engine, Perpl execution and reconciliation, PostgreSQL reserve/evidence records, Monad AUSD reads, optional read-only Agora activity, and optional operator Telegram alerts. The public sandbox uses the same API and policy path with an explicitly labeled deterministic in-memory venue.
 
-- TypeScript modular monolith with Fastify interfaces, application ports/use cases, deterministic domain/risk packages, PostgreSQL repositories, Perpl adapters, Monad/AUSD/Agora adapters, runtime monitoring, execution reconciliation, reserve ledger, Autopsy, notifications, auth, and fail-closed readiness.
-- Flutter mobile client under `apps/mobile/lib` with Riverpod, secure session storage, API client, feature repositories, Book dashboard, positions, capital, Autopsy, notifications, settings, and wallet challenge/signature flow.
-- Replay and failure injection remain test-only adapters.
+## Verified in this hardening run
 
-## Verified locally
+- `npm ci`, `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, and `npm run smoke:prod` passed locally.
+- `npm test`: **333 tests in 55 files** passed after the scripted demo test; baseline at `41ff4e8` was 307 tests in 48 files.
+- Flutter 3.47.5: `flutter analyze` clean, `dart format --set-exit-if-changed` clean, **58 widget/unit tests** passed; baseline was 57.
+- A local Docker image returned `/health` 200, stopped with exit code 0, and logged completed shutdown. CI now checks this path; the remote CI result remains pending.
+- Flutter release web built and copied the Vercel headers/caching config. The actual Vercel response headers remain unverified until deploy.
+- Local Android APK verification is blocked by the missing Android NDK `27.0.12077973`; Flutter analyze/tests pass. The Android application ID, namespace and Kotlin package are `xyz.eyeler.app`.
+- The report command and its PGlite fixture pass. A one-hour **live** report remains to be collected after deployment.
 
-- 2026-09-28: `npm test`: 262 tests passing across 43 files.
-- `npm run lint`: passing.
-- `npm run typecheck`: passing.
-- Flutter 3.47.5 / Dart 3.13.4: `flutter analyze` clean; `flutter test` 50 tests passing.
-- Development/testnet Perpl key enrollment is backend-only. Its keys are sealed in PostgreSQL and are not bound to Books or used by the trading runtime. Mainnet enrollment remains disabled.
+## Safety and deployment limits
 
-## External requirements
+Live trading remains one Perpl account, one allowlisted wallet and one backend instance. Multi-wallet startup with the server-wide trading key is refused. Emergency execution disable stops new actions while existing submissions continue to reconcile. Reserve arithmetic is exact at six AUSD decimals; invalid sub-micro amounts fail closed. UNKNOWN/PARTIAL actions are not automatically resubmitted.
 
-Live readiness still requires PostgreSQL, Perpl credentials and approvals, Monad/AUSD account access, Agora configuration where used, and push provider credentials. Local tests used fake venues and did not contact external services.
+Native WalletConnect, per-user trading runtime, production KMS custody, the Perpl enrollment screen pending origin whitelisting, and composable contracts are out of scope. Backend enrollment rows are not bound to live Books. The [audit](audit/pre-deploy-audit.md) tracks remaining deployment verification and lower-priority findings.

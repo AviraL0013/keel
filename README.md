@@ -1,121 +1,80 @@
-﻿# EYELER
+# Eyeler
 
-EYELER is programmable risk operations for isolated leveraged onchain positions. A Book combines position, reserve, risk constraints, live telemetry, bounded actions, execution verification, and Autopsy evidence. The deterministic server policy returns `HOLD`, `DEFEND`, `REDUCE`, `EXIT`, or `SAFE_MODE`.
+Eyeler watches a leveraged position against a reserve and clear risk limits. When conditions change, it chooses HOLD, bounded DEFEND, reduce-only REDUCE or EXIT, then checks Perpl before calling the action complete. If market data or execution evidence is uncertain, it pauses new orders and shows why.
 
-## Architecture
+This is a non-custodial testnet build. The wallet signs in; server-side Perpl credentials act only on the one configured account. The product is not a general multi-user trading service yet.
 
-EYELER is a modular monolith.
+| Capability | Live testnet | Public sandbox |
+| --- | --- | --- |
+| Wallet challenge and session | Real wallet signature | Real wallet signature |
+| Market, position and account state | Signed Perpl/Monad reads | Deterministic fake venue |
+| Risk decisions and limits | Same deterministic engine | Same deterministic engine |
+| DEFEND, REDUCE and EXIT | Perpl testnet submission and reconciliation | Simulated execution, clearly labeled |
+| Autopsy and run report | PostgreSQL evidence | In-memory evidence, lost on restart |
+| Agora | Read-only account activity and possible matches | Unavailable unless configured |
+| Telegram | Optional operator-only alerts | Off |
 
-```text
-Flutter mobile
-    | HTTPS
-Fastify HTTP interfaces
-    | use cases and ports
-Application services
-    | pure inputs
-Domain and risk engine
-    | adapters
-PostgreSQL | Perpl REST/WS | Monad | AUSD | Agora
-```
+The Flutter app calls Fastify over HTTPS. The server owns authentication, the one-second monitor, policy and execution; PostgreSQL holds Books, actions, snapshots and evidence. The Perpl adapter handles REST/WS state and submissions. Monad supplies wallet AUSD balance; Agora is informational only. The client never authorizes an order.
 
-- `server/src/application`: use-case orchestration, ports, and error model.
-- `server/src/interfaces/http`: thin Fastify route registration and DTO mappers.
-- `server/src`: runtime, workers, authentication, and infrastructure wiring. Concrete PostgreSQL repositories live under `server/src/infrastructure/database`.
-- `packages/domain`: domain types with no venue or framework dependency.
-- `packages/risk-engine`: deterministic risk features, policy, and defense sizing.
-- `packages/perpl`: vendor wire decoding, normalization, persistent market stream, trading, and reconciliation.
-- `packages/chain` and `packages/ausd`: Monad, AUSD, and Agora integration boundaries.
-- `packages/notifications`: push provider port and provider adapters.
-- `database/migrations`: PostgreSQL schema and invariants.
-- `apps/mobile`: Flutter feature-first client with Riverpod repositories, typed models, secure auth storage, Book configuration/review, dashboard, capital, Autopsy, notifications, and settings. It displays backend decisions and never calculates risk authority.
-- `tests`: unit, stateful, integration, and adapter tests.
+## Try it locally
 
-## Local setup
-
-```powershell
-npm install
-copy .env.example .env
-npm run db:migrate
-npm run server:dev
-```
+Use Node 22 and Flutter 3.19 or newer. Copy only the example configuration; never commit a real `.env` file.
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
+# For PostgreSQL mode, set DATABASE_URL in this shell first.
 npm run db:migrate
 npm run server:dev
 ```
 
-Set `EYELER_ALLOWED_WALLETS` to the wallets allowed to sign in, or set `MONAD_WALLET_ADDRESS` as the fallback. Testnet/mainnet browser requests must come from an origin listed in `CORS_ORIGIN`; development/test accept any origin.
+```powershell
+npm ci
+Copy-Item .env.example .env
+# For PostgreSQL mode, set $env:DATABASE_URL in this shell first.
+npm run db:migrate
+npm run server:dev
+```
 
-Existing installations should follow the [rebrand rollout](docs/deployment/eyeler-rebrand.md). Keep the current PostgreSQL database and its execution history; previous `KEEL_*` settings remain accepted during the transition.
+For a credentialless sandbox, skip the migration, set `EYELER_ENV=test` and `EYELER_TEST_VENUE=true`, then start the server. It uses memory storage and makes **no live venue orders**.
 
-For a credentialless end-to-end local run, use the explicit deterministic venue. It is a real HTTP/application path backed by the in-memory test store and the production risk/execution code; it never masquerades as live Perpl:
+```bash
+EYELER_ENV=test EYELER_TEST_VENUE=true npm run server:dev
+```
 
 ```powershell
 $env:EYELER_ENV='test'
 $env:EYELER_TEST_VENUE='true'
-$env:PORT='8787'
 npm run server:dev
 ```
 
-```bash
-export EYELER_ENV=test
-export EYELER_TEST_VENUE=true
-export PORT=8787
-npm run server:dev
-```
-
-The Flutter client defaults to `http://localhost:8787`; override it with `--dart-define=EYELER_API_URL=...`. The local venue is labeled `DEV / TEST VENUE` in the client. A browser EVM wallet provider is still required for the real challenge/signature flow. PostgreSQL and live Perpl credentials are optional for deterministic tests; without them `/ready` remains fail-closed.
-
-## Checks
-
-```powershell
-npm run lint
-npm test
-npm run typecheck
-npm run server:typecheck
-npm run build
-```
-
-```bash
-npm run lint
-npm test
-npm run typecheck
-npm run server:typecheck
-npm run build
-```
-
-Flutter development requires Flutter SDK 3.19 or newer:
-
-```powershell
-cd apps/mobile
-flutter pub get
-flutter analyze
-flutter test
-flutter run --dart-define=EYELER_API_URL=http://localhost:8787
-```
+Run the Flutter web client on a chosen port:
 
 ```bash
 cd apps/mobile
 flutter pub get
-flutter analyze
-flutter test
-flutter run --dart-define=EYELER_API_URL=http://localhost:8787
+flutter run -d web-server --web-port 8082 --dart-define=EYELER_API_URL=http://localhost:8787
 ```
 
-## API
+```powershell
+Set-Location apps/mobile
+flutter pub get
+flutter run -d web-server --web-port 8082 --dart-define=EYELER_API_URL=http://localhost:8787
+```
 
-Auth: `POST /auth/challenge`, `POST /auth/verify`, `POST /auth/logout`.
+`npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, `npm run smoke:prod` and `npm test` check the backend. In `apps/mobile`, run `flutter analyze` and `flutter test`.
 
-Books: `GET /books`, `POST /books`, `GET /books/:id`, `GET /books/:id/position`, `GET /books/:id/telemetry`, `GET /books/:id/risk`, `POST /books/:id/actions`, `POST /books/:id/{arm,pause,kill,close}`.
+## Safety in plain words
 
-Operations: `GET /capital`, `POST /connections/perpl/validate`, `GET /connections/perpl/positions`, `GET /books/:id/autopsy`, `GET /notifications`, `POST /notifications/:id/read`.
+Eyeler sends no order when telemetry is stale or invalid, a policy refuses it, automation is off, an action is unresolved, or `EYELER_EXECUTION_DISABLED=true`. A DEFEND cannot exceed the reserve, cap or headroom. REDUCE and EXIT are reduce-only. An UNKNOWN or PARTIAL outcome is reconciled, never blindly resubmitted. Pause and kill controls stop automation. The server rejects live Perpl startup with more than one allowed wallet because the trading account is still server-wide.
 
-Development-only controls: `POST /dev/test-venue/scenario` with `healthy`, `floor-breach`, `deterioration`, or `stale` when `EYELER_ENV=test` and `EYELER_TEST_VENUE=true`. `POST /controls/kill-switch` disables automation on every Book owned by the authenticated wallet.
+`/health` only proves the HTTP process is alive. `/ready` also checks the database, venue, monitor ownership, latest completed tick and execution readiness; it reports when the emergency stop is on. Before deploying, run the [deployment guide](docs/deployment/deploy.md) and [rebrand rollout](docs/deployment/eyeler-rebrand.md). A one-hour evidence file can be produced with `npm run report -- --from <iso> --to <iso>`.
 
-All protected routes require the server session. Perpl secrets, reserve authority, risk decisions, and execution state stay server-side.
+## Known limits and demo
 
-## Modes
+This build requires one backend instance and one live Perpl operator wallet. Android/iOS native WalletConnect, per-user trading connections, production KMS custody and composable contracts are future work. The Perpl enrollment screen also awaits origin whitelisting. Sandbox outcomes are simulations; live confirmations require real testnet evidence. Follow the [scripted demo](docs/demo.md) and inspect the [audit](docs/audit/pre-deploy-audit.md).
 
-Replay and failure injection are test adapters. Production never falls back from an unavailable live venue to replay data.
+- App: **[add public URL after deploy]**
+- Sandbox: **[add public URL after deploy]**
+- Demo video: **[add link]**
+- One-hour run report: **[add link]**
