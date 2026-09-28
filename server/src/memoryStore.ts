@@ -21,7 +21,12 @@ export class MemoryStore implements Store {
     const book = await this.getBook(userId, bookId); if (!book) return null
     validateBookControls(book, patch)
     if (patch.automationEnabled === true && (!book.marketId || !book.venueAccountId || !book.venuePositionId)) throw new Error('BOOK_NOT_ARMABLE')
-    Object.assign(book, patch, { updatedAt: new Date().toISOString() })
+    const enabling = patch.automationEnabled === true || patch.status === 'ACTIVE'
+    const paused = patch.automationEnabled === false || patch.status === 'PAUSED'
+    const transientEpisodeEnded = book.status === 'SAFE_MODE' && ['DATA_UNAVAILABLE', 'VENUE_UNAVAILABLE'].includes(book.safeModeReason ?? '') && (paused || patch.stance === 'KILL')
+    const status = book.status === 'CLOSED' ? 'CLOSED' : transientEpisodeEnded ? 'PAUSED' : book.status === 'SAFE_MODE' ? 'SAFE_MODE' : paused ? 'PAUSED' : enabling ? 'ACTIVE' : book.status
+    const automationEnabled = paused ? false : enabling ? true : book.automationEnabled
+    Object.assign(book, patch, { status, automationEnabled, safeModeReason: transientEpisodeEnded ? null : book.safeModeReason ?? null, safeModeSince: transientEpisodeEnded ? null : book.safeModeSince ?? null, updatedAt: new Date().toISOString() })
     await this.addMemoryEvent(bookId, patch.stance === 'KILL' ? 'USER_KILL' : patch.status === 'PAUSED' ? 'USER_PAUSED' : 'BOOK_UPDATED', patch)
     return book
   }
@@ -32,7 +37,7 @@ export class MemoryStore implements Store {
     const reserveAvailable = input.reserveAvailable ?? 0
     if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('INVALID_BOOK_RESERVE')
     if (!Number.isFinite(input.defenseCap) || input.defenseCap <= 0 || input.defenseCap > reserveAvailable) throw new Error('Defense cap cannot exceed reserve.')
-    const book: Book = { ...input, automationEnabled: bound && input.automationEnabled, status: bound ? input.status : 'PAUSED', id: crypto.randomUUID(), userId, createdAt: now, updatedAt: now }
+    const book: Book = { ...input, automationEnabled: bound && input.automationEnabled, status: bound ? input.status : 'PAUSED', safeModeReason: bound && input.status === 'SAFE_MODE' ? input.safeModeReason ?? null : null, safeModeSince: bound && input.status === 'SAFE_MODE' ? input.safeModeSince ?? null : null, id: crypto.randomUUID(), userId, createdAt: now, updatedAt: now }
     this.books.set(book.id, book)
     this.reserves.set(book.id, { bookId: book.id, available: reserveAvailable, reserved: 0, deployed: 0, cap: reserveAvailable, updatedAt: now })
     if (input.initialPosition) this.positions.set(book.id, { ...input.initialPosition, bookId: book.id })
