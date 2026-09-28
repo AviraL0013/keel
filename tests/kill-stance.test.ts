@@ -34,7 +34,8 @@ describe('KILL stance', () => {
       loadBookSetup: async () => ({ market: 'BTC-PERP', position: { side: 'LONG' as const, status: 'OPEN' as const, size: 1, entryPrice: 100, markPrice: 100, liquidationPrice: 94, margin: 20, leverage: 5, unrealizedPnl: 0, timestamp: at }, telemetry: telemetry(100, at), reserveAvailable: 10 }),
       ready: () => true, refresh: async () => undefined, submit: async () => ({ venueReference: 'unused', status: 'FAILED' as const }), reconcile: async (action: Action) => action, close: async () => undefined,
     } satisfies RuntimeVenue
-    const app = createServer(new MemoryStore(), { venue })
+    const store = new MemoryStore()
+    const app = createServer(store, { venue })
     try {
       const challenge = await app.inject({ method: 'POST', url: '/auth/challenge', payload: { address: wallet.address } })
       const body = challenge.json() as { message: string; nonce: string }
@@ -44,6 +45,9 @@ describe('KILL stance', () => {
       const created = await app.inject({ method: 'POST', url: '/books', headers, payload: { market: 'BTC-PERP', marketId: 1, venueAccountId: 7, venuePositionId: 9, side: 'LONG', stance: 'DEFEND', liquidationFloor: 6, defenseCap: 5, reserveAvailable: 10, timeLimitMs: 3_600_000, automationEnabled: false } })
       expect(created.statusCode).toBe(200)
       const id = created.json().id as string
+      const invalid = await app.inject({ method: 'PATCH', url: `/books/${id}`, headers, payload: { unknownControl: true } })
+      expect(invalid.statusCode).toBe(400)
+      expect(invalid.json()).toEqual({ error: 'INVALID_BOOK_CONTROLS' })
       expect((await app.inject({ method: 'POST', url: `/books/${id}/kill`, headers })).statusCode).toBe(200)
       const arm = await app.inject({ method: 'POST', url: `/books/${id}/arm`, headers })
       expect(arm.statusCode).toBe(409)
@@ -52,6 +56,10 @@ describe('KILL stance', () => {
       const changed = await app.inject({ method: 'PATCH', url: `/books/${id}`, headers, payload: { automationEnabled: true, stance: 'DEFEND' } })
       expect(changed.statusCode).toBe(200)
       expect(changed.json()).toMatchObject({ automationEnabled: true, stance: 'DEFEND' })
+      Object.assign(store.getAnyBook(id)!, { status: 'CLOSED', automationEnabled: false })
+      const armClosed = await app.inject({ method: 'POST', url: `/books/${id}/arm`, headers })
+      expect(armClosed.statusCode).toBe(409)
+      expect(armClosed.json()).toEqual({ error: 'INVALID_BOOK_STATUS_TRANSITION' })
     } finally {
       await app.close()
       if (previous.environment === undefined) delete process.env.KEEL_ENV; else process.env.KEEL_ENV = previous.environment
