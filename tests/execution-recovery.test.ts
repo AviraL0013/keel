@@ -36,8 +36,9 @@ function runtimeFor(result: Action, active: Action = action) {
   const refresh = vi.fn(async () => undefined)
   const finalize = vi.fn(async () => undefined)
   const saveAction = vi.fn(async () => undefined)
+  const poolQuery = vi.fn(async () => ({ rows: [{ id: book.id, user_id: book.userId }] }))
   const store = {
-    pool: { query: vi.fn(async () => ({ rows: [{ id: book.id, user_id: book.userId }] })) },
+    pool: { query: poolQuery },
     getBook: vi.fn(async () => book),
   }
   const runtime = new EyelerRuntime(store as never, {
@@ -58,10 +59,18 @@ function runtimeFor(result: Action, active: Action = action) {
     refresh,
     finalize,
     saveAction,
+    poolQuery,
   }
 }
 
 describe('existing execution recovery', () => {
+  it('persists a heartbeat after a completed tick', async () => {
+    const value = runtimeFor(action)
+    await value.tick()
+    expect(value.poolQuery).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO monitor_heartbeat_minutes'), [
+      expect.any(Number),
+    ])
+  })
   it('backs off repeated REST 429 responses without changing existing execution', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
     try {

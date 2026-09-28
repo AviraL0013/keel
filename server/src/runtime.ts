@@ -271,9 +271,16 @@ export class EyelerRuntime {
         await this.safeMode(book, error instanceof Error ? error.message : 'RUNTIME_FAILURE')
       }
     }
+    await this.store.pool.query(
+      `INSERT INTO monitor_heartbeat_minutes(minute,first_tick,last_tick,tick_count)
+       VALUES(date_trunc('minute',to_timestamp($1/1000.0)),to_timestamp($1/1000.0),to_timestamp($1/1000.0),1)
+       ON CONFLICT(minute) DO UPDATE SET last_tick=EXCLUDED.last_tick,tick_count=monitor_heartbeat_minutes.tick_count+1`,
+      [this.now()],
+    )
   }
   private async recordDecision(decision: Decision, explicitManualRequest = false) {
     const fingerprint = JSON.stringify([decision.state, decision.action, decision.amount, decision.reasonCodes])
+    let retryAttempt: number | null = null
     const client = await this.store.pool.connect()
     try {
       await client.query('BEGIN')
@@ -309,6 +316,7 @@ export class EyelerRuntime {
               await client.query('COMMIT')
               return false
             }
+            retryAttempt = Number(episode.rows[0].attempts) + 1
           } else {
             if (prior.rows[0]?.fingerprint === fingerprint) {
               await client.query('COMMIT')
@@ -337,6 +345,11 @@ export class EyelerRuntime {
           decision.createdAt,
         ],
       )
+      if (retryAttempt !== null)
+        await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'AUTOMATION_RETRY',$2)", [
+          decision.bookId,
+          JSON.stringify({ decisionId: decision.id, attempt: retryAttempt }),
+        ])
       const enteringSafeMode = decision.state === 'SAFE_MODE' && bookRow.rows[0].status !== 'SAFE_MODE'
       const types = [
         'DECISION_CREATED',

@@ -5,6 +5,6 @@
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["server/src/**/*.ts", "packages/**/*.ts", "scripts/migrate.ts"],
+  "include": ["server/src/**/*.ts", "packages/**/*.ts", "scripts/migrate.ts", "scripts/report.ts"],
   "exclude": ["docs/vendor/**", "tests/**"]
 }

@@ -17,6 +17,8 @@
         "server:typecheck": "tsc -p server/tsconfig.json --noEmit",
         "db:migrate": "tsx scripts/migrate.ts",
         "db:migrate:prod": "node dist/scripts/migrate.js",
+        "report": "tsx scripts/report.ts",
+        "report:prod": "node dist/scripts/report.js",
         "mobile:analyze": "cd apps/mobile && flutter analyze",
         "mobile:test": "cd apps/mobile && flutter test",
         "mobile:build": "cd apps/mobile && flutter build apk --debug"
