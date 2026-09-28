@@ -28,8 +28,9 @@ async function fixture() {
 
 describe('safe mode causes', () => {
   it.each([
-    ['MARKET_STALE', 'DATA_UNAVAILABLE'], ['POSITION_UNKNOWN', 'DATA_UNAVAILABLE'], ['BOTH_STALE', 'DATA_UNAVAILABLE'], ['STALE_STATE', 'DATA_UNAVAILABLE'], ['TELEMETRY_INVALID', 'DATA_UNAVAILABLE'],
-    ['TELEMETRY_NOT_AVAILABLE', 'DATA_UNAVAILABLE'], ['VENUE_NOT_CONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_STATE_UNAVAILABLE', 'VENUE_UNAVAILABLE'], ['PERPL_TRADING_STATE_UNTRUSTED', 'VENUE_UNAVAILABLE'], ['VENUE_HTTP_429', 'VENUE_UNAVAILABLE'], ['VENUE_NOT_CONFIGURED', 'RUNTIME_FAILURE'], ['UNEXPECTED', 'RUNTIME_FAILURE'],
+    ['MARKET_STALE', 'DATA_UNAVAILABLE'], ['POSITION_UNKNOWN', 'DATA_UNAVAILABLE'], ['BOTH_STALE', 'DATA_UNAVAILABLE'], ['STALE_STATE', 'RUNTIME_FAILURE'], ['TELEMETRY_INVALID', 'RUNTIME_FAILURE'],
+    ['TELEMETRY_NOT_AVAILABLE', 'DATA_UNAVAILABLE'], ['BOOK_TELEMETRY_UNAVAILABLE', 'DATA_UNAVAILABLE'], ['VENUE_NOT_CONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_STATE_UNAVAILABLE', 'VENUE_UNAVAILABLE'], ['PERPL_TRADING_STATE_UNTRUSTED', 'VENUE_UNAVAILABLE'], ['VENUE_HTTP_429', 'VENUE_UNAVAILABLE'],
+    ['PERPL_TRADING_NOT_CONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_WS_DISCONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_TELEMETRY_NOT_READY', 'VENUE_UNAVAILABLE'], ['MARKET_STALE,PERPL_WS_DISCONNECTED', 'VENUE_UNAVAILABLE'], ['VENUE_HTTP_429,PERPL_WS_DISCONNECTED', 'VENUE_UNAVAILABLE'], ['MARKET_STALE,POSITION_UNKNOWN', 'DATA_UNAVAILABLE'], ['MARKET_STALE,UNEXPECTED', 'RUNTIME_FAILURE'], ['VENUE_NOT_CONFIGURED', 'RUNTIME_FAILURE'], ['UNEXPECTED', 'RUNTIME_FAILURE'],
   ])('classifies %s as %s', (code, cause) => { expect(classifySafeModeCause(code)).toBe(cause) })
   it('defaults to five recovery ticks and rejects an invalid setting', () => { expect(loadConfig({}).safeModeResumeTicks).toBe(5); expect(() => loadConfig({ KEEL_SAFE_MODE_RESUME_TICKS: '0' })).toThrow('INVALID_KEEL_SAFE_MODE_RESUME_TICKS') })
 
@@ -93,6 +94,20 @@ describe('safe mode causes', () => {
       expect(await value.bookState()).toMatchObject({ status: 'SAFE_MODE', automationEnabled: false, safeModeReason: 'RUNTIME_FAILURE' })
       value.state.failure = ''; value.clock.at += 1000; await runtime.tick()
       expect((await value.bookState())?.status).toBe('SAFE_MODE')
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('records a superseded decision without entering SAFE_MODE', async () => {
+    const value = await fixture()
+    try {
+      const runtime = value.runtime(); value.state.failure = 'DECISION_SUPERSEDED'
+      await runtime.tick()
+      expect(await value.bookState()).toMatchObject({ status: 'ACTIVE', automationEnabled: true, safeModeReason: null })
+      expect(await value.events('DECISION_SUPERSEDED')).toHaveLength(1)
+      expect(await value.events('SAFE_MODE_ENTERED')).toHaveLength(0)
+      value.state.failure = ''
+      await runtime.tick()
+      expect((await value.bookState())?.status).toBe('ACTIVE')
     } finally { await value.close() }
   }, 20_000)
 

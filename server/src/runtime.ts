@@ -25,9 +25,10 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
 }
 
 export function classifySafeModeCause(code: string): Exclude<SafeModeReason, 'UNRESOLVED_ACTION'> {
-  const codes = code.split(',').filter(Boolean)
-  if (codes.length && codes.every(value => /^(MARKET|POSITION|FUNDING|DEPTH)_(STALE|UNKNOWN)$/.test(value) || ['BOTH_STALE','STALE_STATE','TELEMETRY_INVALID','TELEMETRY_NOT_AVAILABLE','BOOK_TELEMETRY_UNAVAILABLE'].includes(value))) return 'DATA_UNAVAILABLE'
-  if (['VENUE_NOT_CONNECTED','VENUE_UNAVAILABLE','VENUE_STATE_UNAVAILABLE','PERPL_STATE_UNAVAILABLE','PERPL_TRADING_STATE_UNTRUSTED','VENUE_HTTP_429','PERPL_HISTORY_HTTP_429'].includes(code)) return 'VENUE_UNAVAILABLE'
+  const codes = code.split(',').map(value => value.trim()).filter(Boolean)
+  const dataCode = (value: string) => /^(MARKET|POSITION|FUNDING|DEPTH)_(STALE|UNKNOWN)$/.test(value) || ['BOTH_STALE','TELEMETRY_NOT_AVAILABLE','BOOK_TELEMETRY_UNAVAILABLE'].includes(value)
+  const venueCode = (value: string) => ['VENUE_NOT_CONNECTED','VENUE_UNAVAILABLE','VENUE_STATE_UNAVAILABLE','PERPL_STATE_UNAVAILABLE','PERPL_TRADING_STATE_UNTRUSTED','VENUE_HTTP_429','PERPL_HISTORY_HTTP_429','PERPL_TRADING_NOT_CONNECTED','PERPL_WS_DISCONNECTED','PERPL_TELEMETRY_NOT_READY'].includes(value)
+  if (codes.length && codes.every(value => dataCode(value) || venueCode(value))) return codes.some(venueCode) ? 'VENUE_UNAVAILABLE' : 'DATA_UNAVAILABLE'
   return 'RUNTIME_FAILURE'
 }
 
@@ -129,6 +130,10 @@ export class KeelRuntime {
           const retryMs = rateLimited ? Math.min(300_000, 60_000 * 2 ** Math.min(priorFailures, 3)) : 30_000
           this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + retryMs, rateLimitFailures: rateLimited ? priorFailures + 1 : 0 })
           logger.warn({ bookId: book.id, error: error instanceof Error ? error.message : 'RECONCILIATION_FAILED', retryMs }, 'Existing execution reconciliation deferred')
+          continue
+        }
+        if (error instanceof Error && error.message === 'DECISION_SUPERSEDED') {
+          await this.store.pool.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'DECISION_SUPERSEDED',$2)", [book.id, JSON.stringify({ reason: error.message })])
           continue
         }
         this.freshRecoveryTicks.delete(book.id)
