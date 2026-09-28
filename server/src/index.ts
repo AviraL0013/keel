@@ -13,6 +13,7 @@ import { createPerplRuntime } from './infrastructure/perpl/runtime.js'
 import { createPerplEnrollmentService, type PerplEnrollmentService } from './infrastructure/perpl/enrollment-service.js'
 import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.js'
 import { registerRoutes } from './interfaces/http/register.js'
+import { installShutdownHandlers } from './shutdown.js'
 
 export type ServerServices = {
   venue?: RuntimeVenue
@@ -45,7 +46,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   const closeBook = services.closeBook ?? (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
   const executeAction = services.executeAction ?? (runtime ? runtime.executeAction.bind(runtime) : testRuntime ? testRuntime.executeAction.bind(testRuntime) : undefined)
   app.addHook('onReady', async () => { enrollment?.startCleanup(); await runtime?.start() })
-  app.addHook('onClose', async () => { enrollment?.stopCleanup(); await runtime?.stop(); if (persistence instanceof PostgresStore) await persistence.pool.end() })
+  app.addHook('onClose', async () => { enrollment?.stopCleanup(); try { await runtime?.stop() } finally { if (persistence instanceof PostgresStore) await persistence.pool.end() } })
   registerRoutes({ app, config, persistence, auth, notificationStore, venue, runtime, closeBook, executeAction, testRuntime, enrollment })
   return app
 }
@@ -54,6 +55,7 @@ export async function startServer() {
   const config = loadConfig(process.env)
   const app = createServer()
   await app.listen({ port: config.port, host: '0.0.0.0' })
+  installShutdownHandlers(app)
   logger.info({ port: config.port, environment: config.environment }, 'KEEL API listening')
   return app
 }

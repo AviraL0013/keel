@@ -53,9 +53,18 @@ export class KeelRuntime {
   }
   health() { return { ...this.scheduler.health(), executionReady: Boolean(this.lease && this.venue?.ready()) } }
   async stop() {
-    await this.scheduler.stop()
-    await this.venue?.close()
-    if (this.lease) { await this.lease.query('SELECT pg_advisory_unlock(187471,1)'); this.lease.release(); this.lease = undefined }
+    try { await this.scheduler.stop() }
+    finally {
+      try { await this.venue?.close() }
+      finally {
+        if (this.lease) {
+          const lease = this.lease
+          this.lease = undefined
+          try { await lease.query('SELECT pg_advisory_unlock(187471,1)') }
+          finally { lease.release() }
+        }
+      }
+    }
   }
   private async tick() {
     if (!this.lease) return
