@@ -70,6 +70,11 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   }
 }
 export function assertProductionConfig(config: Config, env: Record<string, string | undefined> = process.env) {
+  const liveCredentials = ['PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'].every((key) =>
+    Boolean(env[key]?.trim()),
+  )
+  if (liveCredentials && config.environment !== 'testnet' && config.allowedWallets.length !== 1)
+    throw new Error('MULTI_USER_PERPL_RUNTIME_UNSUPPORTED')
   if (
     config.environment === 'mainnet' &&
     (config.sessionSecret.includes('change-me') ||
@@ -79,6 +84,8 @@ export function assertProductionConfig(config: Config, env: Record<string, strin
       !config.ausdTokenAddress)
   )
     throw new Error('INCOMPLETE_MAINNET_CONFIGURATION')
+  if (config.environment === 'mainnet' && config.allowedWallets.length !== 1)
+    throw new Error('MULTI_USER_PERPL_RUNTIME_UNSUPPORTED')
   if (config.environment !== 'testnet') return
   const problems: string[] = []
   const set = (key: string) => Boolean(env[key]?.trim())
@@ -97,6 +104,8 @@ export function assertProductionConfig(config: Config, env: Record<string, strin
   ]
   const count = perpl.filter(set).length
   if (count > 0 && count < perpl.length) problems.push('PERPL_LIVE_SETTINGS_INCOMPLETE')
+  if (count === perpl.length && config.allowedWallets.length !== 1)
+    problems.push('MULTI_USER_PERPL_RUNTIME_UNSUPPORTED')
   if (problems.length) throw new Error(`INVALID_TESTNET_CONFIGURATION: ${problems.join(', ')}`)
 }
 export type Logger = {

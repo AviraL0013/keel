@@ -23,6 +23,16 @@ describe('testnet startup configuration', () => {
   it('accepts a configured testnet without live Perpl settings', () => {
     expect(() => validate(valid)).not.toThrow()
   })
+  it('rejects multiple wallets when one live Perpl account is configured', () => {
+    const second = `0x${'34'.repeat(20)}`
+    expect(() => validate({ ...valid, ...live, EYELER_ALLOWED_WALLETS: `${wallet},${second}` })).toThrow(
+      'MULTI_USER_PERPL_RUNTIME_UNSUPPORTED',
+    )
+    expect(() => validate({ ...valid, EYELER_ALLOWED_WALLETS: `${wallet},${second}` })).not.toThrow()
+    expect(() =>
+      validate({ ...valid, ...live, EYELER_ENV: 'development', EYELER_ALLOWED_WALLETS: `${wallet},${second}` }),
+    ).toThrow('MULTI_USER_PERPL_RUNTIME_UNSUPPORTED')
+  })
   it.each([
     ['DATABASE_URL', { DATABASE_URL: undefined }, 'DATABASE_URL_MISSING'],
     ['SESSION_SECRET missing', { SESSION_SECRET: undefined }, 'SESSION_SECRET_UNSAFE'],
