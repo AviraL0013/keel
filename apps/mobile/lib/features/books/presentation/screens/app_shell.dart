@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'books_screen.dart';
+import 'book_detail_screen.dart';
 import '../../../positions/presentation/positions_screen.dart';
 import '../../../capital/presentation/capital_screen.dart';
 import '../../../autopsy/presentation/autopsy_screen.dart';
@@ -17,9 +18,23 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   int index = 0;
+  bool _openedLinkedBook = false;
   @override
   Widget build(BuildContext context) {
     final books = ref.watch(booksProvider);
+    final linkedBookId = Uri.base.queryParameters['book'];
+    if (!_openedLinkedBook && linkedBookId != null) {
+      books.whenData((items) {
+        for (final book in items) {
+          if (book.id != linkedBookId) continue;
+          _openedLinkedBook = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BookDetailScreen(book: book)));
+          });
+          break;
+        }
+      });
+    }
     final pages = <Widget>[
       const BooksScreen(),
       const PositionsScreen(),

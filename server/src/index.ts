@@ -14,6 +14,7 @@ import { createPerplEnrollmentService, type PerplEnrollmentService } from './inf
 import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.js'
 import { registerRoutes } from './interfaces/http/register.js'
 import { installShutdownHandlers } from './shutdown.js'
+import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
 
 export type ServerServices = {
   venue?: RuntimeVenue
@@ -31,6 +32,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   const persistence = store ?? (config.databaseUrl ? new PostgresStore(config.databaseUrl) : config.environment === 'test' ? new MemoryStore() : new UnconfiguredStore())
   const auth = new AuthService(persistence, config.sessionSecret, address => walletAccess(config, address))
   const notificationStore = persistence instanceof PostgresStore ? new NotificationStore(persistence.pool) : null
+  const telegram = persistence instanceof PostgresStore && ['testnet','mainnet'].includes(config.environment) ? createTelegramNotifier(persistence.pool, process.env) : undefined
   const origins = new Set(config.corsOrigin.split(',').map(origin => origin.trim()).filter(Boolean))
   if (config.environment === 'test' || config.environment === 'development') for (const port of [8082, 8083]) { origins.add(`http://localhost:${port}`); origins.add(`http://127.0.0.1:${port}`) }
   void app.register(cors, { origin: config.environment === 'test' || config.environment === 'development' ? true : [...origins], credentials: true })
@@ -45,8 +47,8 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   const enrollment = services.enrollment ?? (persistence instanceof PostgresStore ? createPerplEnrollmentService(persistence, config, process.env) : undefined)
   const closeBook = services.closeBook ?? (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
   const executeAction = services.executeAction ?? (runtime ? runtime.executeAction.bind(runtime) : testRuntime ? testRuntime.executeAction.bind(testRuntime) : undefined)
-  app.addHook('onReady', async () => { enrollment?.startCleanup(); await runtime?.start() })
-  app.addHook('onClose', async () => { enrollment?.stopCleanup(); try { await runtime?.stop() } finally { if (persistence instanceof PostgresStore) await persistence.pool.end() } })
+  app.addHook('onReady', async () => { enrollment?.startCleanup(); await runtime?.start(); telegram?.start() })
+  app.addHook('onClose', async () => { enrollment?.stopCleanup(); try { await runtime?.stop() } finally { try { await telegram?.stop() } finally { if (persistence instanceof PostgresStore) await persistence.pool.end() } } })
   registerRoutes({ app, config, persistence, auth, notificationStore, venue, runtime, closeBook, executeAction, testRuntime, enrollment })
   return app
 }

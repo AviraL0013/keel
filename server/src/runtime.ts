@@ -179,7 +179,7 @@ export class KeelRuntime {
       const cause = decision.state === 'SAFE_MODE' ? classifySafeModeCause(decision.reasonCodes.join(',')) : null
       const transient = cause === 'DATA_UNAVAILABLE' || cause === 'VENUE_UNAVAILABLE'
       await client.query("UPDATE books SET status=$2,automation_enabled=CASE WHEN $2='SAFE_MODE' AND NOT $3 THEN false ELSE automation_enabled END,safe_mode_reason=CASE WHEN $2='SAFE_MODE' THEN $4 ELSE NULL END,safe_mode_since=CASE WHEN $2='SAFE_MODE' THEN COALESCE(safe_mode_since,$5) ELSE NULL END,safety_action_id=CASE WHEN $2='SAFE_MODE' THEN NULL ELSE safety_action_id END,updated_at=now() WHERE id=$1", [decision.bookId,decision.state === 'SAFE_MODE' ? 'SAFE_MODE' : 'ACTIVE', transient, cause, new Date(this.now()).toISOString()])
-      if (decision.state !== 'HOLD' && (decision.state !== 'SAFE_MODE' || enteringSafeMode)) await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,$2,$2,$3,$4 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId,decision.state,decision.humanReadableReasons.join(' '),decision.id])
+      if (decision.state !== 'HOLD' && (decision.state !== 'SAFE_MODE' || enteringSafeMode)) await client.query(`INSERT INTO notifications(user_id,book_id,kind,title,body,dedupe_key) SELECT user_id,id,$2,$2,$3,$4 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId,decision.state,decision.humanReadableReasons.join(' '),decision.id])
       await client.query('COMMIT'); return true
     } catch(error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }
@@ -193,7 +193,7 @@ export class KeelRuntime {
       if (active.rows.length) { await client.query('COMMIT'); return }
       await client.query("UPDATE books SET status='ACTIVE',safe_mode_reason=NULL,safe_mode_since=NULL,updated_at=now() WHERE id=$1", [book.id])
       await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'SAFE_MODE_EXITED',$2)", [book.id, JSON.stringify({ reason: current.rows[0].safe_mode_reason, freshTicks: this.safeModeResumeTicks })])
-      await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,'SAFE_MODE_EXITED','Automation resumed','Automation resumed: live data is fresh again.',$2 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [book.id, randomUUID()])
+      await client.query(`INSERT INTO notifications(user_id,book_id,kind,title,body,dedupe_key) SELECT user_id,id,'SAFE_MODE_EXITED','Automation resumed','Automation resumed: live data is fresh again.',$2 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [book.id, randomUUID()])
       await client.query('COMMIT')
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }
@@ -212,7 +212,7 @@ export class KeelRuntime {
         ON CONFLICT(book_id) DO UPDATE SET fingerprint=EXCLUDED.fingerprint,attempts=EXCLUDED.attempts,next_attempt_at=EXCLUDED.next_attempt_at,last_action_id=EXCLUDED.last_action_id,exhausted=EXCLUDED.exhausted,updated_at=now()`, [decision.bookId, fingerprint, attempts, new Date(this.now() + delay).toISOString(), actionId, exhausted])
       if (exhausted && !previous.rows[0]?.exhausted) {
         await client.query("INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'AUTOMATION_RETRY_EXHAUSTED',$2)", [decision.bookId, JSON.stringify({ actionId, attempts, action: decision.action })])
-        await client.query(`INSERT INTO notifications(user_id,kind,title,body,dedupe_key) SELECT user_id,'AUTOMATION_RETRY_EXHAUSTED','Automatic action stopped','Three attempts failed. Review this Book and act manually.',$2 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId, `${decision.bookId}:${fingerprint}:exhausted`])
+        await client.query(`INSERT INTO notifications(user_id,book_id,kind,title,body,dedupe_key) SELECT user_id,id,'AUTOMATION_RETRY_EXHAUSTED','Automatic action stopped','Three attempts failed. Review this Book and act manually.',$2 FROM books WHERE id=$1 ON CONFLICT(dedupe_key) DO NOTHING`, [decision.bookId, `${decision.bookId}:${fingerprint}:exhausted`])
       }
       await client.query('COMMIT')
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }

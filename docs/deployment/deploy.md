@@ -20,6 +20,8 @@ Set these on the backend host:
 
 Set all six `PERPL_*` live settings together. Partial settings fail startup. Check Perpl's separate on-chain order-forwarding permission before arming automation. Keep `PERPL_ENROLLMENT_ORIGIN` and `KEEL_KEY_ENCRYPTION_KEY` unset until Perpl whitelists the exact origin. Per-user enrollment is a backend foundation; Books still use the server-wide key. Optional Agora reads use server-side `AGORA_API_KEY`; no Agora transfer scope is needed.
 
+Optional operator alerts use `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and HTTPS `KEEL_APP_URL` (the Flutter web origin). Set both Telegram values and the app URL to enable the worker. It sends text and a Book link only; it cannot trigger trades. Delivery status lives in PostgreSQL. Explicit Telegram rejections retry with backoff; an ambiguous network outcome stops automatic retries to avoid duplicate alerts. Review such records in `telegram_deliveries` and compare them with the operator chat before any manual action.
+
 ## Public sandbox
 
 Use a separate backend instance with `KEEL_ENV=test`, `KEEL_TEST_VENUE=true`, `PORT` and a `SESSION_SECRET`. Leave `DATABASE_URL` and all Perpl credentials unset. The sandbox uses an in-memory store and deterministic fake venue. It resets on every restart. Do not point the sandbox at the live testnet database or wallet credentials.
