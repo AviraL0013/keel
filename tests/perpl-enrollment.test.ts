@@ -53,6 +53,17 @@ async function fixture(enrollStatus = 200) {
 }
 
 describe('development Perpl enrollment foundation', () => {
+  it('binds sealed credentials to their row and field and rejects truncated tags', () => {
+    const custody = new DevelopmentKeyCustody('33'.repeat(32))
+    const sealed = custody.seal('row-secret', 'connection-a:private_key')
+    expect(custody.open(sealed, 'connection-a:private_key')).toBe('row-secret')
+    expect(() => custody.open(sealed, 'connection-b:private_key')).toThrow('INVALID_SEALED_CREDENTIAL')
+    expect(() => custody.open(sealed, 'connection-a:mac')).toThrow('INVALID_SEALED_CREDENTIAL')
+    const parts = sealed.split(':')
+    parts[2] = Buffer.from(Buffer.from(parts[2], 'base64url').subarray(0, 15)).toString('base64url')
+    expect(() => custody.open(parts.join(':'), 'connection-a:private_key')).toThrow('INVALID_SEALED_CREDENTIAL')
+  })
+
   it('enrolls the session wallet with a sealed key and valid proof-of-possession', async () => {
     const value = await fixture()
     try {
@@ -70,7 +81,7 @@ describe('development Perpl enrollment foundation', () => {
       expect(complete).toEqual({ connectionId: pending.connectionId, status: 'ACTIVE' })
       const active = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
       expect(active.status).toBe('ACTIVE')
-      expect(value.custody.open(active.sealed_api_token)).toBe('private-token')
+      expect(value.custody.open(active.sealed_api_token, `${pending.connectionId}:api_token`)).toBe('private-token')
       expect(active.sealed_mac).toBeNull()
       expect(active.typed_data).toBeNull()
       expect(value.requests[1].headers.get('origin')).toBe(origin)
@@ -230,8 +241,8 @@ describe('development Perpl enrollment foundation', () => {
     expect(() => loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: 'http://insecure.example' }, config)).toThrow('INVALID_PERPL_ENROLLMENT_ORIGIN')
     expect(() => loadEnrollmentConfig(base, loadConfig({ KEEL_ENV: 'mainnet' }))).toThrow('PERPL_CONNECTIONS_MAINNET_UNSUPPORTED')
     const custody = new DevelopmentKeyCustody('33'.repeat(32))
-    const sealed = custody.seal('example-secret')
-    expect(custody.open(sealed)).toBe('example-secret')
-    expect(() => custody.open(`${sealed}x`)).toThrow('INVALID_SEALED_CREDENTIAL')
+    const sealed = custody.seal('example-secret', 'connection-a:private_key')
+    expect(custody.open(sealed, 'connection-a:private_key')).toBe('example-secret')
+    expect(() => custody.open(`${sealed}x`, 'connection-a:private_key')).toThrow('INVALID_SEALED_CREDENTIAL')
   })
 })

@@ -11,6 +11,7 @@ import { PerplEnrollmentClient, type EnrollmentPayloadRequest, type EnrolledKey 
 export type EnrollmentConfig = { chainId: number; environment: 'testnet'; origin: string; ttlDays: number; ipCidrs?: string[]; builderId?: number; builderFeeCeiling?: number }
 type TypedData = { domain: Record<string, unknown>; types: Record<string, readonly { name: string; type: string }[]>; primaryType: string; message: Record<string, unknown> }
 const keyPage = 'https://testnet.perpl.xyz/apikeys'
+const credentialContext = (id: string, field: 'private_key' | 'mac' | 'api_token') => `${id}:${field}`
 
 export function loadEnrollmentConfig(env: Record<string, string | undefined>, config: Config): EnrollmentConfig {
   if (config.environment === 'mainnet') throw new Error('PERPL_CONNECTIONS_MAINNET_UNSUPPORTED')
@@ -68,7 +69,7 @@ export class PerplEnrollmentService {
       const connectionId = randomUUID()
       try {
         await this.store.pool.query(`INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,wallet_address,public_key,sealed_private_key,sealed_mac,typed_data,scope_mask,label,origin,ip_cidrs,expires_at,pending_expires_at,builder_id,builder_fee_ceiling)
-          VALUES($1,$2,$3,'trade',$4,'PENDING',$5,$6,$7,$8,$9,3,'KEEL',$10,$11,$12,$13,$14,$15)`, [connectionId,userId,this.config.environment,`enrollment:${connectionId}`,wallet,publicKey,this.custody.seal(secret.toString('hex')),this.custody.seal(payload.mac),JSON.stringify(typed),this.config.origin,JSON.stringify(this.config.ipCidrs ?? []),new Date(expiresAt).toISOString(),new Date(this.now() + 600_000).toISOString(),this.config.builderId ?? null,this.config.builderFeeCeiling ?? null])
+          VALUES($1,$2,$3,'trade',$4,'PENDING',$5,$6,$7,$8,$9,3,'KEEL',$10,$11,$12,$13,$14,$15)`, [connectionId,userId,this.config.environment,`enrollment:${connectionId}`,wallet,publicKey,this.custody.seal(secret.toString('hex'), credentialContext(connectionId, 'private_key')),this.custody.seal(payload.mac, credentialContext(connectionId, 'mac')),JSON.stringify(typed),this.config.origin,JSON.stringify(this.config.ipCidrs ?? []),new Date(expiresAt).toISOString(),new Date(this.now() + 600_000).toISOString(),this.config.builderId ?? null,this.config.builderFeeCeiling ?? null])
       } catch (error) { if (error && typeof error === 'object' && 'code' in error && error.code === '23505') throw new ConflictError('PERPL_ENROLLMENT_ALREADY_PENDING'); throw error }
       return { connectionId, typedData: typed }
     } finally { secret.fill(0) }
@@ -92,7 +93,7 @@ export class PerplEnrollmentService {
       try { valid = await verifyTypedData({ ...canonical, address: walletAddress as Address, signature: signature as Hex } as Parameters<typeof verifyTypedData>[0]) }
       catch { valid = false }
       if (!valid) throw new AuthorizationError('WALLET_SIGNATURE_INVALID')
-      const privateKey = Buffer.from(this.custody.open(String(row.sealed_private_key)), 'hex')
+      const privateKey = Buffer.from(this.custody.open(String(row.sealed_private_key), credentialContext(id, 'private_key')), 'hex')
       let popSignature: string
       try {
         const digest = hashTypedData(canonical as Parameters<typeof hashTypedData>[0])
@@ -100,14 +101,14 @@ export class PerplEnrollmentService {
       } finally { privateKey.fill(0) }
       let enrolled: EnrolledKey
       try {
-        enrolled = await this.client.enroll({ chain_id: this.config.chainId, address: walletAddress.toLowerCase(), typed_data: typed, mac: this.custody.open(String(row.sealed_mac)), signature, pop_signature: popSignature })
+        enrolled = await this.client.enroll({ chain_id: this.config.chainId, address: walletAddress.toLowerCase(), typed_data: typed, mac: this.custody.open(String(row.sealed_mac), credentialContext(id, 'mac')), signature, pop_signature: popSignature })
         if (enrolled.api_key.address.toLowerCase() !== walletAddress.toLowerCase() || enrolled.api_key.scope_mask !== 3 || enrolled.api_key.label !== 'KEEL' || enrolled.api_key.origin !== this.config.origin || enrolled.api_key.expires_at !== new Date(row.expires_at).getTime() || enrolled.api_key.builder_id !== (row.builder_id ?? undefined) || enrolled.api_key.max_builder_fee_per_100k !== (row.builder_fee_ceiling ?? undefined)) throw new InfrastructureError('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
       } catch (error) {
         await db.query("UPDATE perpl_connections SET status='ERROR',last_error=$2,sealed_private_key=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now() WHERE id=$1", [id,error instanceof Error ? error.message : 'PERPL_ENROLLMENT_UNAVAILABLE'])
         await db.query('COMMIT')
         throw error
       }
-      await db.query("UPDATE perpl_connections SET status='ACTIVE',sealed_api_token=$2,sealed_mac=NULL,typed_data=NULL,pending_expires_at=NULL,last_error=NULL WHERE id=$1", [id,this.custody.seal(enrolled.api_key.api_key)])
+      await db.query("UPDATE perpl_connections SET status='ACTIVE',sealed_api_token=$2,sealed_mac=NULL,typed_data=NULL,pending_expires_at=NULL,last_error=NULL WHERE id=$1", [id,this.custody.seal(enrolled.api_key.api_key, credentialContext(id, 'api_token'))])
       await db.query('COMMIT')
       return { connectionId: id, status: 'ACTIVE' }
     } catch (error) { try { await db.query('ROLLBACK') } catch { /* Transaction already committed after a venue error. */ } throw error }
