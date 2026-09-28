@@ -16,7 +16,7 @@ const wallet = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const other = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 const origin = 'https://keel.example'
 
-async function fixture(enrollStatus = 200, domainOrder = false) {
+async function fixture(enrollStatus = 200, domainOrder = false, now: () => number = Date.now) {
   const { db, store } = await databaseFixture()
   const userId = await store.ensureUser(wallet.address)
   const custody = new DevelopmentKeyCustody('33'.repeat(32))
@@ -52,9 +52,9 @@ async function fixture(enrollStatus = 200, domainOrder = false) {
     return Response.json({ api_key: { api_key: 'private-token', address: wallet.address, scope_mask: 3, label: 'KEEL', origin, expires_at: requests[0].body.expires_at } })
   }) as typeof fetch
   const client = new PerplEnrollmentClient('https://perpl.invalid/api', origin, fetcher)
-  const service = new PerplEnrollmentService(store, config, custody, client)
+  const service = new PerplEnrollmentService(store, config, custody, client, now)
   const sign = async (typedData: unknown) => wallet.signTypedData(typedData as Parameters<typeof wallet.signTypedData>[0])
-  return { db, store, userId, custody, service, requests, fetcher, sign, setOnEnroll: (callback: () => Promise<void>) => { onEnroll = callback }, close: () => db.close() }
+  return { db, store, userId, custody, config, client, service, requests, fetcher, sign, setOnEnroll: (callback: () => Promise<void>) => { onEnroll = callback }, close: () => db.close() }
 }
 
 describe('development Perpl enrollment foundation', () => {
@@ -139,6 +139,63 @@ describe('development Perpl enrollment foundation', () => {
       })
       await value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
       expect(value.requests).toHaveLength(2)
+    } finally { await value.close() }
+  }, 20_000)
+
+  it('recovers a stuck ENROLLING row after restart and lets the wallet enroll again', async () => {
+    const clock = { now: Date.now() }
+    const value = await fixture(200, false, () => clock.now)
+    let entered!: () => void
+    const enrollmentStarted = new Promise<void>(resolve => { entered = resolve })
+    let stopRequest!: (reason: Error) => void
+    const stalledRequest = new Promise<void>((_, reject) => { stopRequest = reject })
+    let completing: Promise<unknown> | undefined
+    const app = Fastify({ logger: false })
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      value.setOnEnroll(async () => { entered(); await stalledRequest })
+      completing = value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData))
+      await enrollmentStarted
+      const inFlight = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(inFlight.status).toBe('ENROLLING')
+      expect(new Date(inFlight.pending_expires_at).getTime()).toBe(clock.now + 300_000)
+      const restarted = new PerplEnrollmentService(value.store, value.config, value.custody, value.client, () => clock.now)
+      clock.now += 300_001
+      await restarted.cleanupExpired()
+      const row = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row).toMatchObject({ status: 'ERROR', last_error: 'ENROLLMENT_OUTCOME_UNKNOWN', public_key: inFlight.public_key, sealed_private_key: null, sealed_mac: null, typed_data: null })
+      expect(row.shredded_at).not.toBeNull()
+      const config = loadConfig({ KEEL_ENV: 'test' })
+      await app.register(cookie, { secret: config.sessionSecret })
+      registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: restarted })
+      await value.store.createSession('stuck-enrollment-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
+      const listed = await app.inject({ method: 'GET', url: '/connections', headers: { authorization: 'Bearer stuck-enrollment-session' } })
+      expect(listed.statusCode).toBe(200)
+      expect(listed.json()[0]).toMatchObject({ status: 'ERROR', lastError: 'ENROLLMENT_OUTCOME_UNKNOWN', publicKey: inFlight.public_key, perplKeyPageUrl: 'https://testnet.perpl.xyz/apikeys' })
+      const next = await restarted.start(value.userId, wallet.address)
+      expect(next.connectionId).not.toBe(pending.connectionId)
+    } finally {
+      stopRequest?.(new Error('SIMULATED_PROCESS_STOP'))
+      if (completing) await expect(completing).rejects.toThrow()
+      await app.close()
+      await value.close()
+    }
+  }, 20_000)
+
+  it('keeps ENROLLING secrets while its deadline has not elapsed', async () => {
+    const clock = { now: Date.now() }
+    const value = await fixture(200, false, () => clock.now)
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await value.db.query("UPDATE perpl_connections SET status='ENROLLING',pending_expires_at=$2 WHERE id=$1", [pending.connectionId, new Date(clock.now + 300_000).toISOString()])
+      clock.now += 299_999
+      await new PerplEnrollmentService(value.store, value.config, value.custody, value.client, () => clock.now).cleanupExpired()
+      const row = (await value.db.query('SELECT status,last_error,sealed_private_key,sealed_mac,typed_data FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
+      expect(row.status).toBe('ENROLLING')
+      expect(row.last_error).toBeNull()
+      expect(row.sealed_private_key).not.toBeNull()
+      expect(row.sealed_mac).not.toBeNull()
+      expect(row.typed_data).not.toBeNull()
     } finally { await value.close() }
   }, 20_000)
 

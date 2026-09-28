@@ -48,8 +48,8 @@ export class PerplEnrollmentService {
   startCleanup() { if (!this.cleanupTimer) { this.cleanupTimer = setInterval(() => { void this.cleanupExpired().catch(() => undefined) }, 60_000); this.cleanupTimer.unref() } }
   stopCleanup() { if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.cleanupTimer = undefined }
   async cleanupExpired() {
-    await this.store.pool.query(`UPDATE perpl_connections SET status='EXPIRED',sealed_private_key=NULL,sealed_api_token=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now(),last_error='ENROLLMENT_EXPIRED'
-      WHERE (status='PENDING' AND pending_expires_at<=now()) OR (status='ACTIVE' AND expires_at<=now())`)
+    await this.store.pool.query(`UPDATE perpl_connections SET status=CASE WHEN status='ENROLLING' THEN 'ERROR' ELSE 'EXPIRED' END,sealed_private_key=NULL,sealed_api_token=NULL,sealed_mac=NULL,typed_data=NULL,shredded_at=now(),last_error=CASE WHEN status='ENROLLING' THEN 'ENROLLMENT_OUTCOME_UNKNOWN' ELSE 'ENROLLMENT_EXPIRED' END
+      WHERE (status IN ('PENDING','ENROLLING') AND pending_expires_at<=$1) OR (status='ACTIVE' AND expires_at<=$1)`, [new Date(this.now()).toISOString()])
   }
   async start(userId: string, walletAddress: string): Promise<{ connectionId: string; typedData: TypedData }> {
     await this.cleanupExpired()
@@ -100,7 +100,7 @@ export class PerplEnrollmentService {
       try { valid = await verifyTypedData({ ...typed, address: walletAddress as Address, signature: signature as Hex } as Parameters<typeof verifyTypedData>[0]) }
       catch { valid = false }
       if (!valid) throw new AuthorizationError('WALLET_SIGNATURE_INVALID')
-      await db.query("UPDATE perpl_connections SET status='ENROLLING',last_error=NULL WHERE id=$1", [id])
+      await db.query("UPDATE perpl_connections SET status='ENROLLING',pending_expires_at=$2,last_error=NULL WHERE id=$1", [id,new Date(this.now() + 300_000).toISOString()])
       await db.query('COMMIT')
       committed = true
     } catch (error) { if (!committed) await db.query('ROLLBACK'); throw error }
