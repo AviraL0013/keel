@@ -10,4 +10,8 @@ class _UnavailableWalletConnector implements WalletConnector {
   Future<String> signMessage(String address, String message) =>
       Future.error(const WalletException(
           'No EVM wallet provider is available on this platform.'));
+  @override
+  Future<String> signTypedData(String address, Map<String, Object?> typedData) =>
+      Future.error(const WalletException(
+          'No EVM wallet provider is available on this platform.'));
 }

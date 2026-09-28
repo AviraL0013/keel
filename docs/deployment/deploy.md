@@ -37,6 +37,8 @@ flutter build web --release --dart-define=KEEL_API_URL=https://api.<domain>
 
 Publish `apps/mobile/build/web` to static hosting with HTTPS. Use the matching backend URL and include that web origin in `CORS_ORIGIN` for live testnet.
 
+For web wallet network setup, also pass `--dart-define=KEEL_CHAIN_ID=10143`, `--dart-define=KEEL_MONAD_RPC_URL=<approved-testnet-rpc>`, `--dart-define=KEEL_MONAD_EXPLORER_URL=<approved-testnet-explorer>`, `--dart-define=KEEL_NATIVE_CURRENCY_NAME=Monad` and `--dart-define=KEEL_NATIVE_CURRENCY_SYMBOL=MON`. These are public chain details. Without RPC and explorer URLs, KEEL can switch an already-known chain but cannot add an unknown chain to a wallet.
+
 `GET /health` returning 200 means HTTP is alive. `GET /ready` returning `{"ready":true}` means the worker, database and venue are ready for live execution. Do not send traffic requiring trading readiness when `/ready` is false. Container healthcheck uses `/health` so a temporary Perpl outage does not cause a restart loop.
 
 For rollback, stop the single backend instance, deploy the previous image, and keep the database. Check migration compatibility before rollback; restore the database backup only when a migration is incompatible and after assessing actions still awaiting reconciliation. Never run two backend versions against the same Perpl account at once. On restart, KEEL reconciles submitted actions instead of submitting them again.

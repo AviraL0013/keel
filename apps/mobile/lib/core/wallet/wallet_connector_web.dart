@@ -1,5 +1,6 @@
-import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
+import 'eip1193_wallet_connector.dart';
 import 'wallet_types.dart';
 
 @JS('window.ethereum')
@@ -9,47 +10,20 @@ extension type _Eip1193(JSObject _) implements JSObject {
   external JSPromise<JSAny?> request(JSAny? request);
 }
 
-WalletConnector walletConnector() => _Eip1193WalletConnector();
+WalletConnector walletConnector() => Eip1193WalletConnector(_request);
 
-class _Eip1193WalletConnector implements WalletConnector {
-  Future<Object?> _request(String method, [List<String>? params]) async {
-    final provider = _ethereum;
-    if (provider == null) {
-      throw const WalletException(
-          'Install or unlock an EVM wallet extension to connect KEEL.');
+Future<Object?> _request(String method, [List<Object?>? params]) async {
+  final provider = _ethereum;
+  if (provider == null) throw const WalletException('Install or unlock an EVM wallet extension to connect KEEL.');
+  final input = <String, Object?>{'method': method, if (params != null) 'params': params}.jsify();
+  try { return (await (_Eip1193(provider).request(input)).toDart)?.dartify(); }
+  catch (error) {
+    int? code;
+    if (error is JSObject) {
+      final value = error.getProperty<JSAny?>('code'.toJS)?.dartify();
+      if (value is num) code = value.toInt();
     }
-    final request = <String, Object?>{
-      'method': method,
-      if (params != null) 'params': params
-    }.jsify();
-    final result = await (_Eip1193(provider).request(request)).toDart;
-    return result?.dartify();
-  }
-
-  @override
-  Future<WalletConnection> connect() async {
-    final accounts = await _request('eth_requestAccounts');
-    if (accounts is! List || accounts.isEmpty || accounts.first is! String) {
-      throw const WalletException('Wallet returned no account.');
-    }
-    final chain = await _request('eth_chainId');
-    final chainId =
-        int.tryParse(chain.toString().replaceFirst('0x', ''), radix: 16);
-    if (chainId == null) {
-      throw const WalletException('Wallet returned an invalid network.');
-    }
-    return WalletConnection(
-        address: accounts.first as String, chainId: chainId);
-  }
-
-  @override
-  Future<String> signMessage(String address, String message) async {
-    final hex =
-        '0x${utf8.encode(message).map((value) => value.toRadixString(16).padLeft(2, '0')).join()}';
-    final signature = await _request('personal_sign', [hex, address]);
-    if (signature is! String || !signature.startsWith('0x')) {
-      throw const WalletException('Wallet did not return a signature.');
-    }
-    return signature;
+    code ??= int.tryParse(RegExp(r'\b(4902|4001)\b').firstMatch(error.toString())?.group(1) ?? '');
+    throw Eip1193Exception(code, error.toString());
   }
 }

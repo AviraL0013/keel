@@ -7,6 +7,7 @@ class WalletConnection {
 abstract class WalletConnector {
   Future<WalletConnection> connect();
   Future<String> signMessage(String address, String message);
+  Future<String> signTypedData(String address, Map<String, Object?> typedData);
 }
 
 class WalletException implements Exception {
