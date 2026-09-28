@@ -1,0 +1,21 @@
+# Pre-deploy audit
+
+Baseline: 2026-09-29, `41ff4e8`. `npm ci`, lint, typecheck, build, production smoke, 307/307 Node tests, Flutter analysis, and 57/57 Flutter tests pass. Review covers server, packages, migrations, Flutter, CI, container, and active deployment docs. Findings below are evidence-backed; tests must stay offline.
+
+| ID | Severity | Finding and evidence | Reproduction or test idea | Plan |
+| --- | --- | --- | --- | --- |
+| A01 | P0 | Configured `MONAD_WALLET_ADDRESS` overrides signed-in wallet in `server/src/infrastructure/perpl/runtime.ts:220`. `/capital` passes session wallet at `server/src/interfaces/http/register.ts:167`, but adapter ignores it. | Set operator wallet A, sign in as allowed wallet B, compare returned wallet AUSD with B. | Phase 6 |
+| A02 | P0 | Reserve balances and caps cross JavaScript `number` boundaries in `server/src/infrastructure/database/execution-repository.ts:19`, `server/src/reserveSettlement.ts:7`, and `packages/risk-engine/src/index.ts:44-46`. PostgreSQL uses `numeric` (`database/migrations/001_initial.sql:7`). Binary rounding can change cap comparisons or settlement. | Repeat 0.1/0.2/0.000001 cycles; compare with integer micro-units at cap. | Phase 5 |
+| A03 | P0 | No operator-wide execution disable check before action creation in `server/src/workers/execution-worker.ts:11-30`; manual and automated actions both reach this worker. | Turn emergency flag on; assert no action and no venue submit; reconcile existing SUBMITTED action. | Phase 4 |
+| A04 | P0 | Live Perpl runtime uses one configured account (`server/src/infrastructure/perpl/runtime.ts:178-181`), while allowlist accepts multiple wallets (`packages/shared/src/index.ts:14-15`). Any allowed wallet can create a Book on that account through `server/src/interfaces/http/register.ts:82`. | Configure two allowlisted wallets and one Perpl account; attempt Book creation from second wallet. | Phase 6; restrict live owner until per-user runtime exists |
+| A05 | P1 | Scheduler health has no last-completed-tick time (`server/src/lifecycle.ts:9-15`); `/ready` only sees running/lease/venue (`server/src/interfaces/http/register.ts:57-65`). Hung tick can leave readiness true. | Hold a fake tick pending beyond threshold; expect 503. | Phase 4 |
+| A06 | P1 | `risk_snapshots` has no retention (`database/migrations/001_initial.sql:8,14`); runtime inserts one row per active Book per tick. | Seed old snapshots, run bounded cleanup, prove current and referenced evidence remains. | Phase 4 |
+| A07 | P1 | Container starts through npm (`Dockerfile:21`), obscuring direct stop-signal delivery. Successful shutdown lacks an explicit completion log (`server/src/shutdown.ts:18-26`). | Start container, stop it, verify completion log and zero exit. | Phase 3 |
+| A08 | P1 | Unpublished Android app retains old `applicationId` (`apps/mobile/android/app/build.gradle:13`). | Inspect built manifest/package identifier. | Phase 3 |
+| A09 | P1 | Web host has no security/cache policy (`apps/mobile/web/index.html`; no `vercel.json`). Stale Flutter boot artifacts can survive deploy. | Build web, check copied hosting config and response headers. | Phase 3 |
+| A10 | P1 | Stored `actions.venue_progress` (`database/migrations/007_action_safety_pause.sql:2`) is absent from consumer action details. | Widget test action with transaction/block evidence and explorer link. | Phase 6 |
+| A11 | P1 | CI has no secret scan or dependency update automation (`.github/workflows/ci.yml`). | Inspect workflow for gitleaks and Dependabot jobs/config. | Phase 3 |
+| A12 | P2 | Telegram delivers one alert per five-second poll and uses generic action labels (`server/src/infrastructure/telegram/notifier.ts`). Slow alert bursts and unclear market context. | Queue 11 alerts; verify chat pacing, batch limit, and text. | Phase 4 |
+| A13 | P2 | No reproducible one-hour operations report yet. Tick heartbeat, decisions, SAFE_MODE, retries, and notification data sit in separate records. | PGlite fixture generates report for fixed interval. | Phase 6 |
+
+Safety review baseline: policy rejections, UNKNOWN/PARTIAL handling, reduce-only orders, defense caps, active-action uniqueness, automation authority, reconciliation, telemetry gating, and pause/kill controls have existing tests. Recheck these after each phase and name the exact tests in the final PR report.
