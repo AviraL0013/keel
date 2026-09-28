@@ -15,6 +15,7 @@ import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.j
 import { registerRoutes } from './interfaces/http/register.js'
 import { installShutdownHandlers } from './shutdown.js'
 import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
+import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
 
 export type ServerServices = {
   venue?: RuntimeVenue
@@ -45,6 +46,10 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   const telegram =
     persistence instanceof PostgresStore && ['testnet', 'mainnet'].includes(config.environment)
       ? createTelegramNotifier(persistence.pool, process.env)
+      : undefined
+  const snapshotRetention =
+    persistence instanceof PostgresStore
+      ? new SnapshotRetention(persistence.pool, snapshotRetentionConfig(process.env))
       : undefined
   const origins = new Set(
     config.corsOrigin
@@ -99,9 +104,11 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     enrollment?.startCleanup()
     await runtime?.start()
     telegram?.start()
+    snapshotRetention?.start()
   })
   app.addHook('onClose', async () => {
     enrollment?.stopCleanup()
+    await snapshotRetention?.stop()
     try {
       await runtime?.stop()
     } finally {
