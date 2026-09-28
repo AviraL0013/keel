@@ -6,7 +6,7 @@ import { loadConfig } from '../packages/shared/src/index.js'
 
 const walletA = privateKeyToAccount('0x0123456789012345678901234567890123456789012345678901234567890123')
 const walletB = privateKeyToAccount('0x1123456789012345678901234567890123456789012345678901234567890123')
-const keys = ['KEEL_ENV', 'KEEL_ALLOWED_WALLETS', 'MONAD_WALLET_ADDRESS', 'CORS_ORIGIN'] as const
+const keys = ['KEEL_ENV', 'KEEL_ALLOWED_WALLETS', 'MONAD_WALLET_ADDRESS', 'CORS_ORIGIN', 'DATABASE_URL', 'SESSION_SECRET', 'PERPL_REST_URL', 'PERPL_WS_URL', 'PERPL_CHAIN_ID', 'PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'] as const
 const original = Object.fromEntries(keys.map(key => [key, process.env[key]]))
 afterEach(() => { for (const key of keys) { const value = original[key]; if (value === undefined) delete process.env[key]; else process.env[key] = value } })
 
@@ -90,6 +90,8 @@ describe('configured wallet access', () => {
 
   it('restricts testnet CORS preflights to configured origins', async () => {
     process.env.KEEL_ENV = 'testnet'; process.env.CORS_ORIGIN = 'https://demo.example'; process.env.KEEL_ALLOWED_WALLETS = walletA.address
+    process.env.DATABASE_URL = 'postgres://localhost/unused'; process.env.SESSION_SECRET = 'test-secret-not-for-production'
+    for (const key of ['PERPL_REST_URL', 'PERPL_WS_URL', 'PERPL_CHAIN_ID', 'PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID']) delete process.env[key]
     const app = createServer(new MemoryStore())
     try {
       const preflight = (origin: string) => app.inject({ method: 'OPTIONS', url: '/auth/challenge', headers: { origin, 'access-control-request-method': 'POST' } })

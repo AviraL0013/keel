@@ -11,6 +11,19 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   if (!Number.isSafeInteger(safeModeResumeTicks) || safeModeResumeTicks < 1) throw new Error('INVALID_KEEL_SAFE_MODE_RESUME_TICKS')
   return { environment, port: Number(env.PORT ?? 8787), databaseUrl: env.DATABASE_URL, sessionSecret: env.SESSION_SECRET ?? 'development-only-change-me', perplRestUrl: env.PERPL_REST_URL ?? '', perplWsUrl: env.PERPL_WS_URL ?? '', perplChainId: Number(env.PERPL_CHAIN_ID ?? 10143), ausdTokenAddress: env.AUSD_TOKEN_ADDRESS, corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173', allowedWallets, safeModeResumeTicks }
 }
-export function assertProductionConfig(config: Config) { if (config.environment === 'mainnet' && (config.sessionSecret.includes('change-me') || !config.databaseUrl || !config.perplRestUrl || !config.perplWsUrl || !config.ausdTokenAddress)) throw new Error('INCOMPLETE_MAINNET_CONFIGURATION') }
+export function assertProductionConfig(config: Config, env: Record<string, string | undefined> = process.env) {
+  if (config.environment === 'mainnet' && (config.sessionSecret.includes('change-me') || !config.databaseUrl || !config.perplRestUrl || !config.perplWsUrl || !config.ausdTokenAddress)) throw new Error('INCOMPLETE_MAINNET_CONFIGURATION')
+  if (config.environment !== 'testnet') return
+  const problems: string[] = []
+  const set = (key: string) => Boolean(env[key]?.trim())
+  if (!set('DATABASE_URL')) problems.push('DATABASE_URL_MISSING')
+  if (!set('SESSION_SECRET') || config.sessionSecret === 'development-only-change-me') problems.push('SESSION_SECRET_UNSAFE')
+  if (!config.allowedWallets.length) problems.push('WALLET_ALLOWLIST_MISSING')
+  if (!set('CORS_ORIGIN')) problems.push('CORS_ORIGIN_MISSING')
+  const perpl = ['PERPL_REST_URL','PERPL_WS_URL','PERPL_CHAIN_ID','PERPL_API_KEY','PERPL_API_KEY_SECRET','PERPL_ACCOUNT_ID']
+  const count = perpl.filter(set).length
+  if (count > 0 && count < perpl.length) problems.push('PERPL_LIVE_SETTINGS_INCOMPLETE')
+  if (problems.length) throw new Error(`INVALID_TESTNET_CONFIGURATION: ${problems.join(', ')}`)
+}
 export type Logger = { info: (meta: Record<string, unknown>, message: string) => void; warn: (meta: Record<string, unknown>, message: string) => void; error: (meta: Record<string, unknown>, message: string) => void }
 export const logger: Logger = { info(meta, message) { console.log(JSON.stringify({ level: 'info', ...meta, message, timestamp: new Date().toISOString() })) }, warn(meta, message) { console.warn(JSON.stringify({ level: 'warn', ...meta, message, timestamp: new Date().toISOString() })) }, error(meta, message) { console.error(JSON.stringify({ level: 'error', ...meta, message, timestamp: new Date().toISOString() })) } }
