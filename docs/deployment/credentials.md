@@ -14,13 +14,13 @@ These values activate external services; none belong in mobile bundles. Current 
 
 Optional development/testnet per-user enrollment (backend foundation only; Books still use the server-wide key):
 
-- `KEEL_KEY_ENCRYPTION_KEY` — 32-byte hex AES-256-GCM key. Setting this enables the enrollment endpoints outside mainnet; keep it server-side.
+- `EYELER_KEY_ENCRYPTION_KEY` — 32-byte hex AES-256-GCM key. Setting this enables the enrollment endpoints outside mainnet; keep it server-side.
 - `PERPL_ENROLLMENT_ORIGIN` — exact HTTPS origin allowlisted by Perpl for payload/enroll requests.
-- `KEEL_KEY_TTL_DAYS` — enrolled key lifetime, default 90.
-- `KEEL_EGRESS_CIDRS` — optional comma-separated CIDRs, at most four.
-- `KEEL_BUILDER_ID` and `KEEL_MAX_BUILDER_FEE_PER_100K` — optional paired builder terms; both must be set together.
+- `EYELER_KEY_TTL_DAYS` — enrolled key lifetime, default 90.
+- `EYELER_EGRESS_CIDRS` — optional comma-separated CIDRs, at most four.
+- `EYELER_BUILDER_ID` and `EYELER_MAX_BUILDER_FEE_PER_100K` — optional paired builder terms; both must be set together.
 
-KEEL never revokes a key at Perpl. Disconnect shreds local credentials and directs the user to the Perpl key page for venue-side revocation. Mainnet enrollment is disabled until production custody exists.
+EYELER never revokes a key at Perpl. Disconnect shreds local credentials and directs the user to the Perpl key page for venue-side revocation. Mainnet enrollment is disabled until production custody exists.
 
 ## MONAD TESTNET — REQUIRED FOR LIVE EVIDENCE
 
@@ -53,10 +53,10 @@ Perpl testnet currently uses its documented USD collateral token separately from
 
 ## DEPLOYMENT — REQUIRED BY HOST
 
-- `KEEL_ENV`, `PORT` — deployment configuration.
-- `KEEL_ALLOWED_WALLETS` — comma-separated wallets allowed to obtain sessions. Empty falls back to `MONAD_WALLET_ADDRESS`; with neither set, only `KEEL_ENV=test` permits sign-in.
+- `EYELER_ENV`, `PORT` — deployment configuration.
+- `EYELER_ALLOWED_WALLETS` — comma-separated wallets allowed to obtain sessions. Empty falls back to `MONAD_WALLET_ADDRESS`; with neither set, only `EYELER_ENV=test` permits sign-in.
 - `CORS_ORIGIN` — explicit browser origins on testnet/mainnet; development/test accept any origin, with credentials enabled.
-- `KEEL_SAFE_MODE_RESUME_TICKS` — consecutive fresh, venue-ready ticks needed to resume transient SAFE_MODE; default `5`.
-- `KEEL_API_URL` — Flutter build-time API URL, passed with `--dart-define`.
+- `EYELER_SAFE_MODE_RESUME_TICKS` — consecutive fresh, venue-ready ticks needed to resume transient SAFE_MODE; default `5`.
+- `EYELER_API_URL` — Flutter build-time API URL, passed with `--dart-define`.
 
-No private wallet key is required by KEEL mobile. No withdrawal/transfer-out permission is requested from Perpl.
+No private wallet key is required by EYELER mobile. No withdrawal/transfer-out permission is requested from Perpl.

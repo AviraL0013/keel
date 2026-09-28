@@ -44,5 +44,5 @@ class _LiveSyncStatusState extends State<LiveSyncStatus> {
           alignment: Alignment.centerRight,
           child: Text(
               widget.value.isLoading ? 'SYNCING' : widget.value.hasError ? 'CONNECTION LOST · RETRYING' : _updated ? 'UPDATED' : '',
-              style: KeelTypography.label)));
+              style: EyelerTypography.label)));
 }

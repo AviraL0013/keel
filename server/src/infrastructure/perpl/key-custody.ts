@@ -10,7 +10,7 @@ export interface KeyCustody {
 export class DevelopmentKeyCustody implements KeyCustody {
   private readonly key: Buffer
   constructor(hexKey: string) {
-    if (!/^(?:0x)?[0-9a-fA-F]{64}$/.test(hexKey)) throw new Error('INVALID_KEEL_KEY_ENCRYPTION_KEY')
+    if (!/^(?:0x)?[0-9a-fA-F]{64}$/.test(hexKey)) throw new Error('INVALID_EYELER_KEY_ENCRYPTION_KEY')
     this.key = Buffer.from(hexKey.replace(/^0x/, ''), 'hex')
   }
   seal(value: string, context: string): string {

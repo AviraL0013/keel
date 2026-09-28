@@ -4,7 +4,7 @@ import '../domain/notification_item.dart';
 
 class NotificationRepository {
   const NotificationRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<List<NotificationItem>> list() async {
     final value = await api.get('/notifications', (body) => body);
     if (value is! List) return const [];

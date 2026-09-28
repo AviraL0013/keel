@@ -4,7 +4,7 @@ import '../domain/position.dart';
 
 class PositionsRepository {
   const PositionsRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<List<Position>> list() async {
     final result = await api.get('/connections/perpl/positions',
         (value) => Map<String, dynamic>.from(value as Map));

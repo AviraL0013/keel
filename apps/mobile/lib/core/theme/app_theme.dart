@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-abstract final class KeelColors {
+abstract final class EyelerColors {
   static const darkBackground = Color(0xFF061012);
   static const darkCanvas = Color(0xFF081417);
   static const darkSurface = Color(0xFF102326);
@@ -24,7 +24,7 @@ abstract final class KeelColors {
   static const info = accent;
 }
 
-abstract final class KeelSpacing {
+abstract final class EyelerSpacing {
   static const xs = 6.0;
   static const sm = 10.0;
   static const md = 16.0;
@@ -33,14 +33,14 @@ abstract final class KeelSpacing {
   static const xxl = 44.0;
 }
 
-abstract final class KeelRadii {
+abstract final class EyelerRadii {
   static const small = 12.0;
   static const card = 22.0;
   static const button = 16.0;
   static const pill = 100.0;
 }
 
-abstract final class KeelTypography {
+abstract final class EyelerTypography {
   static const display = TextStyle(
       fontSize: 38,
       height: 1.0,
@@ -67,8 +67,8 @@ abstract final class KeelTypography {
       letterSpacing: -.3);
 }
 
-class KeelRiskVisual {
-  const KeelRiskVisual(
+class EyelerRiskVisual {
+  const EyelerRiskVisual(
       {required this.label,
       required this.description,
       required this.color,
@@ -79,73 +79,73 @@ class KeelRiskVisual {
   final Color color;
   final Color foreground;
   final IconData icon;
-  static KeelRiskVisual forState(String? state) => switch (state) {
-        'HOLD' => const KeelRiskVisual(
+  static EyelerRiskVisual forState(String? state) => switch (state) {
+        'HOLD' => const EyelerRiskVisual(
             label: 'HOLD',
             description: 'No action requested by the current backend decision.',
-            color: KeelColors.hold,
+            color: EyelerColors.hold,
             foreground: Colors.black,
             icon: Icons.check_circle_outline),
-        'DEFEND' => const KeelRiskVisual(
+        'DEFEND' => const EyelerRiskVisual(
             label: 'DEFEND',
             description:
                 'Margin protection selected. Check execution for the outcome.',
-            color: KeelColors.defend,
+            color: EyelerColors.defend,
             foreground: Colors.black,
             icon: Icons.shield_outlined),
-        'REDUCE' => const KeelRiskVisual(
+        'REDUCE' => const EyelerRiskVisual(
             label: 'REDUCE',
             description: 'The policy calls for less exposure.',
-            color: KeelColors.reduce,
+            color: EyelerColors.reduce,
             foreground: Colors.black,
             icon: Icons.trending_down),
-        'EXIT' => const KeelRiskVisual(
+        'EXIT' => const EyelerRiskVisual(
             label: 'EXIT',
             description:
                 'The policy calls for closing exposure. Execution is tracked separately.',
-            color: KeelColors.exit,
+            color: EyelerColors.exit,
             foreground: Colors.black,
             icon: Icons.logout),
-        'SAFE_MODE' => const KeelRiskVisual(
+        'SAFE_MODE' => const EyelerRiskVisual(
             label: 'SAFE_MODE',
             description:
                 'Paused for safety. Review the reason before recovering automation.',
-            color: KeelColors.safeMode,
+            color: EyelerColors.safeMode,
             foreground: Colors.black,
             icon: Icons.pause_circle_outline),
-        _ => const KeelRiskVisual(
+        _ => const EyelerRiskVisual(
             label: 'UNKNOWN',
             description: 'Waiting for an authoritative risk decision.',
-            color: KeelColors.darkMuted,
+            color: EyelerColors.darkMuted,
             foreground: Colors.black,
             icon: Icons.help_outline),
       };
 }
 
-class KeelTheme {
+class EyelerTheme {
   static ThemeData get data => dark;
   static ThemeData get dark => _build(Brightness.dark);
   static ThemeData get light => _build(Brightness.light);
   static ThemeData _build(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
     final background =
-        isDark ? KeelColors.darkBackground : KeelColors.lightBackground;
-    final surface = isDark ? KeelColors.darkSurface : KeelColors.lightSurface;
-    final text = isDark ? KeelColors.darkText : KeelColors.lightText;
-    final muted = isDark ? KeelColors.darkMuted : KeelColors.lightMuted;
-    final border = isDark ? KeelColors.darkBorder : KeelColors.lightBorder;
+        isDark ? EyelerColors.darkBackground : EyelerColors.lightBackground;
+    final surface = isDark ? EyelerColors.darkSurface : EyelerColors.lightSurface;
+    final text = isDark ? EyelerColors.darkText : EyelerColors.lightText;
+    final muted = isDark ? EyelerColors.darkMuted : EyelerColors.lightMuted;
+    final border = isDark ? EyelerColors.darkBorder : EyelerColors.lightBorder;
     final scheme = ColorScheme.fromSeed(
-            seedColor: KeelColors.accent, brightness: brightness)
+            seedColor: EyelerColors.accent, brightness: brightness)
         .copyWith(
-            primary: KeelColors.accent,
-            secondary: KeelColors.defend,
+            primary: EyelerColors.accent,
+            secondary: EyelerColors.defend,
             surface: surface,
-            error: KeelColors.exit,
+            error: EyelerColors.exit,
             onSurface: text,
             onPrimary: Colors.black,
             onSecondary: Colors.black);
     final inputBorder = OutlineInputBorder(
-        borderRadius: BorderRadius.circular(KeelRadii.button),
+        borderRadius: BorderRadius.circular(EyelerRadii.button),
         borderSide: BorderSide(color: border));
     return ThemeData(
       brightness: brightness,
@@ -160,61 +160,61 @@ class KeelTheme {
               side:
                   BorderSide(color: border.withValues(alpha: isDark ? .7 : 1)),
               borderRadius:
-                  const BorderRadius.all(Radius.circular(KeelRadii.card)))),
+                  const BorderRadius.all(Radius.circular(EyelerRadii.card)))),
       appBarTheme: AppBarTheme(
           backgroundColor: Colors.transparent,
           foregroundColor: text,
           elevation: 0,
           centerTitle: false,
-          titleTextStyle: KeelTypography.title.copyWith(color: text)),
+          titleTextStyle: EyelerTypography.title.copyWith(color: text)),
       inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: surface,
           border: inputBorder,
           enabledBorder: inputBorder,
           focusedBorder: inputBorder.copyWith(
-              borderSide: const BorderSide(color: KeelColors.accent, width: 2)),
-          labelStyle: KeelTypography.body.copyWith(color: muted)),
+              borderSide: const BorderSide(color: EyelerColors.accent, width: 2)),
+          labelStyle: EyelerTypography.body.copyWith(color: muted)),
       filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-              backgroundColor: KeelColors.accent,
+              backgroundColor: EyelerColors.accent,
               foregroundColor: Colors.black,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(KeelRadii.button)),
+                  borderRadius: BorderRadius.circular(EyelerRadii.button)),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              textStyle: KeelTypography.label.copyWith(letterSpacing: .4))),
+              textStyle: EyelerTypography.label.copyWith(letterSpacing: .4))),
       outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
               foregroundColor: text,
               side: BorderSide(color: border),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(KeelRadii.button)),
+                  borderRadius: BorderRadius.circular(EyelerRadii.button)),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              textStyle: KeelTypography.label.copyWith(color: text))),
+              textStyle: EyelerTypography.label.copyWith(color: text))),
       navigationBarTheme: NavigationBarThemeData(
           backgroundColor: background,
-          indicatorColor: KeelColors.accent.withValues(alpha: .16),
+          indicatorColor: EyelerColors.accent.withValues(alpha: .16),
           elevation: 8,
-          labelTextStyle: WidgetStatePropertyAll(KeelTypography.label
+          labelTextStyle: WidgetStatePropertyAll(EyelerTypography.label
               .copyWith(fontSize: 10, letterSpacing: .2, color: text))),
       dividerTheme: DividerThemeData(color: border, space: 1),
       chipTheme: ChipThemeData(
           backgroundColor: surface,
-          selectedColor: KeelColors.accent.withValues(alpha: .19),
+          selectedColor: EyelerColors.accent.withValues(alpha: .19),
           side: BorderSide(color: border),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          labelStyle: KeelTypography.body.copyWith(color: text)),
+          labelStyle: EyelerTypography.body.copyWith(color: text)),
       textTheme: TextTheme(
-          displayLarge: KeelTypography.display.copyWith(color: text),
-          displayMedium: KeelTypography.display.copyWith(color: text),
-          headlineSmall: KeelTypography.title.copyWith(color: text),
-          titleLarge: KeelTypography.section.copyWith(color: text),
-          titleMedium: KeelTypography.section.copyWith(color: text),
-          bodyLarge: KeelTypography.body.copyWith(color: text),
-          bodyMedium: KeelTypography.body.copyWith(color: muted),
-          labelLarge: KeelTypography.label.copyWith(color: text),
-          labelSmall: KeelTypography.label.copyWith(color: muted)),
+          displayLarge: EyelerTypography.display.copyWith(color: text),
+          displayMedium: EyelerTypography.display.copyWith(color: text),
+          headlineSmall: EyelerTypography.title.copyWith(color: text),
+          titleLarge: EyelerTypography.section.copyWith(color: text),
+          titleMedium: EyelerTypography.section.copyWith(color: text),
+          bodyLarge: EyelerTypography.body.copyWith(color: text),
+          bodyMedium: EyelerTypography.body.copyWith(color: muted),
+          labelLarge: EyelerTypography.label.copyWith(color: text),
+          labelSmall: EyelerTypography.label.copyWith(color: muted)),
     );
   }
 }

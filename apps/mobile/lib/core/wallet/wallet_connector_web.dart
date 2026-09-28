@@ -14,7 +14,7 @@ WalletConnector walletConnector() => Eip1193WalletConnector(_request);
 
 Future<Object?> _request(String method, [List<Object?>? params]) async {
   final provider = _ethereum;
-  if (provider == null) throw const WalletException('Install or unlock an EVM wallet extension to connect KEEL.');
+  if (provider == null) throw const WalletException('Install or unlock an EVM wallet extension to connect EYELER.');
   final input = <String, Object?>{'method': method, if (params != null) 'params': params}.jsify();
   try { return (await (_Eip1193(provider).request(input)).toDart)?.dartify(); }
   catch (error) {

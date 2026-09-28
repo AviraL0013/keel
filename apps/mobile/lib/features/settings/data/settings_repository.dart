@@ -3,7 +3,7 @@ import '../../../core/networking/api_client.dart';
 
 class SettingsRepository {
   const SettingsRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<Map<String, dynamic>> killSwitch() => api.post('/controls/kill-switch',
       decode: (value) => Map<String, dynamic>.from(value as Map));
   Future<void> scenario(String value) => api.post('/dev/test-venue/scenario',

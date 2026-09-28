@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/autopsy/data/autopsy_repository.dart';
-import 'package:keel_mobile/features/autopsy/domain/autopsy_event.dart';
-import 'package:keel_mobile/features/autopsy/presentation/autopsy_screen.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/autopsy/data/autopsy_repository.dart';
+import 'package:eyeler_mobile/features/autopsy/domain/autopsy_event.dart';
+import 'package:eyeler_mobile/features/autopsy/presentation/autopsy_screen.dart';
 
 void main() {
   testWidgets('long event status fits narrow phone', (tester) async {
@@ -24,7 +24,7 @@ void main() {
             ]),
       ],
       child: MaterialApp(
-          theme: KeelTheme.dark, home: const AutopsyScreen(bookId: 'book')),
+          theme: EyelerTheme.dark, home: const AutopsyScreen(bookId: 'book')),
     ));
     await tester.pump();
     expect(tester.takeException(), isNull);

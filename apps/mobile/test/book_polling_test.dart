@@ -2,14 +2,14 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
-import 'package:keel_mobile/features/books/domain/book.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
 
 class DelayedBooksRepository extends BooksRepository {
-  DelayedBooksRepository(http.Client client) : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
+  DelayedBooksRepository(http.Client client) : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
   final requests = <Completer<BookDashboardState>>[];
   @override
   Future<BookDashboardState> state(String id) {

@@ -4,14 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/errors/keel_exception.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
-import 'package:keel_mobile/features/books/domain/book.dart';
-import 'package:keel_mobile/features/books/presentation/screens/book_detail_screen.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/errors/eyeler_exception.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/book_detail_screen.dart';
 
 const testBook = Book(
     id: 'eth', market: 'ETH', side: 'LONG', stance: 'DEFEND', status: 'ACTIVE',
@@ -25,7 +25,7 @@ class TestSessionStorage extends SessionStorage {
 
 class ArmRepository extends BooksRepository {
   ArmRepository(this.rejectArm, this.book, http.Client client)
-      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'),
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
             const SessionStorage(), client));
   final bool rejectArm;
   final Book book;
@@ -38,7 +38,7 @@ class ArmRepository extends BooksRepository {
   @override
   Future<Book> control(String id, String action) async {
     calls.add(action);
-    if (rejectArm) throw const KeelException('KILL_SWITCH_ENGAGED', statusCode: 409);
+    if (rejectArm) throw const EyelerException('KILL_SWITCH_ENGAGED', statusCode: 409);
     return testBook;
   }
   @override
@@ -60,8 +60,8 @@ void main() {
       }), 200);
     });
     addTearDown(client.close);
-    final repository = BooksRepository(KeelApiClient(
-        const KeelConfig(apiBaseUrl: 'http://unused'),
+    final repository = BooksRepository(EyelerApiClient(
+        const EyelerConfig(apiBaseUrl: 'http://unused'),
         const TestSessionStorage(), client));
     await repository.armWithStance('eth', 'DEFEND');
     expect(requests, hasLength(1));
@@ -82,7 +82,7 @@ void main() {
     final repository = ArmRepository(rejectArm, book, client);
     await tester.pumpWidget(ProviderScope(
       overrides: [booksRepositoryProvider.overrideWithValue(repository)],
-      child: MaterialApp(theme: KeelTheme.dark,
+      child: MaterialApp(theme: EyelerTheme.dark,
           home: BookDetailScreen(book: book)),
     ));
     await tester.pump();

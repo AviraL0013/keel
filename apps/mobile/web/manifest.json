@@ -1,9 +1,9 @@
 ﻿{
-  "name": "KEEL",
-  "short_name": "KEEL",
+  "name": "EYELER",
+  "short_name": "EYELER",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#0b1012",
   "theme_color": "#0b1012",
-  "description": "KEEL programmable risk operations"
+  "description": "EYELER programmable risk operations"
 }

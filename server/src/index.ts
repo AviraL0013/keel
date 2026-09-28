@@ -3,8 +3,8 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import rateLimit from '@fastify/rate-limit'
-import { loadConfig, assertProductionConfig, logger, walletAccess } from './config/index.js'
-import { KeelRuntime, type RuntimeVenue } from './runtime.js'
+import { loadConfig, assertProductionConfig, brandEnv, logger, walletAccess } from './config/index.js'
+import { EyelerRuntime, type RuntimeVenue } from './runtime.js'
 import { AuthService } from './auth.js'
 import { MemoryStore } from './memoryStore.js'
 import { NotificationStore } from './infrastructure/database/notification-store.js'
@@ -38,12 +38,12 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   void app.register(cors, { origin: config.environment === 'test' || config.environment === 'development' ? true : [...origins], credentials: true })
   void app.register(cookie, { secret: config.sessionSecret })
   void app.register(rateLimit, { max: 120, timeWindow: '1 minute' })
-  const testRuntime = persistence instanceof MemoryStore && process.env.KEEL_TEST_VENUE === 'true' ? new DeterministicTestRuntime(persistence) : undefined
+  const testRuntime = persistence instanceof MemoryStore && brandEnv(process.env, 'TEST_VENUE') === 'true' ? new DeterministicTestRuntime(persistence) : undefined
   let venue = services.venue ?? testRuntime?.venue
   if (!venue && persistence instanceof PostgresStore) {
     try { venue = createPerplRuntime(persistence) } catch (error) { logger.warn({ error: error instanceof Error ? error.message : 'PERPL_CONFIGURATION_INVALID' }, 'Perpl live adapter unavailable; readiness will fail closed') }
   }
-  const runtime = persistence instanceof PostgresStore ? new KeelRuntime(persistence, venue, Date.now, config.safeModeResumeTicks) : undefined
+  const runtime = persistence instanceof PostgresStore ? new EyelerRuntime(persistence, venue, Date.now, config.safeModeResumeTicks) : undefined
   const enrollment = services.enrollment ?? (persistence instanceof PostgresStore ? createPerplEnrollmentService(persistence, config, process.env) : undefined)
   const closeBook = services.closeBook ?? (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
   const executeAction = services.executeAction ?? (runtime ? runtime.executeAction.bind(runtime) : testRuntime ? testRuntime.executeAction.bind(testRuntime) : undefined)
@@ -58,7 +58,7 @@ export async function startServer() {
   const app = createServer()
   await app.listen({ port: config.port, host: '0.0.0.0' })
   installShutdownHandlers(app)
-  logger.info({ port: config.port, environment: config.environment }, 'KEEL API listening')
+  logger.info({ port: config.port, environment: config.environment }, 'EYELER API listening')
   return app
 }
 

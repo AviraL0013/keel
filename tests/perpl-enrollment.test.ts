@@ -14,13 +14,13 @@ import { registerRoutes } from '../server/src/interfaces/http/register.js'
 
 const wallet = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const other = privateKeyToAccount(`0x${'22'.repeat(32)}`)
-const origin = 'https://keel.example'
+const origin = 'https://eyeler.example'
 
 async function fixture(enrollStatus = 200, domainOrder = false, now: () => number = Date.now) {
   const { db, store } = await databaseFixture()
   const userId = await store.ensureUser(wallet.address)
   const custody = new DevelopmentKeyCustody('33'.repeat(32))
-  const config = loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: origin }, loadConfig({ KEEL_ENV: 'test' }))
+  const config = loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: origin }, loadConfig({ EYELER_ENV: 'test' }))
   const requests: Array<{ path: string; headers: Headers; body: Record<string, unknown> }> = []
   let onEnroll: (() => Promise<void>) | undefined
   const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -49,7 +49,7 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
     const altered = { ...typed, message: { ...typed.message, label: 'OTHER' } }
     const alteredDigest = hashTypedData(altered)
     expect(await verifyAsync(Buffer.from(String(body.pop_signature).slice(2), 'hex'), Buffer.from(alteredDigest.slice(2), 'hex'), Buffer.from(publicKey.slice(2), 'hex'))).toBe(false)
-    return Response.json({ api_key: { api_key: 'private-token', address: wallet.address, scope_mask: 3, label: 'KEEL', origin, expires_at: requests[0].body.expires_at } })
+    return Response.json({ api_key: { api_key: 'private-token', address: wallet.address, scope_mask: 3, label: 'EYELER', origin, expires_at: requests[0].body.expires_at } })
   }) as typeof fetch
   const client = new PerplEnrollmentClient('https://perpl.invalid/api', origin, fetcher)
   const service = new PerplEnrollmentService(store, config, custody, client, now)
@@ -80,7 +80,7 @@ describe('development Perpl enrollment foundation', () => {
       expect(row.sealed_mac).not.toContain('private-mac')
       expect(row.credential_reference).toBe(`enrollment:${pending.connectionId}`)
       expect(value.requests[0].headers.get('origin')).toBe(origin)
-      expect(value.requests[0].body).toMatchObject({ address: wallet.address.toLowerCase(), scope_mask: 3, label: 'KEEL', chain_id: 10143 })
+      expect(value.requests[0].body).toMatchObject({ address: wallet.address.toLowerCase(), scope_mask: 3, label: 'EYELER', chain_id: 10143 })
       const signature = await value.sign(pending.typedData)
       const complete = await value.service.complete(value.userId, wallet.address, pending.connectionId, signature)
       expect(complete).toEqual({ connectionId: pending.connectionId, status: 'ACTIVE' })
@@ -165,7 +165,7 @@ describe('development Perpl enrollment foundation', () => {
       const row = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId])).rows[0]
       expect(row).toMatchObject({ status: 'ERROR', last_error: 'ENROLLMENT_OUTCOME_UNKNOWN', public_key: inFlight.public_key, sealed_private_key: null, sealed_mac: null, typed_data: null })
       expect(row.shredded_at).not.toBeNull()
-      const config = loadConfig({ KEEL_ENV: 'test' })
+      const config = loadConfig({ EYELER_ENV: 'test' })
       await app.register(cookie, { secret: config.sessionSecret })
       registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: restarted })
       await value.store.createSession('stuck-enrollment-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
@@ -203,7 +203,7 @@ describe('development Perpl enrollment foundation', () => {
     const value = await fixture()
     const app = Fastify({ logger: false })
     try {
-      const config = loadConfig({ KEEL_ENV: 'test' })
+      const config = loadConfig({ EYELER_ENV: 'test' })
       await app.register(cookie, { secret: config.sessionSecret })
       registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: value.service })
       await value.store.createSession('inflight-enrollment-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
@@ -237,7 +237,7 @@ describe('development Perpl enrollment foundation', () => {
       await expect(value.service.start(value.userId, wallet.address)).rejects.toThrow('PERPL_ENROLLMENT_REVIEW_REQUIRED')
       const app = Fastify({ logger: false })
       try {
-        const config = loadConfig({ KEEL_ENV: 'test' })
+        const config = loadConfig({ EYELER_ENV: 'test' })
         await app.register(cookie, { secret: config.sessionSecret })
         registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: value.service })
         await value.store.createSession('enrollment-failure-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
@@ -339,7 +339,7 @@ describe('development Perpl enrollment foundation', () => {
     const logged = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const errored = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
-      const config = loadConfig({ KEEL_ENV: 'test' })
+      const config = loadConfig({ EYELER_ENV: 'test' })
       await app.register(cookie, { secret: config.sessionSecret })
       registerRoutes({ app, config, persistence: value.store, auth: new AuthService(value.store, config.sessionSecret), notificationStore: null, enrollment: value.service })
       await value.store.createSession('enrollment-session', { userId: value.userId, walletAddress: wallet.address.toLowerCase(), expiresAt: Date.now() + 3_600_000 })
@@ -366,16 +366,16 @@ describe('development Perpl enrollment foundation', () => {
   }, 20_000)
 
   it('validates custody and enrollment settings and disables mainnet', () => {
-    expect(() => new DevelopmentKeyCustody('bad')).toThrow('INVALID_KEEL_KEY_ENCRYPTION_KEY')
-    const config = loadConfig({ KEEL_ENV: 'testnet' })
+    expect(() => new DevelopmentKeyCustody('bad')).toThrow('INVALID_EYELER_KEY_ENCRYPTION_KEY')
+    const config = loadConfig({ EYELER_ENV: 'testnet' })
     const base = { PERPL_ENROLLMENT_ORIGIN: origin }
-    expect(() => loadEnrollmentConfig({ ...base, KEEL_KEY_TTL_DAYS: '0' }, config)).toThrow('INVALID_KEEL_KEY_TTL_DAYS')
-    expect(() => loadEnrollmentConfig({ ...base, KEEL_EGRESS_CIDRS: 'not-a-cidr' }, config)).toThrow('INVALID_KEEL_EGRESS_CIDRS')
-    expect(() => loadEnrollmentConfig({ ...base, KEEL_EGRESS_CIDRS: '1.1.1.1/32,2.2.2.2/32,3.3.3.3/32,4.4.4.4/32,5.5.5.5/32' }, config)).toThrow('INVALID_KEEL_EGRESS_CIDRS')
-    expect(() => loadEnrollmentConfig({ ...base, KEEL_BUILDER_ID: '256', KEEL_MAX_BUILDER_FEE_PER_100K: '0' }, config)).toThrow('INVALID_KEEL_BUILDER_TERMS')
-    expect(() => loadEnrollmentConfig({ ...base, KEEL_BUILDER_ID: '1', KEEL_MAX_BUILDER_FEE_PER_100K: '101' }, config)).toThrow('INVALID_KEEL_BUILDER_TERMS')
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_KEY_TTL_DAYS: '0' }, config)).toThrow('INVALID_EYELER_KEY_TTL_DAYS')
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_EGRESS_CIDRS: 'not-a-cidr' }, config)).toThrow('INVALID_EYELER_EGRESS_CIDRS')
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_EGRESS_CIDRS: '1.1.1.1/32,2.2.2.2/32,3.3.3.3/32,4.4.4.4/32,5.5.5.5/32' }, config)).toThrow('INVALID_EYELER_EGRESS_CIDRS')
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_BUILDER_ID: '256', EYELER_MAX_BUILDER_FEE_PER_100K: '0' }, config)).toThrow('INVALID_EYELER_BUILDER_TERMS')
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_BUILDER_ID: '1', EYELER_MAX_BUILDER_FEE_PER_100K: '101' }, config)).toThrow('INVALID_EYELER_BUILDER_TERMS')
     expect(() => loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: 'http://insecure.example' }, config)).toThrow('INVALID_PERPL_ENROLLMENT_ORIGIN')
-    expect(() => loadEnrollmentConfig(base, loadConfig({ KEEL_ENV: 'mainnet' }))).toThrow('PERPL_CONNECTIONS_MAINNET_UNSUPPORTED')
+    expect(() => loadEnrollmentConfig(base, loadConfig({ EYELER_ENV: 'mainnet' }))).toThrow('PERPL_CONNECTIONS_MAINNET_UNSUPPORTED')
     const custody = new DevelopmentKeyCustody('33'.repeat(32))
     const sealed = custody.seal('example-secret', 'connection-a:private_key')
     expect(custody.open(sealed, 'connection-a:private_key')).toBe('example-secret')

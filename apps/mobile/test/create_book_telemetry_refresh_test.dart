@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/books/presentation/screens/create_book_screen.dart';
-import 'package:keel_mobile/features/capital/data/capital_repository.dart';
-import 'package:keel_mobile/features/capital/domain/capital_snapshot.dart';
-import 'package:keel_mobile/features/positions/data/positions_repository.dart';
-import 'package:keel_mobile/features/positions/domain/position.dart';
-import 'package:keel_mobile/shared/models/telemetry_freshness.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/create_book_screen.dart';
+import 'package:eyeler_mobile/features/capital/data/capital_repository.dart';
+import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
+import 'package:eyeler_mobile/features/positions/data/positions_repository.dart';
+import 'package:eyeler_mobile/features/positions/domain/position.dart';
+import 'package:eyeler_mobile/shared/models/telemetry_freshness.dart';
 
 const point = TelemetryFreshnessPoint(status: 'STALE', ageMs: 14329, thresholdMs: 10000);
 
@@ -39,7 +39,7 @@ Position position(bool ready, double mark) => Position(
 
 class SequencedPositionsRepository extends PositionsRepository {
   SequencedPositionsRepository(http.Client client, this.responses)
-      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'), const SessionStorage(), client));
 
   final List<Object> responses;
   int reads = 0;
@@ -73,7 +73,7 @@ void main() {
               'perplLocked': '0',
             })),
       ],
-      child: MaterialApp(theme: KeelTheme.dark, home: CreateBookScreen(position: stale)),
+      child: MaterialApp(theme: EyelerTheme.dark, home: CreateBookScreen(position: stale)),
     ));
     await tester.pump();
     final screen = tester.element(find.byType(CreateBookScreen));

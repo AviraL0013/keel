@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../data/autopsy_repository.dart';
 import '../domain/autopsy_event.dart';
 
@@ -29,20 +29,20 @@ class AutopsyScreen extends ConsumerWidget {
                 icon: Icons.timeline_outlined,
                 title: 'NO EVIDENCE YET',
                 message:
-                    'Decisions, actions, and reconciliations will appear here as KEEL operates.')
+                    'Decisions, actions, and reconciliations will appear here as EYELER operates.')
             : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(KeelSpacing.md,
-                    KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
+                padding: const EdgeInsets.fromLTRB(EyelerSpacing.md,
+                    EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
                 itemCount: items.length + 1,
                 itemBuilder: (_, index) => index == 0
                     ? const Padding(
-                        padding: EdgeInsets.only(bottom: KeelSpacing.lg),
+                        padding: EdgeInsets.only(bottom: EyelerSpacing.lg),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('Action history',
-                                style: KeelTypography.display),
-                            SizedBox(height: KeelSpacing.xs),
+                                style: EyelerTypography.display),
+                            SizedBox(height: EyelerSpacing.xs),
                             Text('Decisions and outcomes for this Book.'),
                           ],
                         ),
@@ -68,19 +68,19 @@ class _TimelineEvent extends StatelessWidget {
       SizedBox(
           width: 36,
           child: Column(children: [
-            KeelIconTile(icon: style.icon, color: style.color, size: 30),
+            EyelerIconTile(icon: style.icon, color: style.color, size: 30),
             if (!last)
               Expanded(
                   child: Container(
                       width: 2, color: style.color.withValues(alpha: .35))),
           ])),
-      const SizedBox(width: KeelSpacing.sm),
+      const SizedBox(width: EyelerSpacing.sm),
       Expanded(
-          child: KeelPanel(
+          child: EyelerPanel(
               tone: style.color,
               padding: EdgeInsets.zero,
               child: Padding(
-                  padding: const EdgeInsets.all(KeelSpacing.md),
+                  padding: const EdgeInsets.all(EyelerSpacing.md),
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -89,8 +89,8 @@ class _TimelineEvent extends StatelessWidget {
                             children: [
                               Expanded(
                                   child: Text(_summary(event),
-                                      style: KeelTypography.section)),
-                              const SizedBox(width: KeelSpacing.sm),
+                                      style: EyelerTypography.section)),
+                              const SizedBox(width: EyelerSpacing.sm),
                               ConstrainedBox(
                                   constraints:
                                       const BoxConstraints(maxWidth: 124),
@@ -98,20 +98,20 @@ class _TimelineEvent extends StatelessWidget {
                                       label: event.type.replaceAll('_', ' '),
                                       color: style.color))
                             ]),
-                        const SizedBox(height: KeelSpacing.xs),
+                        const SizedBox(height: EyelerSpacing.xs),
                         Text(
                             '${_relative(time)} / ${time == null ? event.timestamp : _absolute(time)}',
-                            style: KeelTypography.body.copyWith(
+                            style: EyelerTypography.body.copyWith(
                                 color: Theme.of(context)
                                     .textTheme
                                     .bodyMedium
                                     ?.color)),
-                        const SizedBox(height: KeelSpacing.sm),
+                        const SizedBox(height: EyelerSpacing.sm),
                         ExpansionTile(
                             tilePadding: EdgeInsets.zero,
                             childrenPadding: EdgeInsets.zero,
                             title: const Text('Technical detail',
-                                style: KeelTypography.label),
+                                style: EyelerTypography.label),
                             children: [
                               _detail('Decision', event.decision),
                               _detail('Reason', event.reason),
@@ -169,19 +169,19 @@ class _TimelineEvent extends StatelessWidget {
     return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
-  KeelRiskVisual _style(AutopsyEvent value) {
+  EyelerRiskVisual _style(AutopsyEvent value) {
     if (value.type.contains('SAFE_MODE')) {
-      return KeelRiskVisual.forState('SAFE_MODE');
+      return EyelerRiskVisual.forState('SAFE_MODE');
     }
     if (value.type.contains('REFUSED') || value.decision == 'REDUCE') {
-      return KeelRiskVisual.forState('REDUCE');
+      return EyelerRiskVisual.forState('REDUCE');
     }
     if (value.decision == 'DEFEND') {
-      return KeelRiskVisual.forState('DEFEND');
+      return EyelerRiskVisual.forState('DEFEND');
     }
     if (value.decision == 'EXIT') {
-      return KeelRiskVisual.forState('EXIT');
+      return EyelerRiskVisual.forState('EXIT');
     }
-    return KeelRiskVisual.forState('HOLD');
+    return EyelerRiskVisual.forState('HOLD');
   }
 }

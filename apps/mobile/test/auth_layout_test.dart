@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/core/networking/backend_status.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/auth/presentation/auth_screen.dart';
+import 'package:eyeler_mobile/core/networking/backend_status.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/auth/presentation/auth_screen.dart';
 
 void main() {
   for (final width in [320.0, 427.0]) {
@@ -19,7 +19,7 @@ void main() {
               BackendState.live,
               environment: 'development')),
         ],
-        child: MaterialApp(theme: KeelTheme.dark, home: const AuthScreen()),
+        child: MaterialApp(theme: EyelerTheme.dark, home: const AuthScreen()),
       ));
       await tester.pump();
       expect(tester.takeException(), isNull);

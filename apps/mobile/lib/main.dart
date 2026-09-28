@@ -6,15 +6,15 @@ import 'core/theme/theme_controller.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/domain/auth_state.dart';
 
-void main() => runApp(const ProviderScope(child: KeelApp()));
+void main() => runApp(const ProviderScope(child: EyelerApp()));
 
-class KeelApp extends ConsumerStatefulWidget {
-  const KeelApp({super.key});
+class EyelerApp extends ConsumerStatefulWidget {
+  const EyelerApp({super.key});
   @override
-  ConsumerState<KeelApp> createState() => _KeelAppState();
+  ConsumerState<EyelerApp> createState() => _EyelerAppState();
 }
 
-class _KeelAppState extends ConsumerState<KeelApp> {
+class _EyelerAppState extends ConsumerState<EyelerApp> {
   @override
   void initState() {
     super.initState();
@@ -23,10 +23,10 @@ class _KeelAppState extends ConsumerState<KeelApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'KEEL',
+        title: 'EYELER',
         debugShowCheckedModeBanner: false,
-        theme: KeelTheme.light,
-        darkTheme: KeelTheme.dark,
+        theme: EyelerTheme.light,
+        darkTheme: EyelerTheme.dark,
         themeMode: ref.watch(themeModeProvider),
         home: _Gate(state: ref.watch(authProvider)),
       );
@@ -40,6 +40,6 @@ class _Gate extends StatelessWidget {
     if (state.restoring) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return KeelRouter(authenticated: state.authenticated);
+    return EyelerRouter(authenticated: state.authenticated);
   }
 }

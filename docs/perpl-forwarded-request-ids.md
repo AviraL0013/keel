@@ -15,13 +15,13 @@ check at PCs 55581–55617: load the stored 32-bit counter, mask the candidate t
 subtract, mask, `SIGNEXTEND 3`, then signed greater-than zero. Failure emits
 `OrderDescIdTooLow(lastOrderDescId)` at PC 55633.
 
-For ordinary KEEL orders (no trigger registration), the enforced serial rule is:
+For ordinary EYELER orders (no trigger registration), the enforced serial rule is:
 
 ```text
 int32(uint32(rq - lfr)) > 0
 ```
 
-KEEL also requires the full uint64 `rq` to exceed the fresh API `lfr`, every locally
+EYELER also requires the full uint64 `rq` to exceed the fresh API `lfr`, every locally
 reserved ID, every persisted action reference for that account, and the signed history's
 known forwarded sr=32 high-water mark. Direct UI/on-chain order-history IDs do not seed
 the forwarding allocator. No timestamp fallback is used.
@@ -47,7 +47,7 @@ balance 99446089. These simulated changes were not persisted. Both calls return 
 order signature, so the signature alone cannot establish success for collateral changes.
 
 This verifies the contract path. It does not prove a new live gateway submission or
-current economic completion. KEEL still requires authenticated venue admission and
+current economic completion. EYELER still requires authenticated venue admission and
 post-action account/position reconciliation. Unknown transport outcomes stay unknown.
 
 ## Allocation and safety

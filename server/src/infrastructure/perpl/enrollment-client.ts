@@ -1,7 +1,7 @@
-import { ConflictError, InfrastructureError, KeelError, NotFoundError, ValidationError } from '../../application/errors.js'
+import { ConflictError, InfrastructureError, EyelerError, NotFoundError, ValidationError } from '../../application/errors.js'
 
 export type EnrollmentPayloadRequest = {
-  chain_id: number; address: string; public_key: string; scope_mask: 3; label: 'KEEL'; expires_at: number
+  chain_id: number; address: string; public_key: string; scope_mask: 3; label: 'EYELER'; expires_at: number
   ip_cidrs?: string[]; builder_id?: number; max_builder_fee_per_100k?: number
 }
 export type EnrollmentPayload = { typed_data: unknown; mac: string }
@@ -22,7 +22,7 @@ export class PerplEnrollmentClient {
     if (response.status === 400) throw new ValidationError('PERPL_ENROLLMENT_INVALID_REQUEST')
     if (response.status === 404) throw new NotFoundError('PERPL_ENROLLMENT_TARGET_NOT_FOUND')
     if (response.status === 409) throw new ConflictError('PERPL_ENROLLMENT_KEY_CONFLICT')
-    if (response.status === 423) throw new KeelError('PERPL_ENROLLMENT_KEY_LIMIT', 423)
+    if (response.status === 423) throw new EyelerError('PERPL_ENROLLMENT_KEY_LIMIT', 423)
     if (!response.ok) throw new InfrastructureError('PERPL_ENROLLMENT_UNAVAILABLE')
     try { return await response.json() } catch { throw new InfrastructureError('PERPL_ENROLLMENT_INVALID_RESPONSE') }
   }

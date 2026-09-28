@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
 
 class TestStorage extends SessionStorage {
   @override
@@ -23,8 +23,8 @@ void main() {
       expect(request.bodyBytes, isEmpty);
       return http.Response(jsonEncode({'status': 'PAUSED'}), 200);
     });
-    final api = KeelApiClient(
-        const KeelConfig(apiBaseUrl: 'http://localhost:8787'),
+    final api = EyelerApiClient(
+        const EyelerConfig(apiBaseUrl: 'http://localhost:8787'),
         TestStorage(),
         client);
 
@@ -45,8 +45,8 @@ void main() {
         'liquidationFloor': 5, 'defenseCap': 5, 'timeLimitMs': 86400000
       }), 200);
     });
-    final repository = BooksRepository(KeelApiClient(
-        const KeelConfig(apiBaseUrl: 'http://localhost:8787'),
+    final repository = BooksRepository(EyelerApiClient(
+        const EyelerConfig(apiBaseUrl: 'http://localhost:8787'),
         TestStorage(), client));
     final book = await repository.control('book-1', 'recover');
     expect(book.status, 'ACTIVE');

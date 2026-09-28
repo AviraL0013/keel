@@ -33,7 +33,7 @@ export function classifySafeModeCause(code: string): Exclude<SafeModeReason, 'UN
 }
 
 /** A single PostgreSQL advisory-lock owner drives persisted Books. */
-export class KeelRuntime {
+export class EyelerRuntime {
   private readonly repository: PostgresExecutionRepository
   private readonly scheduler: MonitorScheduler
   private readonly reconciliationSchedule = new Map<string, { nextAt: number; rateLimitFailures: number }>()

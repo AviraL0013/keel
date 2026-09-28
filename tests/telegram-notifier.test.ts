@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { databaseFixture } from './helpers/database.js'
 import { TelegramNotifier, createTelegramNotifier } from '../server/src/infrastructure/telegram/notifier.js'
-import { KeelRuntime, type RuntimeVenue } from '../server/src/runtime.js'
+import { EyelerRuntime, type RuntimeVenue } from '../server/src/runtime.js'
 
 async function fixture(fetcher: typeof fetch, now: () => number = Date.now) {
   const { db, store } = await databaseFixture()
@@ -97,7 +97,7 @@ describe('Telegram notification delivery', () => {
       const delivery = value.notifier.pollOnce()
       await sendStarted
       const venue = { ready: () => true, close: async () => undefined } as RuntimeVenue
-      const runtime = new KeelRuntime(value.store, venue)
+      const runtime = new EyelerRuntime(value.store, venue)
       Object.assign(runtime, { lease: { query: async () => ({ rows: [] }) } })
       await (runtime as unknown as { tick(): Promise<void> }).tick()
       expect(fetcher).toHaveBeenCalledTimes(1)

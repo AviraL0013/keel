@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/backend_status.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/keel_widgets.dart';
+import '../../../shared/widgets/eyeler_widgets.dart';
 import '../data/auth_repository.dart';
 import '../domain/auth_state.dart';
 
@@ -30,26 +30,26 @@ class AuthScreen extends ConsumerWidget {
                       constraints.maxWidth > 520 ? 520 : constraints.maxWidth,
                   height: constraints.maxHeight,
                   child: ListView(
-                      padding: const EdgeInsets.fromLTRB(KeelSpacing.lg,
-                          KeelSpacing.lg, KeelSpacing.lg, KeelSpacing.xl),
+                      padding: const EdgeInsets.fromLTRB(EyelerSpacing.lg,
+                          EyelerSpacing.lg, EyelerSpacing.lg, EyelerSpacing.xl),
                       children: [
                         _BrandHeader(status: backend),
-                        const SizedBox(height: KeelSpacing.xl),
+                        const SizedBox(height: EyelerSpacing.xl),
                         Text('Protect positions\nwith confidence.',
                             style:
-                                KeelTypography.display.copyWith(fontSize: 42)),
-                        const SizedBox(height: KeelSpacing.md),
+                                EyelerTypography.display.copyWith(fontSize: 42)),
+                        const SizedBox(height: EyelerSpacing.md),
                         Text(
-                            'KEEL watches position, reserve, market depth, and execution evidence behind every bounded action.',
-                            style: KeelTypography.body.copyWith(
+                            'EYELER watches position, reserve, market depth, and execution evidence behind every bounded action.',
+                            style: EyelerTypography.body.copyWith(
                                 color: Theme.of(context)
                                     .textTheme
                                     .bodyMedium
                                     ?.color)),
-                        const SizedBox(height: KeelSpacing.lg),
+                        const SizedBox(height: EyelerSpacing.lg),
                         _EnvironmentCard(status: backend),
-                        const SizedBox(height: KeelSpacing.md),
-                        KeelPanel(
+                        const SizedBox(height: EyelerSpacing.md),
+                        EyelerPanel(
                             child: Padding(
                                 padding: EdgeInsets.zero,
                                 child: Column(
@@ -57,16 +57,16 @@ class AuthScreen extends ConsumerWidget {
                                         CrossAxisAlignment.start,
                                     children: [
                                       const Text('Secure wallet sign-in',
-                                          style: KeelTypography.title),
-                                      const SizedBox(height: KeelSpacing.xs),
+                                          style: EyelerTypography.title),
+                                      const SizedBox(height: EyelerSpacing.xs),
                                       Text(
-                                          'Your wallet proves ownership. KEEL never receives your private key or Perpl credentials.',
-                                          style: KeelTypography.body.copyWith(
+                                          'Your wallet proves ownership. EYELER never receives your private key or Perpl credentials.',
+                                          style: EyelerTypography.body.copyWith(
                                               color: Theme.of(context)
                                                   .textTheme
                                                   .bodyMedium
                                                   ?.color)),
-                                      const SizedBox(height: KeelSpacing.lg),
+                                      const SizedBox(height: EyelerSpacing.lg),
                                       _Step(
                                           index: 1,
                                           title: 'Connect wallet',
@@ -103,7 +103,7 @@ class AuthScreen extends ConsumerWidget {
                                                   'The message appears after the wallet connects.')
                                               : Container(
                                                   padding: const EdgeInsets.all(
-                                                      KeelSpacing.md),
+                                                      EyelerSpacing.md),
                                                   decoration: BoxDecoration(
                                                       color: Theme.of(context)
                                                           .colorScheme
@@ -112,7 +112,7 @@ class AuthScreen extends ConsumerWidget {
                                                               alpha: .06),
                                                       borderRadius:
                                                           BorderRadius.circular(
-                                                              KeelRadii.small)),
+                                                              EyelerRadii.small)),
                                                   child: Row(children: [
                                                     Expanded(
                                                         child: Text(
@@ -135,7 +135,7 @@ class AuthScreen extends ConsumerWidget {
                                           index: 3,
                                           title: 'Verify session',
                                           description:
-                                              'Your wallet provider returns the signature; KEEL verifies it server-side.',
+                                              'Your wallet provider returns the signature; EYELER verifies it server-side.',
                                           active: auth.loading && step == 2,
                                           complete: auth.authenticated,
                                           child: Text(
@@ -145,31 +145,31 @@ class AuthScreen extends ConsumerWidget {
                                                           WalletStatus.signing
                                                       ? 'WAITING FOR WALLET SIGNATURE...'
                                                       : 'Ready after the signature is verified.',
-                                              style: KeelTypography.label
+                                              style: EyelerTypography.label
                                                   .copyWith(
                                                       color: auth.authenticated
-                                                          ? KeelColors.defend
+                                                          ? EyelerColors.defend
                                                           : Theme.of(context)
                                                               .textTheme
                                                               .bodyMedium
                                                               ?.color))),
                                       if (auth.error != null) ...[
-                                        const SizedBox(height: KeelSpacing.md),
+                                        const SizedBox(height: EyelerSpacing.md),
                                         Text(_friendly(auth.error!),
-                                            style: KeelTypography.body.copyWith(
-                                                color: KeelColors.exit))
+                                            style: EyelerTypography.body.copyWith(
+                                                color: EyelerColors.exit))
                                       ],
                                       if (auth.loading) ...[
-                                        const SizedBox(height: KeelSpacing.md),
+                                        const SizedBox(height: EyelerSpacing.md),
                                         const LinearProgressIndicator(
                                             minHeight: 4)
                                       ],
                                     ]))),
-                        const SizedBox(height: KeelSpacing.md),
+                        const SizedBox(height: EyelerSpacing.md),
                         Text(
-                            'Wallet / KEEL session / server-side Perpl account',
+                            'Wallet / EYELER session / server-side Perpl account',
                             textAlign: TextAlign.center,
-                            style: KeelTypography.label.copyWith(
+                            style: EyelerTypography.label.copyWith(
                                 color: Theme.of(context)
                                     .textTheme
                                     .bodyMedium
@@ -183,7 +183,7 @@ class AuthScreen extends ConsumerWidget {
 
   static String _friendly(String value) => value
       .replaceFirst('WalletException: ', '')
-      .replaceFirst('KeelException: ', '');
+      .replaceFirst('EyelerException: ', '');
 }
 
 class _Step extends StatelessWidget {
@@ -203,16 +203,16 @@ class _Step extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.only(bottom: KeelSpacing.lg),
+      padding: const EdgeInsets.only(bottom: EyelerSpacing.lg),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
             width: 30,
             height: 30,
             decoration: BoxDecoration(
                 color: complete
-                    ? KeelColors.defend
+                    ? EyelerColors.defend
                     : active
-                        ? KeelColors.accent
+                        ? EyelerColors.accent
                         : Theme.of(context)
                             .colorScheme
                             .onSurface
@@ -225,16 +225,16 @@ class _Step extends StatelessWidget {
                         style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             color: Colors.black)))),
-        const SizedBox(width: KeelSpacing.md),
+        const SizedBox(width: EyelerSpacing.md),
         Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: KeelTypography.section),
+          Text(title, style: EyelerTypography.section),
           const SizedBox(height: 4),
           Text(description,
-              style: KeelTypography.body.copyWith(
+              style: EyelerTypography.body.copyWith(
                   color: Theme.of(context).textTheme.bodyMedium?.color)),
-          const SizedBox(height: KeelSpacing.sm),
+          const SizedBox(height: EyelerSpacing.sm),
           child
         ]))
       ]));
@@ -245,10 +245,10 @@ class _BrandHeader extends StatelessWidget {
   final AsyncValue<BackendStatus> status;
   @override
   Widget build(BuildContext context) => Row(children: [
-        const KeelIconTile(icon: Icons.sailing, size: 44),
+        const EyelerIconTile(icon: Icons.sailing, size: 44),
         const SizedBox(width: 12),
         const Expanded(
-            child: Text('KEEL',
+            child: Text('EYELER',
                 style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w900,
@@ -261,12 +261,12 @@ class _BrandHeader extends StatelessWidget {
                       : (value.environment?.toUpperCase() ?? 'CONNECTED')
                   : 'OFFLINE',
               color: value.state == BackendState.live
-                  ? KeelColors.defend
-                  : KeelColors.reduce),
+                  ? EyelerColors.defend
+                  : EyelerColors.reduce),
           loading: () =>
-              const StatusPill(label: 'CHECKING', color: KeelColors.reduce),
+              const StatusPill(label: 'CHECKING', color: EyelerColors.reduce),
           error: (_, __) =>
-              const StatusPill(label: 'OFFLINE', color: KeelColors.reduce),
+              const StatusPill(label: 'OFFLINE', color: EyelerColors.reduce),
         )
       ]);
 }
@@ -276,12 +276,12 @@ class _EnvironmentCard extends StatelessWidget {
   final AsyncValue<BackendStatus> status;
   @override
   Widget build(BuildContext context) {
-    return KeelPanel(
+    return EyelerPanel(
         child: Padding(
             padding: EdgeInsets.zero,
             child: Row(children: [
-              const KeelIconTile(icon: Icons.dns_outlined, size: 40),
-              const SizedBox(width: KeelSpacing.sm),
+              const EyelerIconTile(icon: Icons.dns_outlined, size: 40),
+              const SizedBox(width: EyelerSpacing.sm),
               Expanded(
                   child: status.when(
                 data: (value) => Column(
@@ -291,20 +291,20 @@ class _EnvironmentCard extends StatelessWidget {
                           value.state == BackendState.live
                               ? 'BACKEND LIVE'
                               : 'BACKEND OFFLINE',
-                          style: KeelTypography.label),
+                          style: EyelerTypography.label),
                       Text(
                           value.environment == 'test'
                               ? 'Deterministic test venue'
                               : value.environment?.toUpperCase() ??
                                   'Connection unavailable',
-                          style: KeelTypography.body.copyWith(
+                          style: EyelerTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
                                   ?.color)),
                     ]),
-                loading: () => const Text('CONNECTING TO KEEL...'),
-                error: (_, __) => const Text('KEEL SERVER UNAVAILABLE'),
+                loading: () => const Text('CONNECTING TO EYELER...'),
+                error: (_, __) => const Text('EYELER SERVER UNAVAILABLE'),
               )),
             ])));
   }

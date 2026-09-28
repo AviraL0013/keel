@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../config/environment.dart';
-import '../errors/keel_exception.dart';
+import '../errors/eyeler_exception.dart';
 import '../storage/session_storage.dart';
 
-class KeelApiClient {
-  KeelApiClient(this._config, this._storage, this._http);
-  final KeelConfig _config;
+class EyelerApiClient {
+  EyelerApiClient(this._config, this._storage, this._http);
+  final EyelerConfig _config;
   final SessionStorage _storage;
   final http.Client _http;
   Future<T> get<T>(String path, T Function(dynamic) decode) =>
@@ -34,7 +34,7 @@ class KeelApiClient {
           headers: headers, body: body == null ? null : jsonEncode(body)),
       'PATCH' => await _http.patch(uri,
           headers: headers, body: body == null ? null : jsonEncode(body)),
-      _ => throw const KeelException('UNSUPPORTED_HTTP_METHOD'),
+      _ => throw const EyelerException('UNSUPPORTED_HTTP_METHOD'),
     };
     if (response.statusCode == 401) await _storage.clear();
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -46,7 +46,7 @@ class KeelApiClient {
       final policy = (message == 'POLICY_REJECTED' || message == 'BOOK_RECOVERY_REJECTED') && details is Map
           ? PolicyRejection.fromJson(Map<String, dynamic>.from(details))
           : null;
-      throw KeelException(message,
+      throw EyelerException(message,
           statusCode: response.statusCode, policyRejection: policy);
     }
     return decode(response.body.isEmpty ? null : jsonDecode(response.body));
@@ -55,9 +55,9 @@ class KeelApiClient {
 
 final sessionStorageProvider =
     Provider<SessionStorage>((_) => const SessionStorage());
-final apiClientProvider = Provider<KeelApiClient>((ref) {
+final apiClientProvider = Provider<EyelerApiClient>((ref) {
   final client = http.Client();
   ref.onDispose(client.close);
-  return KeelApiClient(
+  return EyelerApiClient(
       ref.watch(configProvider), ref.watch(sessionStorageProvider), client);
 });

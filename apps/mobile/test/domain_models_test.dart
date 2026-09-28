@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/features/books/domain/book.dart';
-import 'package:keel_mobile/features/capital/domain/capital_snapshot.dart';
-import 'package:keel_mobile/features/notifications/domain/notification_item.dart';
-import 'package:keel_mobile/features/positions/domain/position.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
+import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
+import 'package:eyeler_mobile/features/notifications/domain/notification_item.dart';
+import 'package:eyeler_mobile/features/positions/domain/position.dart';
 
 void main() {
   test('Book configuration rejects unsafe values', () {

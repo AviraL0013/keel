@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../../domain/book.dart';
 
 class RiskStateBadge extends StatelessWidget {
@@ -9,7 +9,7 @@ class RiskStateBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visual = KeelRiskVisual.forState(state);
+    final visual = EyelerRiskVisual.forState(state);
     return StatusPill(
         label: visual.label, color: visual.color, icon: visual.icon);
   }
@@ -22,29 +22,29 @@ class RiskBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visual = KeelRiskVisual.forState(state);
+    final visual = EyelerRiskVisual.forState(state);
     return Card(
       color: visual.color,
       child: Padding(
-        padding: const EdgeInsets.all(KeelSpacing.lg),
+        padding: const EdgeInsets.all(EyelerSpacing.lg),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(visual.icon, color: visual.foreground, size: 30),
-          const SizedBox(width: KeelSpacing.md),
+          const SizedBox(width: EyelerSpacing.md),
           Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 Text(visual.label,
-                    style: KeelTypography.label
+                    style: EyelerTypography.label
                         .copyWith(color: visual.foreground, fontSize: 12)),
-                const SizedBox(height: KeelSpacing.xs),
+                const SizedBox(height: EyelerSpacing.xs),
                 Text(visual.description,
-                    style: KeelTypography.section
+                    style: EyelerTypography.section
                         .copyWith(color: visual.foreground)),
                 if (reasons.isNotEmpty) ...[
-                  const SizedBox(height: KeelSpacing.sm),
+                  const SizedBox(height: EyelerSpacing.sm),
                   Text(reasons.first,
-                      style: KeelTypography.body
+                      style: EyelerTypography.body
                           .copyWith(color: visual.foreground)),
                 ],
               ])),
@@ -61,15 +61,15 @@ class ValueTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: KeelSpacing.sm),
+      padding: const EdgeInsets.symmetric(vertical: EyelerSpacing.sm),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         Text(label,
-            style: KeelTypography.body.copyWith(
+            style: EyelerTypography.body.copyWith(
                 color: Theme.of(context).textTheme.bodyMedium?.color)),
         Flexible(
             child: Text(value == null ? 'Unavailable' : '$value',
                 textAlign: TextAlign.right,
-                style: KeelTypography.metric.copyWith(fontSize: 15)))
+                style: EyelerTypography.metric.copyWith(fontSize: 15)))
       ]));
 }
 
@@ -89,11 +89,11 @@ class BookMetricsCard extends StatelessWidget {
     final spent = telemetry.reserveDeployed;
     return Card(
         child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.lg),
+            padding: const EdgeInsets.all(EyelerSpacing.lg),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Protection health', style: KeelTypography.title),
-              const SizedBox(height: KeelSpacing.lg),
+              const Text('Protection health', style: EyelerTypography.title),
+              const SizedBox(height: EyelerSpacing.lg),
               MetricGauge(
                   label: 'ESTIMATED LIQUIDATION DISTANCE',
                   value: distance,
@@ -104,7 +104,7 @@ class BookMetricsCard extends StatelessWidget {
                       : '${distance.toStringAsFixed(2)}%',
                   thresholdLabel:
                       'Configured floor ${book.liquidationFloor.toStringAsFixed(2)}%'),
-              const SizedBox(height: KeelSpacing.lg),
+              const SizedBox(height: EyelerSpacing.lg),
               MetricGauge(
                   label: 'DEFENSE CAP USED',
                   value: spent,
@@ -115,12 +115,12 @@ class BookMetricsCard extends StatelessWidget {
                   thresholdLabel:
                       'Reserve available ${_money(telemetry.reserveAvailable)}'),
               if (book.status != 'CLOSED') ...[
-                const SizedBox(height: KeelSpacing.lg),
+                const SizedBox(height: EyelerSpacing.lg),
                 ValueTile(
                     label: 'Unrealized P&L', value: _money(telemetry.pnl)),
               ],
               if (includeTechnical) ...[
-                const SizedBox(height: KeelSpacing.lg),
+                const SizedBox(height: EyelerSpacing.lg),
                 BookTechnicalMetrics(telemetry: telemetry),
               ],
             ])));
@@ -151,22 +151,22 @@ class BookTechnicalMetrics extends StatelessWidget {
               : '${(telemetry.fundingRate! * 100).toStringAsFixed(4)}%',
           'DEPTH': _money(telemetry.depthNotional)
         }),
-        const SizedBox(height: KeelSpacing.md),
+        const SizedBox(height: EyelerSpacing.md),
         Container(
-            padding: const EdgeInsets.all(KeelSpacing.md),
+            padding: const EdgeInsets.all(EyelerSpacing.md),
             decoration: BoxDecoration(
                 color: Theme.of(context)
                     .colorScheme
                     .onSurface
                     .withValues(alpha: .05),
-                borderRadius: BorderRadius.circular(KeelRadii.small)),
+                borderRadius: BorderRadius.circular(EyelerRadii.small)),
             child: Row(children: [
               const Icon(Icons.show_chart, size: 18),
-              const SizedBox(width: KeelSpacing.sm),
+              const SizedBox(width: EyelerSpacing.sm),
               Expanded(
                   child: Text(
                       'Mark-price history appears when the backend provides a history series.',
-                      style: KeelTypography.body.copyWith(
+                      style: EyelerTypography.body.copyWith(
                           color:
                               Theme.of(context).textTheme.bodyMedium?.color)))
             ])),
@@ -185,11 +185,11 @@ class _MetricGrid extends StatelessWidget {
       LayoutBuilder(builder: (context, constraints) {
         final twoColumns = constraints.maxWidth >= 260;
         final width = twoColumns
-            ? (constraints.maxWidth - KeelSpacing.md) / 2
+            ? (constraints.maxWidth - EyelerSpacing.md) / 2
             : constraints.maxWidth;
         return Wrap(
-            spacing: KeelSpacing.md,
-            runSpacing: KeelSpacing.md,
+            spacing: EyelerSpacing.md,
+            runSpacing: EyelerSpacing.md,
             children: items.entries
                 .map((entry) => SizedBox(
                     width: width,
@@ -198,7 +198,7 @@ class _MetricGrid extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(entry.key,
-                              style: KeelTypography.label.copyWith(
+                              style: EyelerTypography.label.copyWith(
                                   color: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
@@ -206,7 +206,7 @@ class _MetricGrid extends StatelessWidget {
                           const SizedBox(height: 5),
                           Text(entry.value ?? 'Unavailable',
                               style:
-                                  KeelTypography.metric.copyWith(fontSize: 16))
+                                  EyelerTypography.metric.copyWith(fontSize: 16))
                         ])))
                 .toList());
       });

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../data/positions_repository.dart';
 import '../domain/position.dart';
 import '../../books/presentation/screens/create_book_screen.dart';
@@ -34,15 +34,15 @@ class PositionsScreen extends ConsumerWidget {
             ref.invalidate(perplConnectionProvider);
           },
           child: ListView(
-              padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
-                  KeelSpacing.md, KeelSpacing.xl),
+              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
+                  EyelerSpacing.md, EyelerSpacing.xl),
               children: [
-                const Text('Your positions', style: KeelTypography.display),
-                const SizedBox(height: KeelSpacing.xs),
+                const Text('Your positions', style: EyelerTypography.display),
+                const SizedBox(height: EyelerSpacing.xs),
                 Text('Positions connected through Perpl.',
-                    style: KeelTypography.body.copyWith(
+                    style: EyelerTypography.body.copyWith(
                         color: Theme.of(context).textTheme.bodyMedium?.color)),
-                const SizedBox(height: KeelSpacing.md),
+                const SizedBox(height: EyelerSpacing.md),
                 // Successful position retrieval is authoritative proof that the
                 // configured server-side Perpl stream is usable. The validate
                 // endpoint may be unavailable independently of read access.
@@ -64,7 +64,7 @@ class PositionsScreen extends ConsumerWidget {
                         message:
                             'No positions returned. Retry when the server-side venue connection is available.'),
                   ),
-                const SizedBox(height: KeelSpacing.md),
+                const SizedBox(height: EyelerSpacing.md),
                 if (items.isEmpty)
                   const EmptyStateCard(
                       icon: Icons.layers_clear_outlined,
@@ -95,86 +95,86 @@ class _PositionCard extends StatelessWidget {
             : (position.liquidationPrice - position.markPrice) /
                 position.markPrice *
                 100;
-    return KeelPanel(
-        tone: open ? KeelColors.accent : KeelColors.hold,
+    return EyelerPanel(
+        tone: open ? EyelerColors.accent : EyelerColors.hold,
         child: Padding(
             padding: EdgeInsets.zero,
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                KeelIconTile(
+                EyelerIconTile(
                     icon: position.market.toUpperCase().contains('BTC')
                         ? Icons.currency_bitcoin
                         : Icons.hexagon_outlined,
                     color: position.market.toUpperCase().contains('BTC')
-                        ? KeelColors.reduce
-                        : KeelColors.info,
+                        ? EyelerColors.reduce
+                        : EyelerColors.info,
                     size: 56),
-                const SizedBox(width: KeelSpacing.md),
+                const SizedBox(width: EyelerSpacing.md),
                 Expanded(
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      Text(position.market, style: KeelTypography.title),
-                      const SizedBox(height: KeelSpacing.xs),
+                      Text(position.market, style: EyelerTypography.title),
+                      const SizedBox(height: EyelerSpacing.xs),
                       Text(
                           '${position.side} · ${position.leverage.toStringAsFixed(2)}x',
-                          style: KeelTypography.body.copyWith(
+                          style: EyelerTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
                                   ?.color)),
                     ])),
               ]),
-              const SizedBox(height: KeelSpacing.md),
+              const SizedBox(height: EyelerSpacing.md),
               StatusPill(
                   label: position.status,
-                  color: open ? KeelColors.defend : KeelColors.hold,
+                  color: open ? EyelerColors.defend : EyelerColors.hold,
                   icon: open ? Icons.lock_open : Icons.lock_outline),
-              const SizedBox(height: KeelSpacing.lg),
+              const SizedBox(height: EyelerSpacing.lg),
               Text('Mark price',
-                  style: KeelTypography.body.copyWith(
+                  style: EyelerTypography.body.copyWith(
                       color: Theme.of(context).textTheme.bodyMedium?.color)),
               Text(position.markPrice.toStringAsFixed(2),
-                  style: KeelTypography.display.copyWith(fontSize: 42)),
+                  style: EyelerTypography.display.copyWith(fontSize: 42)),
               Text(
                   'Unrealized P&L  ${position.pnl?.toStringAsFixed(2) ?? 'Unavailable'}',
-                  style: KeelTypography.section.copyWith(
+                  style: EyelerTypography.section.copyWith(
                       color: position.pnl == null
-                          ? KeelColors.darkMuted
+                          ? EyelerColors.darkMuted
                           : position.pnl! >= 0
-                              ? KeelColors.defend
-                              : KeelColors.exit)),
-              const SizedBox(height: KeelSpacing.lg),
+                              ? EyelerColors.defend
+                              : EyelerColors.exit)),
+              const SizedBox(height: EyelerSpacing.lg),
               if (distance != null && distance.isFinite) ...[
-                KeelPanel(
+                EyelerPanel(
                     margin: EdgeInsets.zero,
-                    padding: const EdgeInsets.all(KeelSpacing.md),
+                    padding: const EdgeInsets.all(EyelerSpacing.md),
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text('Position health',
-                              style: KeelTypography.section),
-                          const SizedBox(height: KeelSpacing.xs),
+                              style: EyelerTypography.section),
+                          const SizedBox(height: EyelerSpacing.xs),
                           Text('${distance.toStringAsFixed(2)}% to liquidation',
-                              style: KeelTypography.body),
-                          const SizedBox(height: KeelSpacing.sm),
+                              style: EyelerTypography.body),
+                          const SizedBox(height: EyelerSpacing.sm),
                           LinearProgressIndicator(
                               value: (distance / 20).clamp(0.0, 1.0),
                               minHeight: 8,
                               borderRadius: BorderRadius.circular(20),
-                              backgroundColor: KeelColors.darkBorder,
+                              backgroundColor: EyelerColors.darkBorder,
                               color: distance <= 0
-                                  ? KeelColors.exit
+                                  ? EyelerColors.exit
                                   : distance < 5
-                                      ? KeelColors.reduce
-                                      : KeelColors.defend),
+                                      ? EyelerColors.reduce
+                                      : EyelerColors.defend),
                         ])),
-                const SizedBox(height: KeelSpacing.md),
+                const SizedBox(height: EyelerSpacing.md),
               ],
               Wrap(
-                  spacing: KeelSpacing.sm,
-                  runSpacing: KeelSpacing.sm,
+                  spacing: EyelerSpacing.sm,
+                  runSpacing: EyelerSpacing.sm,
                   children: [
                     _PositionFact('Size', _sizeLabel(position.size)),
                     _PositionFact('Margin', position.margin.toStringAsFixed(2)),
@@ -184,20 +184,20 @@ class _PositionCard extends StatelessWidget {
                             : 'Liquidation',
                         position.liquidationPrice.toStringAsFixed(2)),
                   ]),
-              const SizedBox(height: KeelSpacing.md),
+              const SizedBox(height: EyelerSpacing.md),
               Text('Account ${position.accountId}',
-                  style: KeelTypography.body.copyWith(
+                  style: EyelerTypography.body.copyWith(
                       color: Theme.of(context).textTheme.bodyMedium?.color)),
               ExpansionTile(
                   title: const Text('Market details'),
                   tilePadding: EdgeInsets.zero,
                   children: [
                     _PositionMetricGrid(position: position),
-                    const SizedBox(height: KeelSpacing.md),
+                    const SizedBox(height: EyelerSpacing.md),
                     TelemetryFreshness(freshness: position.freshness),
                   ]),
               if (open) ...[
-                const SizedBox(height: KeelSpacing.lg),
+                const SizedBox(height: EyelerSpacing.lg),
                 SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
@@ -226,22 +226,22 @@ class _PositionFact extends StatelessWidget {
   final String value;
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(KeelSpacing.sm),
+        padding: const EdgeInsets.all(EyelerSpacing.sm),
         decoration: BoxDecoration(
             color: Theme.of(context).brightness == Brightness.dark
-                ? KeelColors.darkCanvas.withValues(alpha: .55)
-                : KeelColors.lightBackground,
+                ? EyelerColors.darkCanvas.withValues(alpha: .55)
+                : EyelerColors.lightBackground,
             border: Border.all(
                 color: Theme.of(context).brightness == Brightness.dark
-                    ? KeelColors.darkBorder
-                    : KeelColors.lightBorder),
+                    ? EyelerColors.darkBorder
+                    : EyelerColors.lightBorder),
             borderRadius: BorderRadius.circular(14)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label,
-              style: KeelTypography.body.copyWith(
+              style: EyelerTypography.body.copyWith(
                   fontSize: 11,
                   color: Theme.of(context).textTheme.bodyMedium?.color)),
-          Text(value, style: KeelTypography.section),
+          Text(value, style: EyelerTypography.section),
         ]),
       );
 }
@@ -255,7 +255,7 @@ class _PositionMetricGrid extends StatelessWidget {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           childAspectRatio: 2.5,
-          mainAxisSpacing: KeelSpacing.md,
+          mainAxisSpacing: EyelerSpacing.md,
           children: [
             _Metric('SIZE', _size(position.size)),
             _Metric('ENTRY', _number(position.entryPrice)),
@@ -300,28 +300,28 @@ class _ConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final valid = status == 'VALID';
-    return KeelPanel(
+    return EyelerPanel(
         child: Padding(
             padding: EdgeInsets.zero,
             child: Row(children: [
-              KeelIconTile(
+              EyelerIconTile(
                   icon: valid ? Icons.link : Icons.link_off,
-                  color: valid ? KeelColors.defend : KeelColors.reduce),
-              const SizedBox(width: KeelSpacing.md),
+                  color: valid ? EyelerColors.defend : EyelerColors.reduce),
+              const SizedBox(width: EyelerSpacing.md),
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                     Text(valid ? 'Perpl Connected' : 'Perpl $status',
-                        style: KeelTypography.section),
+                        style: EyelerTypography.section),
                     Text(
                         '${environment?.toUpperCase() ?? 'SERVER-SIDE'}${accountId == null ? '' : ' / ACCOUNT $accountId'}',
-                        style: KeelTypography.body.copyWith(
+                        style: EyelerTypography.body.copyWith(
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color))
                   ])),
               if (valid)
-                const StatusPill(label: 'Connected', color: KeelColors.info),
+                const StatusPill(label: 'Connected', color: EyelerColors.info),
               if (onRetry != null)
                 TextButton(onPressed: onRetry, child: const Text('RETRY'))
             ])));
@@ -336,9 +336,9 @@ class _Metric extends StatelessWidget {
   Widget build(BuildContext context) =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label,
-            style: KeelTypography.label.copyWith(
+            style: EyelerTypography.label.copyWith(
                 color: Theme.of(context).textTheme.bodyMedium?.color)),
         const SizedBox(height: 4),
-        Text(value, style: KeelTypography.metric.copyWith(fontSize: 16))
+        Text(value, style: EyelerTypography.metric.copyWith(fontSize: 16))
       ]);
 }

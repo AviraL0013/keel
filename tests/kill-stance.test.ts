@@ -4,7 +4,7 @@ import { evaluate } from '../packages/risk-engine/src/index.js'
 import type { Action, Book, NormalizedTelemetry, Position, Reserve } from '../packages/domain/src/index.js'
 import { createServer } from '../server/src/index.js'
 import { MemoryStore } from '../server/src/memoryStore.js'
-import { KeelRuntime, type RuntimeVenue } from '../server/src/runtime.js'
+import { EyelerRuntime, type RuntimeVenue } from '../server/src/runtime.js'
 import { databaseFixture } from './helpers/database.js'
 
 const now = Date.now()
@@ -26,9 +26,9 @@ describe('KILL stance', () => {
   })
 
   it('rejects re-arming a killed Book, but permits an explicit stance change', async () => {
-    const previous = { environment: process.env.KEEL_ENV, allowlist: process.env.KEEL_ALLOWED_WALLETS }
+    const previous = { environment: process.env.EYELER_ENV, allowlist: process.env.EYELER_ALLOWED_WALLETS }
     const wallet = privateKeyToAccount('0x0123456789012345678901234567890123456789012345678901234567890123')
-    process.env.KEEL_ENV = 'test'; process.env.KEEL_ALLOWED_WALLETS = wallet.address
+    process.env.EYELER_ENV = 'test'; process.env.EYELER_ALLOWED_WALLETS = wallet.address
     const at = Date.now()
     const venue = {
       loadBookSetup: async () => ({ market: 'BTC-PERP', position: { side: 'LONG' as const, status: 'OPEN' as const, size: 1, entryPrice: 100, markPrice: 100, liquidationPrice: 94, margin: 20, leverage: 5, unrealizedPnl: 0, timestamp: at }, telemetry: telemetry(100, at), reserveAvailable: 10 }),
@@ -62,8 +62,8 @@ describe('KILL stance', () => {
       expect(armClosed.json()).toEqual({ error: 'INVALID_BOOK_STATUS_TRANSITION' })
     } finally {
       await app.close()
-      if (previous.environment === undefined) delete process.env.KEEL_ENV; else process.env.KEEL_ENV = previous.environment
-      if (previous.allowlist === undefined) delete process.env.KEEL_ALLOWED_WALLETS; else process.env.KEEL_ALLOWED_WALLETS = previous.allowlist
+      if (previous.environment === undefined) delete process.env.EYELER_ENV; else process.env.EYELER_ENV = previous.environment
+      if (previous.allowlist === undefined) delete process.env.EYELER_ALLOWED_WALLETS; else process.env.EYELER_ALLOWED_WALLETS = previous.allowlist
     }
   })
 
@@ -77,7 +77,7 @@ describe('KILL stance', () => {
         initialTelemetry: { ...telemetry(100, at), block: 1 } })
       const submit = vi.fn(async (_action: Action) => ({ venueReference: 'definite-test-failure', status: 'FAILED' as const, reason: 'TEST_REJECTED' }))
       const venue = { ready: () => true, refresh: async () => undefined, submit, reconcile: async (action: Action) => action, close: async () => undefined } satisfies RuntimeVenue
-      const runtime = new KeelRuntime(store, venue)
+      const runtime = new EyelerRuntime(store, venue)
       Object.assign(runtime, { lease: { query: async () => ({ rows: [] }) } })
       const tick = () => (runtime as unknown as { tick(): Promise<void> }).tick()
       await tick()
@@ -100,7 +100,7 @@ describe('KILL stance', () => {
         initialPosition: { side: 'LONG', status: 'OPEN', size: 1, entryPrice: 100, markPrice: 100, liquidationPrice: 94, margin: 20, leverage: 5, unrealizedPnl: 0, timestamp: at, observedAt: at },
         initialTelemetry: telemetry(100, at) })
       const submit = vi.fn(async (_action: Action) => ({ venueReference: 'definite-test-failure', status: 'FAILED' as const, reason: 'TEST_REJECTED' }))
-      const runtime = new KeelRuntime(store, { ready: () => true, refresh: async () => undefined, submit, reconcile: async (action: Action) => action, close: async () => undefined })
+      const runtime = new EyelerRuntime(store, { ready: () => true, refresh: async () => undefined, submit, reconcile: async (action: Action) => action, close: async () => undefined })
       const result = await runtime.closeBook(userId, created.id)
       expect(result.status).toBe('FAILED')
       expect(submit).toHaveBeenCalledOnce()

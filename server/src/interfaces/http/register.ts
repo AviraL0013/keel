@@ -13,7 +13,7 @@ import { PostgresStore } from '../../infrastructure/database/postgres-store.js'
 import { MemoryStore } from '../../memoryStore.js'
 import type { AuthService } from '../../auth.js'
 import type { NotificationStore } from '../../infrastructure/database/notification-store.js'
-import type { KeelRuntime, RuntimeVenue } from '../../runtime.js'
+import type { EyelerRuntime, RuntimeVenue } from '../../runtime.js'
 import type { DeterministicTestRuntime } from '../../infrastructure/replay/test-runtime.js'
 import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollment-service.js'
 import { toBookDto } from './dto.js'
@@ -26,7 +26,7 @@ export type HttpContext = {
   auth: AuthService
   notificationStore: NotificationStore | null
   venue?: RuntimeVenue
-  runtime?: KeelRuntime
+  runtime?: EyelerRuntime
   closeBook?: (userId: string, bookId: string) => Promise<{ actionId: string; status: string }>
   executeAction?: (userId: string, bookId: string, kind: 'DEFEND' | 'REDUCE') => Promise<{ actionId: string; status: string }>
   testRuntime?: DeterministicTestRuntime
@@ -39,9 +39,12 @@ type RequestWithSession = FastifyRequest & { user?: Session }
 export function registerRoutes(context: HttpContext) {
   const { app, config, persistence, auth, notificationStore } = context
   const books = new BooksApplication(persistence, context.venue)
-  const session = async (request: FastifyRequest): Promise<Session | null> => {
+  const authToken = (request: FastifyRequest) => {
     const bearer = request.headers.authorization
-    const token = request.cookies.keel_session ?? (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined)
+    return request.cookies.eyeler_session ?? request.cookies.keel_session ?? (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined)
+  }
+  const session = async (request: FastifyRequest): Promise<Session | null> => {
+    const token = authToken(request)
     return token ? auth.get(token) : null
   }
   const requireSession = async (request: FastifyRequest) => {
@@ -49,7 +52,7 @@ export function registerRoutes(context: HttpContext) {
     if (!current) throw new AuthenticationError()
     return current
   }
-  app.get('/', async () => ({ name: 'KEEL API', environment: config.environment, status: 'online', endpoints: { health: '/health', ready: '/ready', metrics: '/metrics' } }))
+  app.get('/', async () => ({ name: 'EYELER API', environment: config.environment, status: 'online', endpoints: { health: '/health', ready: '/ready', metrics: '/metrics' } }))
   app.get('/health', async () => ({ ok: true, environment: config.environment }))
   app.get('/ready', async (_request, reply) => {
     if (!(persistence instanceof PostgresStore)) return reply.code(503).send({ ready: false, reason: 'DATABASE_NOT_CONFIGURED' })
@@ -62,9 +65,9 @@ export function registerRoutes(context: HttpContext) {
   })
   app.get('/metrics', async () => ({ books: 'database-backed', worker: context.runtime?.health() ?? { running: false, executionReady: false }, environment: config.environment }))
   app.post<{ Body: { address: string } }>('/auth/challenge', async request => { if (!isAddress(request.body.address)) throw new ValidationError('INVALID_WALLET_ADDRESS'); return auth.challenge(request.body.address) })
-  app.post<{ Body: { address: string; nonce: string; message: string; signature: `0x${string}` } }>('/auth/verify', async (request, reply) => { const result = await auth.verify(request.body.address, request.body.nonce, request.body.message, request.body.signature); reply.setCookie('keel_session', result.token, { httpOnly: true, sameSite: 'lax', secure: config.environment === 'mainnet', path: '/', maxAge: 7 * 24 * 60 * 60 }); return { ...result.session, token: result.token } })
-  app.get('/auth/session', async (request, reply) => { const bearer = request.headers.authorization; const token = request.cookies.keel_session ?? (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined); const current = await auth.get(token); if (!current) return reply.code(401).send({ error: 'UNAUTHENTICATED' }); return current })
-  app.post('/auth/logout', async (request, reply) => { const bearer = request.headers.authorization; const token = request.cookies.keel_session ?? (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined); await auth.revoke(token); reply.clearCookie('keel_session', { path: '/' }); return { ok: true } })
+  app.post<{ Body: { address: string; nonce: string; message: string; signature: `0x${string}` } }>('/auth/verify', async (request, reply) => { const result = await auth.verify(request.body.address, request.body.nonce, request.body.message, request.body.signature); reply.setCookie('eyeler_session', result.token, { httpOnly: true, sameSite: 'lax', secure: config.environment === 'mainnet', path: '/', maxAge: 7 * 24 * 60 * 60 }); return { ...result.session, token: result.token } })
+  app.get('/auth/session', async (request, reply) => { const current = await auth.get(authToken(request)); if (!current) return reply.code(401).send({ error: 'UNAUTHENTICATED' }); return current })
+  app.post('/auth/logout', async (request, reply) => { const selected = authToken(request); await auth.revoke(selected); if (request.cookies.keel_session && request.cookies.keel_session !== selected) await auth.revoke(request.cookies.keel_session); reply.clearCookie('eyeler_session', { path: '/' }); reply.clearCookie('keel_session', { path: '/' }); return { ok: true } })
   app.addHook('preHandler', async (request, reply) => { if (request.url === '/' || request.url === '/health' || request.url === '/ready' || request.url === '/metrics' || request.url.startsWith('/auth/')) return; const current = await session(request); if (!current) return reply.code(401).send({ error: 'UNAUTHENTICATED' }); (request as RequestWithSession).user = current })
 
   app.get('/books', async request => {
@@ -161,7 +164,7 @@ export function registerRoutes(context: HttpContext) {
     return { status: result.rows[0]?.status ?? outcome, connections: result.rows }
   })
   app.get('/connections/perpl/positions', async request => { await requireSession(request); if (!context.venue?.listPositions) return { status: 'UNAVAILABLE', positions: [] }; return { status: 'VALID', positions: await context.venue.listPositions() } })
-  app.get('/capital', async request => { const current = await requireSession(request); if (!context.venue?.capital) { const unavailable = (source: string, reason: string) => ({ amount: null, asset: 'AUSD', decimals: 6, source, availability: 'UNAVAILABLE' as const, freshness: 'UNKNOWN' as const, reason }); return { status: 'UNAVAILABLE' as const, walletAusd: unavailable('MONAD_AUSD', 'VENUE_NOT_CONFIGURED'), perplAvailable: unavailable('PERPL_COLLATERAL', 'VENUE_NOT_CONFIGURED'), perplLocked: unavailable('PERPL_COLLATERAL', 'VENUE_NOT_CONFIGURED'), bookReserved: unavailable('KEEL_LEDGER', 'VENUE_NOT_CONFIGURED'), bookDeployed: unavailable('KEEL_LEDGER', 'VENUE_NOT_CONFIGURED'), bookRemaining: unavailable('KEEL_LEDGER', 'VENUE_NOT_CONFIGURED'), unreservedCapital: unavailable('KEEL_LEDGER', 'VENUE_NOT_CONFIGURED') } } return context.venue.capital(current.walletAddress) })
+  app.get('/capital', async request => { const current = await requireSession(request); if (!context.venue?.capital) { const unavailable = (source: string, reason: string) => ({ amount: null, asset: 'AUSD', decimals: 6, source, availability: 'UNAVAILABLE' as const, freshness: 'UNKNOWN' as const, reason }); return { status: 'UNAVAILABLE' as const, walletAusd: unavailable('MONAD_AUSD', 'VENUE_NOT_CONFIGURED'), perplAvailable: unavailable('PERPL_COLLATERAL', 'VENUE_NOT_CONFIGURED'), perplLocked: unavailable('PERPL_COLLATERAL', 'VENUE_NOT_CONFIGURED'), bookReserved: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED'), bookDeployed: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED'), bookRemaining: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED'), unreservedCapital: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED') } } return context.venue.capital(current.walletAddress) })
   app.get('/capital/agora-activity', async request => { const current = await requireSession(request); return context.venue?.agoraActivity?.(current.walletAddress) ?? { status: 'UNAVAILABLE', reason: 'AGORA_NOT_CONNECTED', rows: [] } })
   app.post('/devices', async request => { const current = await requireSession(request); const body = request.body as { pushToken?: string; platform?: string }; if (!body.pushToken || !['ios', 'android', 'web'].includes(body.platform ?? '')) throw new ValidationError('INVALID_DEVICE'); await persistence.registerDevice(current.userId, body.pushToken, body.platform!); return { ok: true } })
   app.get('/notifications', async request => { const current = await requireSession(request); if (notificationStore) return (await notificationStore.list(current.userId)).map(row => toNotificationDto(row as Record<string, unknown>)); if (persistence instanceof MemoryStore) return persistence.listNotifications(current.userId).map(row => toNotificationDto(row)); return [] })

@@ -4,7 +4,7 @@ import '../domain/capital_snapshot.dart';
 
 class CapitalRepository {
   const CapitalRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<CapitalSnapshot> get() => api.get(
       '/capital',
       (value) =>

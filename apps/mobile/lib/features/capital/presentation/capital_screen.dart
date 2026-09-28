@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../data/capital_repository.dart';
 import '../domain/capital_snapshot.dart';
 
@@ -24,14 +24,14 @@ class CapitalScreen extends ConsumerWidget {
       ]),
       body: ListView(
           padding: const EdgeInsets.fromLTRB(
-              KeelSpacing.md, KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
+              EyelerSpacing.md, EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
           children: [
             const Text('Your capital across different sources',
-                style: KeelTypography.body),
-            const SizedBox(height: KeelSpacing.xs),
+                style: EyelerTypography.body),
+            const SizedBox(height: EyelerSpacing.xs),
             capital.when(
               loading: () => const Padding(
-                  padding: EdgeInsets.all(KeelSpacing.lg),
+                  padding: EdgeInsets.all(EyelerSpacing.lg),
                   child: Center(child: CircularProgressIndicator())),
               error: (error, _) => ErrorStateCard(
                   message: friendlyError(error),
@@ -43,10 +43,10 @@ class CapitalScreen extends ConsumerWidget {
                         snapshot.status == 'VALID'
                             ? 'Authoritative balances kept separate by source.'
                             : 'Some capital sources are unavailable.',
-                        style: KeelTypography.body.copyWith(
+                        style: EyelerTypography.body.copyWith(
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color)),
-                    const SizedBox(height: KeelSpacing.lg),
+                    const SizedBox(height: EyelerSpacing.lg),
                     _CapitalSection(
                         title: 'Wallet / AUSD',
                         icon: Icons.account_balance_wallet_outlined,
@@ -59,7 +59,7 @@ class CapitalScreen extends ConsumerWidget {
                           'Locked': snapshot.perplLocked
                         }),
                     _CapitalSection(
-                        title: 'KEEL Books',
+                        title: 'EYELER Books',
                         icon: Icons.shield_outlined,
                         values: {
                           'Reserved': snapshot.bookReserved,
@@ -80,22 +80,22 @@ class _AgoraActivitySection extends StatelessWidget {
   final AsyncValue<AgoraActivity> activity;
 
   @override
-  Widget build(BuildContext context) => KeelPanel(
-      tone: KeelColors.info,
+  Widget build(BuildContext context) => EyelerPanel(
+      tone: EyelerColors.info,
       child: Padding(
         padding: EdgeInsets.zero,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Row(children: [
-            KeelIconTile(
-                icon: Icons.receipt_long_outlined, color: KeelColors.info),
-            SizedBox(width: KeelSpacing.md),
+            EyelerIconTile(
+                icon: Icons.receipt_long_outlined, color: EyelerColors.info),
+            SizedBox(width: EyelerSpacing.md),
             Expanded(
                 child: Text('Agora account activity',
-                    style: KeelTypography.title)),
+                    style: EyelerTypography.title)),
           ]),
-          const SizedBox(height: KeelSpacing.xs),
+          const SizedBox(height: EyelerSpacing.xs),
           const Text('Transaction history. Not a balance or funds available.'),
-          const SizedBox(height: KeelSpacing.md),
+          const SizedBox(height: EyelerSpacing.md),
           activity.when(
             loading: () => const Text('Checking Agora activity…'),
             error: (_, __) => const Text('Unavailable'),
@@ -111,19 +111,19 @@ class _AgoraActivitySection extends StatelessWidget {
                   children: [
                     ...value.rows.map((row) => Padding(
                           padding:
-                              const EdgeInsets.only(bottom: KeelSpacing.md),
+                              const EdgeInsets.only(bottom: EyelerSpacing.md),
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                     '${row.type.toUpperCase()} · ${row.status}',
-                                    style: KeelTypography.label),
+                                    style: EyelerTypography.label),
                                 Text('${row.source} to ${row.destination}'),
                                 Text(
                                     '${row.amount.isEmpty ? 'Amount unavailable' : '${row.amount} ${row.asset}'} · ${row.timestamp?.toLocal().toString().split('.').first ?? 'Time unavailable'}'),
                                 Text(row.match == 'POSSIBLE_MATCH'
                                     ? 'Possible match with on-chain evidence'
-                                    : 'No verified match in KEEL'),
+                                    : 'No verified match in EYELER'),
                               ]),
                         )),
                     if (value.limited == true)
@@ -144,43 +144,43 @@ class _CapitalSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return KeelPanel(
+    return EyelerPanel(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        KeelIconTile(
+        EyelerIconTile(
             icon: icon,
             color:
-                title == 'Wallet / AUSD' ? KeelColors.info : KeelColors.accent),
-        const SizedBox(width: KeelSpacing.md),
-        Expanded(child: Text(title, style: KeelTypography.title)),
+                title == 'Wallet / AUSD' ? EyelerColors.info : EyelerColors.accent),
+        const SizedBox(width: EyelerSpacing.md),
+        Expanded(child: Text(title, style: EyelerTypography.title)),
       ]),
-      const SizedBox(height: KeelSpacing.lg),
+      const SizedBox(height: EyelerSpacing.lg),
       ...values.entries.map((entry) => Padding(
-            padding: const EdgeInsets.only(bottom: KeelSpacing.md),
+            padding: const EdgeInsets.only(bottom: EyelerSpacing.md),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                     Text(entry.key,
-                        style: KeelTypography.body.copyWith(
+                        style: EyelerTypography.body.copyWith(
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color)),
                     const SizedBox(height: 3),
                     Text(_status(entry.value),
-                        style: KeelTypography.body.copyWith(
+                        style: EyelerTypography.body.copyWith(
                             fontSize: 11,
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color)),
                   ])),
-              const SizedBox(width: KeelSpacing.sm),
+              const SizedBox(width: EyelerSpacing.sm),
               Flexible(
                   child: Text(
                       entry.value.amount == null
                           ? 'Unavailable'
                           : '${entry.value.amount} ${entry.value.asset}',
                       textAlign: TextAlign.right,
-                      style: KeelTypography.metric.copyWith(fontSize: 17))),
+                      style: EyelerTypography.metric.copyWith(fontSize: 17))),
             ]),
           )),
     ]));

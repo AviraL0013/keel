@@ -1,5 +1,5 @@
 import type pg from 'pg'
-import { logger } from '../../config/index.js'
+import { brandEnv, logger } from '../../config/index.js'
 
 export type TelegramConfig = { botToken: string; chatId: string; appUrl: string }
 type Alert = { id: string; kind: string; title: string; book_id: string; attempts: number }
@@ -45,7 +45,7 @@ export class TelegramNotifier {
   private message(alert: Alert): string {
     const actionTitle = /^(DEFEND|REDUCE|EXIT): (QUEUED|VALIDATING|SUBMITTING|SUBMITTED|VERIFYING|CONFIRMED|FAILED|CANCELED|EXPIRED|UNKNOWN|PARTIAL)$/.exec(alert.title)
     const label = alert.kind === 'SAFE_MODE' ? 'Safety paused' : alert.kind === 'SAFE_MODE_EXITED' ? 'Automation resumed' : alert.kind === 'AUTOMATION_RETRY_EXHAUSTED' ? 'Automatic action stopped' : actionTitle ? `${actionTitle[1]} ${actionTitle[2]}` : 'Book action update'
-    return `KEEL: ${label}\nOpen Book: ${this.config.appUrl}/?book=${encodeURIComponent(alert.book_id)}`
+    return `EYELER: ${label}\nOpen Book: ${this.config.appUrl}/?book=${encodeURIComponent(alert.book_id)}`
   }
 
   private async deliverOne() {
@@ -80,8 +80,8 @@ export function createTelegramNotifier(pool: pg.Pool, env: Record<string, string
   const botToken = env.TELEGRAM_BOT_TOKEN?.trim()
   const chatId = env.TELEGRAM_CHAT_ID?.trim()
   if (!botToken || !chatId) return undefined
-  const appUrl = env.KEEL_APP_URL?.trim().replace(/\/$/, '')
+  const appUrl = brandEnv(env, 'APP_URL')?.trim().replace(/\/$/, '')
   try { if (!appUrl || new URL(appUrl).origin !== appUrl || !appUrl.startsWith('https://')) throw new Error() }
-  catch { throw new Error('INVALID_KEEL_APP_URL') }
+  catch { throw new Error('INVALID_EYELER_APP_URL') }
   return new TelegramNotifier(pool, { botToken, chatId, appUrl }, fetcher)
 }

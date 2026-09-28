@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Action } from '../packages/domain/src/index.js'
-import { KeelRuntime, classifySafeModeCause, type RuntimeVenue } from '../server/src/runtime.js'
+import { EyelerRuntime, classifySafeModeCause, type RuntimeVenue } from '../server/src/runtime.js'
 import { loadConfig } from '../packages/shared/src/index.js'
 import { databaseFixture } from './helpers/database.js'
 
@@ -19,7 +19,7 @@ async function fixture() {
     await db.query('UPDATE positions SET observed_at=$2 WHERE book_id=$1', [book.id, at])
     await db.query('UPDATE risk_snapshots SET timestamp=$2,freshness_detail=NULL WHERE book_id=$1', [book.id, at])
   }, submit, reconcile: async action => ({ ...action, status: state.outcome }), close: async () => undefined }
-  const runtime = () => { const value = new KeelRuntime(store, venue, () => clock.at); Object.assign(value, { lease: { query: async () => ({ rows: [] }) } }); return { tick: () => (value as unknown as { tick(): Promise<void> }).tick(), closeBook: () => value.closeBook(userId, book.id) } }
+  const runtime = () => { const value = new EyelerRuntime(store, venue, () => clock.at); Object.assign(value, { lease: { query: async () => ({ rows: [] }) } }); return { tick: () => (value as unknown as { tick(): Promise<void> }).tick(), closeBook: () => value.closeBook(userId, book.id) } }
   const bookState = () => store.getBook(userId, book.id)
   const events = async (type: string) => (await db.query('SELECT id FROM autopsy_events WHERE book_id=$1 AND type=$2', [book.id, type])).rows
   const notices = async (kind: string) => (await db.query('SELECT id FROM notifications WHERE user_id=$1 AND kind=$2', [userId, kind])).rows
@@ -32,7 +32,7 @@ describe('safe mode causes', () => {
     ['TELEMETRY_NOT_AVAILABLE', 'DATA_UNAVAILABLE'], ['BOOK_TELEMETRY_UNAVAILABLE', 'DATA_UNAVAILABLE'], ['VENUE_NOT_CONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_STATE_UNAVAILABLE', 'VENUE_UNAVAILABLE'], ['PERPL_TRADING_STATE_UNTRUSTED', 'VENUE_UNAVAILABLE'], ['VENUE_HTTP_429', 'VENUE_UNAVAILABLE'],
     ['PERPL_TRADING_NOT_CONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_WS_DISCONNECTED', 'VENUE_UNAVAILABLE'], ['PERPL_TELEMETRY_NOT_READY', 'VENUE_UNAVAILABLE'], ['MARKET_STALE,PERPL_WS_DISCONNECTED', 'VENUE_UNAVAILABLE'], ['VENUE_HTTP_429,PERPL_WS_DISCONNECTED', 'VENUE_UNAVAILABLE'], ['MARKET_STALE,POSITION_UNKNOWN', 'DATA_UNAVAILABLE'], ['MARKET_STALE,UNEXPECTED', 'RUNTIME_FAILURE'], ['VENUE_NOT_CONFIGURED', 'RUNTIME_FAILURE'], ['UNEXPECTED', 'RUNTIME_FAILURE'],
   ])('classifies %s as %s', (code, cause) => { expect(classifySafeModeCause(code)).toBe(cause) })
-  it('defaults to five recovery ticks and rejects an invalid setting', () => { expect(loadConfig({}).safeModeResumeTicks).toBe(5); expect(() => loadConfig({ KEEL_SAFE_MODE_RESUME_TICKS: '0' })).toThrow('INVALID_KEEL_SAFE_MODE_RESUME_TICKS') })
+  it('defaults to five recovery ticks and rejects an invalid setting', () => { expect(loadConfig({}).safeModeResumeTicks).toBe(5); expect(() => loadConfig({ EYELER_SAFE_MODE_RESUME_TICKS: '0' })).toThrow('INVALID_EYELER_SAFE_MODE_RESUME_TICKS') })
 
   it('keeps automation armed on stale data and resumes only after five fresh ticks', async () => {
     const value = await fixture()

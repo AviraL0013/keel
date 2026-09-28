@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
 import { getPublicKeyAsync, signAsync } from '@noble/ed25519'
 import { hashTypedData, verifyTypedData, type Address, type Hex } from 'viem'
-import type { Config } from '../../config/index.js'
+import { brandEnv, type Config } from '../../config/index.js'
 import { AuthorizationError, ConflictError, InfrastructureError, NotFoundError } from '../../application/errors.js'
 import type { PostgresStore } from '../database/postgres-store.js'
 import { DevelopmentKeyCustody, type KeyCustody } from './key-custody.js'
@@ -18,19 +18,19 @@ export function loadEnrollmentConfig(env: Record<string, string | undefined>, co
   const origin = env.PERPL_ENROLLMENT_ORIGIN
   try { if (!origin || new URL(origin).origin !== origin || !origin.startsWith('https://')) throw new Error() }
   catch { throw new Error('INVALID_PERPL_ENROLLMENT_ORIGIN') }
-  const ttlDays = Number(env.KEEL_KEY_TTL_DAYS ?? 90)
-  if (!Number.isSafeInteger(ttlDays) || ttlDays < 1 || ttlDays > 3650) throw new Error('INVALID_KEEL_KEY_TTL_DAYS')
-  const ipCidrs = (env.KEEL_EGRESS_CIDRS ?? '').split(',').map(value => value.trim()).filter(Boolean)
+  const ttlDays = Number(brandEnv(env, 'KEY_TTL_DAYS') ?? 90)
+  if (!Number.isSafeInteger(ttlDays) || ttlDays < 1 || ttlDays > 3650) throw new Error('INVALID_EYELER_KEY_TTL_DAYS')
+  const ipCidrs = (brandEnv(env, 'EGRESS_CIDRS') ?? '').split(',').map(value => value.trim()).filter(Boolean)
   if (ipCidrs.length > 4 || ipCidrs.some(value => {
     const [ip, prefix, extra] = value.split('/')
     const version = isIP(ip)
     return extra !== undefined || !version || !/^(0|[1-9]\d*)$/.test(prefix ?? '') || Number(prefix) > (version === 4 ? 32 : 128)
-  })) throw new Error('INVALID_KEEL_EGRESS_CIDRS')
-  const builderIdRaw = env.KEEL_BUILDER_ID
-  const feeRaw = env.KEEL_MAX_BUILDER_FEE_PER_100K
+  })) throw new Error('INVALID_EYELER_EGRESS_CIDRS')
+  const builderIdRaw = brandEnv(env, 'BUILDER_ID')
+  const feeRaw = brandEnv(env, 'MAX_BUILDER_FEE_PER_100K')
   const builderId = builderIdRaw == null || builderIdRaw === '' ? undefined : Number(builderIdRaw)
   const builderFeeCeiling = feeRaw == null || feeRaw === '' ? undefined : Number(feeRaw)
-  if ((builderId === undefined) !== (builderFeeCeiling === undefined) || (builderId !== undefined && (!Number.isSafeInteger(builderId) || builderId < 1 || builderId > 255)) || (builderFeeCeiling !== undefined && (!Number.isSafeInteger(builderFeeCeiling) || builderFeeCeiling < 0 || builderFeeCeiling > 100))) throw new Error('INVALID_KEEL_BUILDER_TERMS')
+  if ((builderId === undefined) !== (builderFeeCeiling === undefined) || (builderId !== undefined && (!Number.isSafeInteger(builderId) || builderId < 1 || builderId > 255)) || (builderFeeCeiling !== undefined && (!Number.isSafeInteger(builderFeeCeiling) || builderFeeCeiling < 0 || builderFeeCeiling > 100))) throw new Error('INVALID_EYELER_BUILDER_TERMS')
   return { chainId: config.perplChainId, environment: 'testnet', origin, ttlDays, ...(ipCidrs.length ? { ipCidrs } : {}), ...(builderId === undefined ? {} : { builderId, builderFeeCeiling }) }
 }
 
@@ -64,14 +64,14 @@ export class PerplEnrollmentService {
     try {
       const publicKey = `0x${Buffer.from(await getPublicKeyAsync(secret)).toString('hex')}`
       const expiresAt = this.now() + this.config.ttlDays * 86_400_000
-      const payloadRequest: EnrollmentPayloadRequest = { chain_id: this.config.chainId, address: wallet, public_key: publicKey, scope_mask: 3, label: 'KEEL', expires_at: expiresAt,
+      const payloadRequest: EnrollmentPayloadRequest = { chain_id: this.config.chainId, address: wallet, public_key: publicKey, scope_mask: 3, label: 'EYELER', expires_at: expiresAt,
         ...(this.config.ipCidrs ? { ip_cidrs: this.config.ipCidrs } : {}), ...(this.config.builderId === undefined ? {} : { builder_id: this.config.builderId, max_builder_fee_per_100k: this.config.builderFeeCeiling }) }
       const payload = await this.client.payload(payloadRequest)
       const typed = typedData(payload.typed_data)
       const connectionId = randomUUID()
       try {
         await this.store.pool.query(`INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,wallet_address,public_key,sealed_private_key,sealed_mac,typed_data,scope_mask,label,origin,ip_cidrs,expires_at,pending_expires_at,builder_id,builder_fee_ceiling)
-          VALUES($1,$2,$3,'trade',$4,'PENDING',$5,$6,$7,$8,$9,3,'KEEL',$10,$11,$12,$13,$14,$15)`, [connectionId,userId,this.config.environment,`enrollment:${connectionId}`,wallet,publicKey,this.custody.seal(secret.toString('hex'), credentialContext(connectionId, 'private_key')),this.custody.seal(payload.mac, credentialContext(connectionId, 'mac')),JSON.stringify(typed),this.config.origin,JSON.stringify(this.config.ipCidrs ?? []),new Date(expiresAt).toISOString(),new Date(this.now() + 600_000).toISOString(),this.config.builderId ?? null,this.config.builderFeeCeiling ?? null])
+          VALUES($1,$2,$3,'trade',$4,'PENDING',$5,$6,$7,$8,$9,3,'EYELER',$10,$11,$12,$13,$14,$15)`, [connectionId,userId,this.config.environment,`enrollment:${connectionId}`,wallet,publicKey,this.custody.seal(secret.toString('hex'), credentialContext(connectionId, 'private_key')),this.custody.seal(payload.mac, credentialContext(connectionId, 'mac')),JSON.stringify(typed),this.config.origin,JSON.stringify(this.config.ipCidrs ?? []),new Date(expiresAt).toISOString(),new Date(this.now() + 600_000).toISOString(),this.config.builderId ?? null,this.config.builderFeeCeiling ?? null])
       } catch (error) { if (error && typeof error === 'object' && 'code' in error && error.code === '23505') throw new ConflictError('PERPL_ENROLLMENT_ALREADY_PENDING'); throw error }
       return { connectionId, typedData: typed }
     } finally { secret.fill(0) }
@@ -121,7 +121,7 @@ export class PerplEnrollmentService {
       throw error
     }
     const key = enrolled.api_key
-    if (key.address.toLowerCase() !== walletAddress.toLowerCase() || key.scope_mask !== 3 || key.label !== 'KEEL' || key.origin !== this.config.origin || key.expires_at !== new Date(row.expires_at as string).getTime() || key.builder_id !== (row.builder_id ?? undefined) || key.max_builder_fee_per_100k !== (row.builder_fee_ceiling ?? undefined)) {
+    if (key.address.toLowerCase() !== walletAddress.toLowerCase() || key.scope_mask !== 3 || key.label !== row.label || key.origin !== row.origin || key.expires_at !== new Date(row.expires_at as string).getTime() || key.builder_id !== (row.builder_id ?? undefined) || key.max_builder_fee_per_100k !== (row.builder_fee_ceiling ?? undefined)) {
       await this.markEnrollmentError(id, userId, 'ENROLLED_NOT_SAVED')
       throw new InfrastructureError('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
     }
@@ -148,8 +148,9 @@ export class PerplEnrollmentService {
 }
 
 export function createPerplEnrollmentService(store: PostgresStore, config: Config, env: Record<string, string | undefined>, fetcher: typeof fetch = fetch): PerplEnrollmentService | undefined {
-  if (!env.KEEL_KEY_ENCRYPTION_KEY) return undefined
+  const key = brandEnv(env, 'KEY_ENCRYPTION_KEY')
+  if (!key) return undefined
   const settings = loadEnrollmentConfig(env, config)
-  const custody = new DevelopmentKeyCustody(env.KEEL_KEY_ENCRYPTION_KEY)
+  const custody = new DevelopmentKeyCustody(key)
   return new PerplEnrollmentService(store, settings, custody, new PerplEnrollmentClient(config.perplRestUrl, settings.origin, fetcher))
 }

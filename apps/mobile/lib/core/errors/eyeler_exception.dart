@@ -1,11 +1,11 @@
-class KeelException implements Exception {
-  const KeelException(this.message, {this.statusCode, this.policyRejection});
+class EyelerException implements Exception {
+  const EyelerException(this.message, {this.statusCode, this.policyRejection});
   final String message;
   final int? statusCode;
   final PolicyRejection? policyRejection;
   String get userMessage {
     if (statusCode == 401) {
-      return 'Your KEEL session expired. Connect your wallet again.';
+      return 'Your EYELER session expired. Connect your wallet again.';
     }
     if (message == 'PERPL_ORDER_FORWARDING_DISABLED') {
       return 'Perpl order forwarding is disabled for this account. Enable it in Perpl before submitting actions.';
@@ -17,7 +17,7 @@ class KeelException implements Exception {
       return 'Perpl account is not available to submit this action.';
     }
     if (message == 'PERPL_RATE_LIMITED') {
-      return 'Perpl is rate limiting KEEL. Live venue data is unavailable; retry after Perpl recovers.';
+      return 'Perpl is rate limiting EYELER. Live venue data is unavailable; retry after Perpl recovers.';
     }
     if (message == 'POLICY_REJECTED') {
       final reason = policyRejection?.reason;
@@ -38,15 +38,15 @@ class KeelException implements Exception {
       return 'Book not recovered. Live Perpl state is unavailable.';
     }
     if (statusCode != null && statusCode! >= 500) {
-      return 'KEEL server unavailable. Check the backend and retry.';
+      return 'EYELER server unavailable. Check the backend and retry.';
     }
     if (message.contains('SocketException') ||
         message.contains('ClientException') ||
         message.contains('Failed to fetch')) {
-      return 'KEEL server unavailable. Check the backend and retry.';
+      return 'EYELER server unavailable. Check the backend and retry.';
     }
     if (message.startsWith('{')) {
-      return 'KEEL request failed. Review the current state and retry.';
+      return 'EYELER request failed. Review the current state and retry.';
     }
     return message;
   }
@@ -73,6 +73,6 @@ class PolicyRejection {
   }
 }
 
-String friendlyError(Object error) => error is KeelException
+String friendlyError(Object error) => error is EyelerException
     ? error.userMessage
-    : 'KEEL server unavailable. Check the backend and retry.';
+    : 'EYELER server unavailable. Check the backend and retry.';

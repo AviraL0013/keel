@@ -13,7 +13,7 @@ const port = await new Promise((resolve, reject) => {
 
 const child = spawn(process.execPath, ['dist/server/src/index.js'], {
   cwd: process.cwd(),
-  env: { ...process.env, KEEL_ENV: 'test', KEEL_TEST_VENUE: 'false', DATABASE_URL: '', PORT: String(port) },
+  env: { ...process.env, EYELER_ENV: 'test', EYELER_TEST_VENUE: 'false', DATABASE_URL: '', PORT: String(port) },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let output = ''

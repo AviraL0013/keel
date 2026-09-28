@@ -3,15 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
-import 'package:keel_mobile/features/books/domain/book.dart';
-import 'package:keel_mobile/features/books/presentation/screens/books_screen.dart';
-import 'package:keel_mobile/shared/models/telemetry_freshness.dart';
-import 'package:keel_mobile/shared/widgets/keel_widgets.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/books_screen.dart';
+import 'package:eyeler_mobile/shared/models/telemetry_freshness.dart';
+import 'package:eyeler_mobile/shared/widgets/eyeler_widgets.dart';
 
 const book = Book(
     id: '642',
@@ -26,7 +26,7 @@ const book = Book(
 
 class ControlledRepository extends BooksRepository {
   ControlledRepository(http.Client client)
-      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'),
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
             const SessionStorage(), client));
   final lists = <Completer<List<Book>>>[];
   final snapshots = <Completer<BookDashboardState>>[];
@@ -79,13 +79,13 @@ void main() {
     final repository = ControlledRepository(client);
     await tester.pumpWidget(ProviderScope(
         overrides: [booksRepositoryProvider.overrideWithValue(repository)],
-        child: MaterialApp(theme: KeelTheme.dark, home: const BooksScreen())));
+        child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     repository.lists.single.complete([book]);
     await tester.pump();
     repository.snapshots.single.complete(snapshot(1, 'FRESH'));
     await tester.pump();
-    final card = tester.element(find.byType(KeelPanel).first);
+    final card = tester.element(find.byType(EyelerPanel).first);
     final screen = tester.element(find.byType(BooksScreen));
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(find.text('Watching'), findsOneWidget);
@@ -106,7 +106,7 @@ void main() {
     expect(find.textContaining('32485'), findsNothing);
     expect(find.text('UPDATED'), findsOneWidget);
     expect(
-        identical(card, tester.element(find.byType(KeelPanel).first)), isTrue);
+        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
     expect(identical(screen, tester.element(find.byType(BooksScreen))), isTrue);
     expect(
         identical(scroll,
@@ -127,7 +127,7 @@ void main() {
     expect(find.text('Watching'), findsOneWidget);
     expect(find.text('UPDATED'), findsWidgets);
     expect(
-        identical(card, tester.element(find.byType(KeelPanel).first)), isTrue);
+        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
     expect(tester.takeException(), isNull);
 
     await tester.pump(const Duration(seconds: 3));
@@ -136,7 +136,7 @@ void main() {
     expect(find.text('Unrealized P&L  3.00'), findsOneWidget);
     expect(find.text('Watching'), findsOneWidget);
     expect(
-        identical(card, tester.element(find.byType(KeelPanel).first)), isTrue);
+        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
     await tester.pump(const Duration(seconds: 3));
     repository.snapshots.last.complete(snapshot(4, 'FRESH'));
     await tester.pump();
@@ -144,7 +144,7 @@ void main() {
     expect(find.text('Watching'), findsOneWidget);
     expect(find.text('Unrealized P&L  4.00'), findsOneWidget);
     expect(
-        identical(card, tester.element(find.byType(KeelPanel).first)), isTrue);
+        identical(card, tester.element(find.byType(EyelerPanel).first)), isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
     client.close();
   });

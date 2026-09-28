@@ -20,7 +20,7 @@ export function installShutdownHandlers(server: ClosableServer, signals: Pick<Ev
   const shutdown = () => {
     if (closing) return
     closing = shutdownServer(server, timeoutMs, onTimeout).catch(error => {
-      logger.error({ error: error instanceof Error ? error.message : 'SHUTDOWN_FAILED' }, 'KEEL shutdown failed')
+      logger.error({ error: error instanceof Error ? error.message : 'SHUTDOWN_FAILED' }, 'EYELER shutdown failed')
       process.exitCode = 1
     })
   }

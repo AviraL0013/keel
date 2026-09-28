@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { KeelRuntime } from '../server/src/runtime.js'
+import { EyelerRuntime } from '../server/src/runtime.js'
 import { createServer } from '../server/src/index.js'
 import { installShutdownHandlers, shutdownServer } from '../server/src/shutdown.js'
 import { PostgresStore } from '../server/src/infrastructure/database/postgres-store.js'
@@ -12,7 +12,7 @@ describe('graceful shutdown', () => {
     let finishTick!: () => void
     const tick = new Promise<void>(resolve => { finishTick = resolve })
     const venue = { close: async () => { events.push('close-venue') } } as RuntimeVenue
-    const runtime = new KeelRuntime({ pool: {} } as PostgresStore, venue)
+    const runtime = new EyelerRuntime({ pool: {} } as PostgresStore, venue)
     Object.assign(runtime, {
       scheduler: { stop: async () => { events.push('stop-monitor'); await tick; events.push('tick-finished') } },
       lease: { query: async () => { events.push('unlock') }, release: () => { events.push('release-lease') } },
@@ -40,8 +40,8 @@ describe('graceful shutdown', () => {
 
   it('closes the worker before ending the Postgres pool', async () => {
     const events: string[] = []
-    const start = vi.spyOn(KeelRuntime.prototype, 'start').mockResolvedValue(undefined)
-    const stop = vi.spyOn(KeelRuntime.prototype, 'stop').mockImplementation(async () => { events.push('stop-worker') })
+    const start = vi.spyOn(EyelerRuntime.prototype, 'start').mockResolvedValue(undefined)
+    const stop = vi.spyOn(EyelerRuntime.prototype, 'stop').mockImplementation(async () => { events.push('stop-worker') })
     const store = Object.assign(Object.create(PostgresStore.prototype) as PostgresStore, { pool: { end: async () => { events.push('end-pool') } } })
     const app = createServer(store, { venue: { ready: () => false, close: async () => undefined } as RuntimeVenue })
     try { await app.ready(); await app.close(); expect(events).toEqual(['stop-worker', 'end-pool']) }

@@ -7,7 +7,7 @@ import '../../../shared/models/telemetry_freshness.dart';
 
 class BooksRepository {
   const BooksRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<List<Book>> list() async {
     final value = await api.get('/books', (body) => body);
     if (value is! List) return const [];

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../data/notification_repository.dart';
 import '../domain/notification_item.dart';
 
@@ -30,17 +30,17 @@ class NotificationsScreen extends ConsumerWidget {
                 message:
                     'Risk decisions, execution outcomes, and safety transitions will appear here.')
             : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(KeelSpacing.md,
-                    KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
+                padding: const EdgeInsets.fromLTRB(EyelerSpacing.md,
+                    EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
                 itemCount: items.length + 1,
                 itemBuilder: (_, index) => index == 0
                     ? const Padding(
-                        padding: EdgeInsets.only(bottom: KeelSpacing.lg),
+                        padding: EdgeInsets.only(bottom: EyelerSpacing.lg),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Updates', style: KeelTypography.display),
-                            SizedBox(height: KeelSpacing.xs),
+                            Text('Updates', style: EyelerTypography.display),
+                            SizedBox(height: EyelerSpacing.xs),
                             Text(
                                 'Activity across your positions and protection.'),
                           ],
@@ -66,23 +66,23 @@ class _NotificationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visual = KeelRiskVisual.forState(item.kind);
-    return KeelPanel(
+    final visual = EyelerRiskVisual.forState(item.kind);
+    return EyelerPanel(
         tone: visual.color,
         padding: EdgeInsets.zero,
         child: Material(
             color: Colors.transparent,
             child: InkWell(
-                borderRadius: BorderRadius.circular(KeelRadii.card),
+                borderRadius: BorderRadius.circular(EyelerRadii.card),
                 onTap: item.unread ? onRead : null,
                 child: Padding(
-                    padding: const EdgeInsets.all(KeelSpacing.md),
+                    padding: const EdgeInsets.all(EyelerSpacing.md),
                     child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          KeelIconTile(
+                          EyelerIconTile(
                               icon: visual.icon, color: visual.color, size: 40),
-                          const SizedBox(width: KeelSpacing.md),
+                          const SizedBox(width: EyelerSpacing.md),
                           Expanded(
                               child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,22 +93,22 @@ class _NotificationTile extends StatelessWidget {
                                     children: [
                                       Expanded(
                                           child: Text(item.title,
-                                              style: KeelTypography.section)),
+                                              style: EyelerTypography.section)),
                                       if (item.unread)
                                         const StatusPill(
                                             label: 'UNREAD',
-                                            color: KeelColors.accent)
+                                            color: EyelerColors.accent)
                                     ]),
-                                const SizedBox(height: KeelSpacing.xs),
+                                const SizedBox(height: EyelerSpacing.xs),
                                 Text(item.body,
-                                    style: KeelTypography.body.copyWith(
+                                    style: EyelerTypography.body.copyWith(
                                         color: Theme.of(context)
                                             .textTheme
                                             .bodyMedium
                                             ?.color)),
-                                const SizedBox(height: KeelSpacing.sm),
+                                const SizedBox(height: EyelerSpacing.sm),
                                 Text(item.createdAt,
-                                    style: KeelTypography.label.copyWith(
+                                    style: EyelerTypography.label.copyWith(
                                         color: Theme.of(context)
                                             .textTheme
                                             .bodyMedium

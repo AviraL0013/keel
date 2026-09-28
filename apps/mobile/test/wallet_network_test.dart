@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/core/wallet/eip1193_wallet_connector.dart';
-import 'package:keel_mobile/core/wallet/wallet_types.dart';
+import 'package:eyeler_mobile/core/wallet/eip1193_wallet_connector.dart';
+import 'package:eyeler_mobile/core/wallet/wallet_types.dart';
 
 const network = WalletNetworkConfig(
   chainId: 10143,

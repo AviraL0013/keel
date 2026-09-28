@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../../data/books_repository.dart';
 import '../../domain/book.dart';
 import '../../../positions/domain/position.dart';
@@ -87,20 +87,20 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                         maxHeight: MediaQuery.sizeOf(sheetContext).height * .8),
                     child: SingleChildScrollView(
                         child: Padding(
-                            padding: const EdgeInsets.all(KeelSpacing.lg),
+                            padding: const EdgeInsets.all(EyelerSpacing.lg),
                             child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text('Filter Books',
-                                      style: KeelTypography.title),
-                                  const SizedBox(height: KeelSpacing.md),
+                                      style: EyelerTypography.title),
+                                  const SizedBox(height: EyelerSpacing.md),
                                   const Text('Market',
-                                      style: KeelTypography.label),
-                                  const SizedBox(height: KeelSpacing.sm),
+                                      style: EyelerTypography.label),
+                                  const SizedBox(height: EyelerSpacing.sm),
                                   Wrap(
-                                      spacing: KeelSpacing.sm,
-                                      runSpacing: KeelSpacing.xs,
+                                      spacing: EyelerSpacing.sm,
+                                      runSpacing: EyelerSpacing.xs,
                                       children: [
                                         ChoiceChip(
                                             label: const Text('All'),
@@ -115,13 +115,13 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                                                   update(() => market = item)),
                                       ]),
                                   if (_tab == _BookListTab.current) ...[
-                                    const SizedBox(height: KeelSpacing.lg),
+                                    const SizedBox(height: EyelerSpacing.lg),
                                     const Text('Status',
-                                        style: KeelTypography.label),
-                                    const SizedBox(height: KeelSpacing.sm),
+                                        style: EyelerTypography.label),
+                                    const SizedBox(height: EyelerSpacing.sm),
                                     Wrap(
-                                        spacing: KeelSpacing.sm,
-                                        runSpacing: KeelSpacing.xs,
+                                        spacing: EyelerSpacing.sm,
+                                        runSpacing: EyelerSpacing.xs,
                                         children: [
                                           for (final option
                                               in _BookFilter.values)
@@ -140,7 +140,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                                                     () => status = option)),
                                         ]),
                                   ],
-                                  const SizedBox(height: KeelSpacing.lg),
+                                  const SizedBox(height: EyelerSpacing.lg),
                                   SizedBox(
                                       width: double.infinity,
                                       child: FilledButton(
@@ -192,12 +192,12 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     return Scaffold(
       appBar: AppBar(
           title: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.sailing, color: KeelColors.accent, size: 25),
+            Icon(Icons.sailing, color: EyelerColors.accent, size: 25),
             SizedBox(width: 9),
-            Text('KEEL'),
+            Text('EYELER'),
           ]),
           actions: [
-            SizedBox(
+            if (MediaQuery.sizeOf(context).width >= 360) SizedBox(
                 width: 104,
                 child: Center(
                     child: Text(
@@ -208,7 +208,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                                 : _syncError != null
                                     ? 'RESYNC FAILED'
                                     : '',
-                        style: KeelTypography.label))),
+                        style: EyelerTypography.label))),
             IconButton(
                 tooltip: 'Resync Books',
                 onPressed: _syncing ? null : _resync,
@@ -233,34 +233,34 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
             onRefresh: _resync,
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
-                  KeelSpacing.md, KeelSpacing.xl),
+              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
+                  EyelerSpacing.md, EyelerSpacing.xl),
               itemCount: visible.length + 1,
               itemBuilder: (context, index) {
                 if (index > 0) {
                   final book = visible[index - 1];
                   return Padding(
                       key: ValueKey('book-card-${book.id}'),
-                      padding: const EdgeInsets.only(bottom: KeelSpacing.md),
+                      padding: const EdgeInsets.only(bottom: EyelerSpacing.md),
                       child: _BookCard(book: book));
                 }
                 return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (_syncError != null)
-                        Text(_syncError!, style: KeelTypography.body),
-                      const Text('Your Books', style: KeelTypography.display),
-                      const SizedBox(height: KeelSpacing.xs),
+                        Text(_syncError!, style: EyelerTypography.body),
+                      const Text('Your Books', style: EyelerTypography.display),
+                      const SizedBox(height: EyelerSpacing.xs),
                       Text('$currentCount current · $historyCount in history',
-                          style: KeelTypography.body.copyWith(
+                          style: EyelerTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
                                   ?.color)),
-                      const SizedBox(height: KeelSpacing.lg),
+                      const SizedBox(height: EyelerSpacing.lg),
                       Wrap(
-                          spacing: KeelSpacing.sm,
-                          runSpacing: KeelSpacing.xs,
+                          spacing: EyelerSpacing.sm,
+                          runSpacing: EyelerSpacing.xs,
                           children: [
                             ChoiceChip(
                                 label: const Text('Current'),
@@ -278,7 +278,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                                 label: Text(
                                     filtersActive ? 'Filter on' : 'Filter')),
                           ]),
-                      const SizedBox(height: KeelSpacing.md),
+                      const SizedBox(height: EyelerSpacing.md),
                       if (items.isEmpty)
                         EmptyStateCard(
                             icon: Icons.shield_outlined,
@@ -326,16 +326,16 @@ class _BookCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final telemetry = ref.watch(bookDashboardProvider(book.id));
-    return KeelPanel(
+    return EyelerPanel(
       padding: EdgeInsets.zero,
       child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(KeelRadii.card),
+            borderRadius: BorderRadius.circular(EyelerRadii.card),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => BookDetailScreen(book: book))),
             child: Padding(
-                padding: const EdgeInsets.all(KeelSpacing.lg),
+                padding: const EdgeInsets.all(EyelerSpacing.lg),
                 child: telemetry.when(
                   skipLoadingOnReload: true,
                   skipError: true,
@@ -349,7 +349,7 @@ class _BookCard extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(children: [
-                            KeelIconTile(
+                            EyelerIconTile(
                                 icon: currentBook.market
                                         .toUpperCase()
                                         .contains('BTC')
@@ -358,54 +358,54 @@ class _BookCard extends ConsumerWidget {
                                 color: currentBook.market
                                         .toUpperCase()
                                         .contains('BTC')
-                                    ? KeelColors.reduce
-                                    : KeelColors.info,
+                                    ? EyelerColors.reduce
+                                    : EyelerColors.info,
                                 size: 48),
-                            const SizedBox(width: KeelSpacing.md),
+                            const SizedBox(width: EyelerSpacing.md),
                             Expanded(
                                 child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
                                   Text(currentBook.market,
-                                      style: KeelTypography.title),
+                                      style: EyelerTypography.title),
                                   const SizedBox(height: 3),
                                   Text(
                                       '${currentBook.side.toLowerCase()} position',
-                                      style: KeelTypography.body.copyWith(
+                                      style: EyelerTypography.body.copyWith(
                                           color: Theme.of(context)
                                               .textTheme
                                               .bodyMedium
                                               ?.color)),
                                 ])),
                           ]),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                           StatusPill(
                               label: summary.label,
                               color: summary.color,
                               icon: summary.icon),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                           Text(summary.message,
-                              style: KeelTypography.body.copyWith(
+                              style: EyelerTypography.body.copyWith(
                                   color: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
                                       ?.color)),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                           if (currentBook.status != 'CLOSED' &&
                               state.mark != null &&
                               state.mark!.isFinite &&
                               state.mark! > 0) ...[
                             Text('MARK PRICE',
-                                style: KeelTypography.label.copyWith(
+                                style: EyelerTypography.label.copyWith(
                                     color: Theme.of(context)
                                         .textTheme
                                         .bodyMedium
                                         ?.color)),
                             const SizedBox(height: 4),
                             Text(state.mark!.toStringAsFixed(2),
-                                style: KeelTypography.display),
-                            const SizedBox(height: KeelSpacing.md),
+                                style: EyelerTypography.display),
+                            const SizedBox(height: EyelerSpacing.md),
                           ],
                           if (currentBook.status != 'CLOSED' &&
                               state.liquidationDistance != null &&
@@ -413,30 +413,30 @@ class _BookCard extends ConsumerWidget {
                               currentBook.liquidationFloor > 0) ...[
                             Text(
                                 'Position health  ${state.liquidationDistance!.toStringAsFixed(2)}% to liquidation',
-                                style: KeelTypography.section),
-                            const SizedBox(height: KeelSpacing.xs),
+                                style: EyelerTypography.section),
+                            const SizedBox(height: EyelerSpacing.xs),
                             LinearProgressIndicator(
                                 value: (state.liquidationDistance! /
                                         (currentBook.liquidationFloor * 2))
                                     .clamp(0.0, 1.0),
                                 minHeight: 7,
                                 borderRadius: BorderRadius.circular(20),
-                                backgroundColor: KeelColors.darkBorder,
+                                backgroundColor: EyelerColors.darkBorder,
                                 color: state.liquidationDistance! <
                                         currentBook.liquidationFloor
-                                    ? KeelColors.reduce
-                                    : KeelColors.defend),
-                            const SizedBox(height: KeelSpacing.md),
+                                    ? EyelerColors.reduce
+                                    : EyelerColors.defend),
+                            const SizedBox(height: EyelerSpacing.md),
                           ],
                           if (currentBook.status != 'CLOSED') ...[
                             Text('Unrealized P&L  ${_number(state.pnl)}',
-                                style: KeelTypography.metric
+                                style: EyelerTypography.metric
                                     .copyWith(fontSize: 16)),
-                            const SizedBox(height: KeelSpacing.xs),
+                            const SizedBox(height: EyelerSpacing.xs),
                           ],
                           Wrap(
-                              spacing: KeelSpacing.sm,
-                              runSpacing: KeelSpacing.xs,
+                              spacing: EyelerSpacing.sm,
+                              runSpacing: EyelerSpacing.xs,
                               children: [
                                 _BookFact(
                                     'Reserve',
@@ -449,20 +449,20 @@ class _BookCard extends ConsumerWidget {
                                 _BookFact('Time limit',
                                     '${(currentBook.timeLimitMs / 3600000).toStringAsFixed(0)}h'),
                               ]),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                           Row(children: [
                             Expanded(
                                 child: Text(
                                     currentBook.automationEnabled
                                         ? 'Automatic actions on'
                                         : 'Automatic actions off',
-                                    style: KeelTypography.body.copyWith(
+                                    style: EyelerTypography.body.copyWith(
                                         color: Theme.of(context)
                                             .textTheme
                                             .bodyMedium
                                             ?.color))),
                             const Icon(Icons.arrow_forward_ios,
-                                size: 17, color: KeelColors.accent),
+                                size: 17, color: EyelerColors.accent),
                           ]),
                           LiveSyncStatus(value: telemetry),
                         ]);
@@ -485,19 +485,19 @@ class _BookFact extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
             color: Theme.of(context).brightness == Brightness.dark
-                ? KeelColors.darkCanvas.withValues(alpha: .55)
-                : KeelColors.lightBackground,
+                ? EyelerColors.darkCanvas.withValues(alpha: .55)
+                : EyelerColors.lightBackground,
             border: Border.all(
                 color: Theme.of(context).brightness == Brightness.dark
-                    ? KeelColors.darkBorder.withValues(alpha: .7)
-                    : KeelColors.lightBorder),
+                    ? EyelerColors.darkBorder.withValues(alpha: .7)
+                    : EyelerColors.lightBorder),
             borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label,
-              style: KeelTypography.body.copyWith(
+              style: EyelerTypography.body.copyWith(
                   fontSize: 11,
                   color: Theme.of(context).textTheme.bodyMedium?.color)),
-          Text(value, style: KeelTypography.section),
+          Text(value, style: EyelerTypography.section),
         ]),
       );
 }

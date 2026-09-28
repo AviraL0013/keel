@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/errors/keel_exception.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/errors/eyeler_exception.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
 
 class TestStorage extends SessionStorage {
   @override
@@ -20,12 +20,12 @@ void main() {
       'error': 'POLICY_REJECTED',
       'details': {'state': 'HOLD', 'requestedAction': 'DEFEND', 'reasons': [reason]},
     }), 409));
-    final api = KeelApiClient(const KeelConfig(apiBaseUrl: 'http://localhost:8787'), TestStorage(), httpClient);
-    late KeelException rejection;
+    final api = EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://localhost:8787'), TestStorage(), httpClient);
+    late EyelerException rejection;
     try {
       await api.post('/books/test/actions', body: {'kind': 'DEFEND'}, decode: (value) => value);
       fail('Expected policy rejection');
-    } on KeelException catch (error) {
+    } on EyelerException catch (error) {
       rejection = error;
     }
     expect(rejection.policyRejection?.state, 'HOLD');
@@ -37,14 +37,14 @@ void main() {
   });
 
   test('older refusal responses still have a readable fallback', () {
-    const error = KeelException('POLICY_REJECTED', statusCode: 409);
+    const error = EyelerException('POLICY_REJECTED', statusCode: 409);
     expect(error.userMessage, contains('backend risk policy'));
     expect(error.userMessage, isNot(contains('server unavailable')));
   });
 
-  test('venue rate limit is not reported as KEEL server outage', () {
-    const error = KeelException('PERPL_RATE_LIMITED', statusCode: 503);
-    expect(error.userMessage, contains('Perpl is rate limiting KEEL'));
+  test('venue rate limit is not reported as EYELER server outage', () {
+    const error = EyelerException('PERPL_RATE_LIMITED', statusCode: 503);
+    expect(error.userMessage, contains('Perpl is rate limiting EYELER'));
     expect(error.userMessage, isNot(contains('server unavailable')));
   });
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
-import 'package:keel_mobile/features/books/presentation/screens/app_shell.dart';
-import 'package:keel_mobile/features/books/presentation/screens/books_screen.dart';
-import 'package:keel_mobile/features/positions/data/positions_repository.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/app_shell.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/books_screen.dart';
+import 'package:eyeler_mobile/features/positions/data/positions_repository.dart';
 
 void main() {
   for (final size in [const Size(427, 952), const Size(1440, 900)]) {
@@ -22,7 +22,7 @@ void main() {
           perplConnectionProvider.overrideWith((ref) async =>
               const PerplConnectionState(status: 'VALID', accountId: 642)),
         ],
-        child: MaterialApp(theme: KeelTheme.dark, home: const AppShell()),
+        child: MaterialApp(theme: EyelerTheme.dark, home: const AppShell()),
       ));
       await tester.pumpAndSettle();
 

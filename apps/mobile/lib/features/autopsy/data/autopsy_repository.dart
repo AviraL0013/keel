@@ -4,7 +4,7 @@ import '../domain/autopsy_event.dart';
 
 class AutopsyRepository {
   const AutopsyRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<List<AutopsyEvent>> list(String bookId) async {
     final value = await api.get('/books/$bookId/autopsy', (body) => body);
     if (value is! List) return const [];

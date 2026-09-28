@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { KeelRuntime } from '../server/src/runtime.js'
+import { EyelerRuntime } from '../server/src/runtime.js'
 import type { Action, Book } from '../packages/domain/src/index.js'
 
 const book: Book = {
@@ -21,7 +21,7 @@ function runtimeFor(result: Action, active: Action = action) {
   const finalize = vi.fn(async () => undefined)
   const saveAction = vi.fn(async () => undefined)
   const store = { pool: { query: vi.fn(async () => ({ rows: [{ id: book.id, user_id: book.userId }] })) }, getBook: vi.fn(async () => book) }
-  const runtime = new KeelRuntime(store as never, { submit, reconcile, refresh, ready: () => false, close: async () => undefined })
+  const runtime = new EyelerRuntime(store as never, { submit, reconcile, refresh, ready: () => false, close: async () => undefined })
   Object.assign(runtime, {
     lease: { query: vi.fn(async () => ({ rows: [] })) },
     repository: { getActiveAction: vi.fn(async () => active), finalize, saveAction },

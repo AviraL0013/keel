@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/keel_widgets.dart';
+import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../../data/books_repository.dart';
 import '../../domain/book.dart';
 import '../controllers/book_action_controller.dart';
@@ -33,8 +33,8 @@ class BookDetailScreen extends ConsumerWidget {
         data: (dashboard) => RefreshIndicator(
           onRefresh: () async => ref.invalidate(bookDashboardProvider(book.id)),
           child: ListView(
-              padding: const EdgeInsets.fromLTRB(KeelSpacing.md, KeelSpacing.sm,
-                  KeelSpacing.md, KeelSpacing.xl),
+              padding: const EdgeInsets.fromLTRB(EyelerSpacing.md, EyelerSpacing.sm,
+                  EyelerSpacing.md, EyelerSpacing.xl),
               children: [
                 Builder(builder: (context) {
                   final summary =
@@ -52,32 +52,32 @@ class BookDetailScreen extends ConsumerWidget {
                                           CrossAxisAlignment.start,
                                       children: [
                                     Text(dashboard.book.market,
-                                        style: KeelTypography.display),
-                                    const SizedBox(height: KeelSpacing.xs),
+                                        style: EyelerTypography.display),
+                                    const SizedBox(height: EyelerSpacing.xs),
                                     Text(
                                         '${dashboard.book.side.toLowerCase()} position',
-                                        style: KeelTypography.body.copyWith(
+                                        style: EyelerTypography.body.copyWith(
                                             color: Theme.of(context)
                                                 .textTheme
                                                 .bodyMedium
                                                 ?.color))
                                   ])),
-                              const SizedBox(width: KeelSpacing.sm),
+                              const SizedBox(width: EyelerSpacing.sm),
                               StatusPill(
                                   label: summary.label,
                                   color: summary.color,
                                   icon: summary.icon),
                             ]),
-                        const SizedBox(height: KeelSpacing.md),
+                        const SizedBox(height: EyelerSpacing.md),
                         Card(
                             child: Padding(
-                                padding: const EdgeInsets.all(KeelSpacing.lg),
+                                padding: const EdgeInsets.all(EyelerSpacing.lg),
                                 child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(summary.message,
-                                          style: KeelTypography.body),
+                                          style: EyelerTypography.body),
                                       if (dashboard.telemetry.riskReason
                                                   ?.isNotEmpty ==
                                               true &&
@@ -86,29 +86,29 @@ class BookDetailScreen extends ConsumerWidget {
                                             'Checking status',
                                             'Review position'
                                           }.contains(summary.label)) ...[
-                                        const SizedBox(height: KeelSpacing.sm),
+                                        const SizedBox(height: EyelerSpacing.sm),
                                         Text(dashboard.telemetry.riskReason!,
-                                            style: KeelTypography.body),
+                                            style: EyelerTypography.body),
                                       ],
                                     ]))),
-                        const SizedBox(height: KeelSpacing.md),
+                        const SizedBox(height: EyelerSpacing.md),
                         if (dashboard.book.status != 'CLOSED') ...[
                           BookMetricsCard(
                               book: dashboard.book,
                               telemetry: dashboard.telemetry,
                               includeTechnical: false),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                         ],
                         _ExecutionCard(state: dashboard.telemetry),
-                        const SizedBox(height: KeelSpacing.md),
+                        const SizedBox(height: EyelerSpacing.md),
                         if (action.isLoading) const LinearProgressIndicator(),
                         if (action.hasError)
                           Padding(
                               padding:
-                                  const EdgeInsets.only(bottom: KeelSpacing.md),
+                                  const EdgeInsets.only(bottom: EyelerSpacing.md),
                               child: Text(friendlyError(action.error!),
                                   style:
-                                      const TextStyle(color: KeelColors.exit))),
+                                      const TextStyle(color: EyelerColors.exit))),
                         if (dashboard.book.status != 'CLOSED') ...[
                           ActionButtonRow(
                               disabled: action.isLoading ||
@@ -121,7 +121,7 @@ class BookDetailScreen extends ConsumerWidget {
                                   context, ref, 'REDUCE', dashboard.telemetry),
                               onExit: () => _confirmAction(
                                   context, ref, 'EXIT', dashboard.telemetry)),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                           _ControlCard(
                               book: dashboard.book,
                               disabled: action.isLoading,
@@ -129,19 +129,19 @@ class BookDetailScreen extends ConsumerWidget {
                                   dashboard.book, dashboard.telemetry),
                               onControl: (control) =>
                                   _confirmControl(context, ref, control)),
-                          const SizedBox(height: KeelSpacing.md),
+                          const SizedBox(height: EyelerSpacing.md),
                         ],
                         Card(
                             child: ExpansionTile(
                                 title: const Text('More details',
-                                    style: KeelTypography.section),
+                                    style: EyelerTypography.section),
                                 children: [
                               Padding(
                                   padding: const EdgeInsets.fromLTRB(
-                                      KeelSpacing.md,
+                                      EyelerSpacing.md,
                                       0,
-                                      KeelSpacing.md,
-                                      KeelSpacing.md),
+                                      EyelerSpacing.md,
+                                      EyelerSpacing.md),
                                   child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -149,7 +149,7 @@ class BookDetailScreen extends ConsumerWidget {
                                         TelemetryFreshness(
                                             freshness:
                                                 dashboard.telemetry.freshness),
-                                        const SizedBox(height: KeelSpacing.md),
+                                        const SizedBox(height: EyelerSpacing.md),
                                         RiskBanner(
                                             state:
                                                 dashboard.telemetry.riskState,
@@ -158,30 +158,30 @@ class BookDetailScreen extends ConsumerWidget {
                                         if (dashboard.telemetry.reasonCodes
                                             .isNotEmpty) ...[
                                           const SizedBox(
-                                              height: KeelSpacing.sm),
+                                              height: EyelerSpacing.sm),
                                           Text(
                                               'Reason codes: ${dashboard.telemetry.reasonCodes.join(' / ')}',
-                                              style: KeelTypography.body),
+                                              style: EyelerTypography.body),
                                         ],
                                         if (dashboard
                                                 .telemetry.executionActionId !=
                                             null) ...[
                                           const SizedBox(
-                                              height: KeelSpacing.sm),
+                                              height: EyelerSpacing.sm),
                                           Text(
                                               'Action ID: ${dashboard.telemetry.executionActionId}',
-                                              style: KeelTypography.body),
+                                              style: EyelerTypography.body),
                                         ],
                                         if (dashboard
                                                 .telemetry.executionReason !=
                                             null) ...[
                                           const SizedBox(
-                                              height: KeelSpacing.sm),
+                                              height: EyelerSpacing.sm),
                                           Text(
                                               'Execution reason: ${dashboard.telemetry.executionReason}',
-                                              style: KeelTypography.body),
+                                              style: EyelerTypography.body),
                                         ],
-                                        const SizedBox(height: KeelSpacing.md),
+                                        const SizedBox(height: EyelerSpacing.md),
                                         BookTechnicalMetrics(
                                             telemetry: dashboard.telemetry),
                                       ]))
@@ -234,7 +234,7 @@ class BookDetailScreen extends ConsumerWidget {
                 content: Text(control == 'kill'
                     ? 'Automation will be blocked by the backend until recovery is explicit.'
                     : control == 'recover'
-                        ? 'KEEL will verify the live position, telemetry, and unresolved executions. Automation stays off. No order is submitted.'
+                        ? 'EYELER will verify the live position, telemetry, and unresolved executions. Automation stays off. No order is submitted.'
                         : 'This Book will stop automated actions.'),
                 actions: [
                   TextButton(
@@ -263,7 +263,7 @@ class BookDetailScreen extends ConsumerWidget {
         builder: (_) => AlertDialog(
               title: const Text('Arm automation?'),
               content: Text(
-                  'KEEL may DEFEND using up to ${currentBook.defenseCap.toStringAsFixed(2)} AUSD per action from your ${reserve?.toStringAsFixed(2) ?? 'unavailable'} AUSD reserve. It may also place reduce-only REDUCE and EXIT orders. Use PAUSE to stop automated actions.'),
+                  'EYELER may DEFEND using up to ${currentBook.defenseCap.toStringAsFixed(2)} AUSD per action from your ${reserve?.toStringAsFixed(2) ?? 'unavailable'} AUSD reserve. It may also place reduce-only REDUCE and EXIT orders. Use PAUSE to stop automated actions.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -276,7 +276,7 @@ class BookDetailScreen extends ConsumerWidget {
     if (consented != true || !context.mounted) return;
     await ref.read(bookActionProvider.notifier).run(book.id, 'arm');
     final error = ref.read(bookActionProvider).error;
-    if (error is KeelException &&
+    if (error is EyelerException &&
         error.statusCode == 409 &&
         error.message == 'KILL_SWITCH_ENGAGED' &&
         context.mounted) {
@@ -317,7 +317,7 @@ class BookDetailScreen extends ConsumerWidget {
     if (state.reasons.isNotEmpty) return state.reasons;
     return state.reasonCodes
         .map((code) => switch (code) {
-              'STALE_STATE' => "Telemetry is stale, so KEEL has paused action.",
+              'STALE_STATE' => "Telemetry is stale, so EYELER has paused action.",
               'AUTOMATION_PAUSED' => 'Automation is paused for this Book.',
               'TIME_LIMIT' => 'The Book time limit has been reached.',
               'USER_KILL' => 'The kill stance forbids further rescue.',
@@ -353,7 +353,7 @@ class _ExecutionCard extends StatelessWidget {
     };
     return Card(
         child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.md),
+            padding: const EdgeInsets.all(EyelerSpacing.md),
             child: Row(children: [
               Icon(
                   none
@@ -362,31 +362,31 @@ class _ExecutionCard extends StatelessWidget {
                           ? Icons.help_outline
                           : Icons.receipt_long_outlined,
                   color: none
-                      ? KeelColors.info
+                      ? EyelerColors.info
                       : unknown
-                          ? KeelColors.reduce
-                          : KeelColors.info),
-              const SizedBox(width: KeelSpacing.sm),
+                          ? EyelerColors.reduce
+                          : EyelerColors.info),
+              const SizedBox(width: EyelerSpacing.sm),
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    const Text('LAST ACTION', style: KeelTypography.label),
+                    const Text('LAST ACTION', style: EyelerTypography.label),
                     const SizedBox(height: 4),
-                    Text(title, style: KeelTypography.section),
+                    Text(title, style: EyelerTypography.section),
                     if (none || unknown || status == 'FAILED' || status == 'PARTIAL' ||
                         const {'QUEUED', 'VALIDATING', 'SUBMITTING', 'SUBMITTED', 'VERIFYING'}.contains(status))
                       Text(
                           status == 'FAILED' && state.executionReason != null
                               ? state.executionReason!
                               : unknown
-                                  ? 'Perpl has not confirmed the outcome. KEEL is still checking and will not repeat this action.'
+                                  ? 'Perpl has not confirmed the outcome. EYELER is still checking and will not repeat this action.'
                                   : status == 'PARTIAL'
-                                      ? 'Part of this action completed. KEEL paused further actions while checking the position.'
+                                      ? 'Part of this action completed. EYELER paused further actions while checking the position.'
                                       : none
-                                          ? 'No KEEL action has been submitted for this Book.'
-                                          : 'KEEL is checking the result with Perpl. Do not repeat this action.',
-                          style: KeelTypography.body.copyWith(
+                                          ? 'No EYELER action has been submitted for this Book.'
+                                          : 'EYELER is checking the result with Perpl. Do not repeat this action.',
+                          style: EyelerTypography.body.copyWith(
                               color: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
@@ -406,14 +406,14 @@ class _ControlCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
       child: Padding(
-          padding: const EdgeInsets.all(KeelSpacing.md),
+          padding: const EdgeInsets.all(EyelerSpacing.md),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Wrap(
-                spacing: KeelSpacing.sm,
-                runSpacing: KeelSpacing.sm,
+                spacing: EyelerSpacing.sm,
+                runSpacing: EyelerSpacing.sm,
                 children: [
-                  const Text('BOOK CONTROLS', style: KeelTypography.label),
+                  const Text('BOOK CONTROLS', style: EyelerTypography.label),
                   StatusPill(
                       label: switch (book.status) {
                         'SAFE_MODE' => 'Safety paused',
@@ -422,21 +422,21 @@ class _ControlCard extends StatelessWidget {
                         _ => book.status,
                       },
                       color: book.status == 'ACTIVE'
-                          ? KeelColors.defend
-                          : KeelColors.reduce,
+                          ? EyelerColors.defend
+                          : EyelerColors.reduce,
                       icon: book.status == 'ACTIVE'
                           ? Icons.play_arrow
                           : Icons.pause),
                   StatusPill(
                       label: book.automationEnabled ? 'Auto on' : 'Auto off',
                       color: book.automationEnabled
-                          ? KeelColors.defend
-                          : KeelColors.info,
+                          ? EyelerColors.defend
+                          : EyelerColors.info,
                       icon: book.automationEnabled
                           ? Icons.bolt
                           : Icons.pause_circle_outline)
                 ]),
-            const SizedBox(height: KeelSpacing.sm),
+            const SizedBox(height: EyelerSpacing.sm),
             Text(
                 book.status == 'SAFE_MODE'
                     ? switch (book.safeModeReason) {
@@ -450,16 +450,16 @@ class _ControlCard extends StatelessWidget {
                           'Book is in safe mode. Review the current status before acting.',
                       }
                     : book.automationEnabled
-                        ? 'KEEL may act within this Book policy.'
+                        ? 'EYELER may act within this Book policy.'
                         : book.status == 'PAUSED'
                         ? 'Book is paused. Automation is off; manual controls remain explicit.'
                             : 'Automation is off; manual controls remain explicit.',
-                style: KeelTypography.body.copyWith(
+                style: EyelerTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color)),
-            const SizedBox(height: KeelSpacing.md),
+            const SizedBox(height: EyelerSpacing.md),
             Wrap(
-                spacing: KeelSpacing.sm,
-                runSpacing: KeelSpacing.sm,
+                spacing: EyelerSpacing.sm,
+                runSpacing: EyelerSpacing.sm,
                 children: [
                   if ((book.status == 'ACTIVE' || book.status == 'PAUSED') &&
                       !book.automationEnabled)

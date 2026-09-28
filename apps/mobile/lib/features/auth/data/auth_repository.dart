@@ -6,7 +6,7 @@ import '../../../core/wallet/wallet_connector.dart';
 
 class AuthRepository {
   const AuthRepository(this.api);
-  final KeelApiClient api;
+  final EyelerApiClient api;
   Future<Map<String, dynamic>> challenge(String address) =>
       api.post('/auth/challenge',
           body: {'address': address},

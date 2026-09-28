@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
-import 'package:keel_mobile/features/books/domain/book.dart';
-import 'package:keel_mobile/features/books/presentation/screens/books_screen.dart';
-import 'package:keel_mobile/features/books/presentation/widgets/book_summary.dart';
-import 'package:keel_mobile/shared/models/telemetry_freshness.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/books_screen.dart';
+import 'package:eyeler_mobile/features/books/presentation/widgets/book_summary.dart';
+import 'package:eyeler_mobile/shared/models/telemetry_freshness.dart';
 
 Book book(String id, String market, String status) => Book(
     id: id,
@@ -32,7 +32,7 @@ const fresh = TelemetryFreshnessModel(
 
 class SummaryRepository extends BooksRepository {
   SummaryRepository(http.Client client)
-      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'),
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
             const SessionStorage(), client));
   final states = <String, BookDashboardState>{};
   @override
@@ -116,7 +116,7 @@ void main() {
     await tester.pumpWidget(ProviderScope(overrides: [
       booksProvider.overrideWith((ref) async => books),
       booksRepositoryProvider.overrideWithValue(repository),
-    ], child: MaterialApp(theme: KeelTheme.dark, home: const BooksScreen())));
+    ], child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byKey(const ValueKey('book-card-safe')), findsOneWidget);

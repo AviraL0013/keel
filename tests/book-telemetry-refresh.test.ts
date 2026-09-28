@@ -24,7 +24,7 @@ const input = (at: number) => ({ market: 'BTC-PERP', marketId: 16, venueAccountI
 
 describe('Book telemetry refresh', () => {
   it('serves current data for automation-off Books, ages failed reads, and recovers after reconnect without an action', async () => {
-    vi.stubEnv('KEEL_ENV', 'test')
+    vi.stubEnv('EYELER_ENV', 'test')
     const store = new MemoryStore()
     let current = snapshot(Date.now(), 101)
     let disconnected = false

@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:keel_mobile/core/config/environment.dart';
-import 'package:keel_mobile/core/networking/api_client.dart';
-import 'package:keel_mobile/core/storage/session_storage.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/books/data/books_repository.dart';
-import 'package:keel_mobile/features/books/domain/book.dart';
-import 'package:keel_mobile/features/books/presentation/screens/books_screen.dart';
-import 'package:keel_mobile/shared/models/telemetry_freshness.dart';
-import 'package:keel_mobile/shared/widgets/keel_widgets.dart';
+import 'package:eyeler_mobile/core/config/environment.dart';
+import 'package:eyeler_mobile/core/networking/api_client.dart';
+import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
+import 'package:eyeler_mobile/features/books/presentation/screens/books_screen.dart';
+import 'package:eyeler_mobile/shared/models/telemetry_freshness.dart';
+import 'package:eyeler_mobile/shared/widgets/eyeler_widgets.dart';
 
 const book = Book(
     id: 'book-642',
@@ -25,7 +25,7 @@ const book = Book(
 
 class StaticBooksRepository extends BooksRepository {
   StaticBooksRepository(this.value, http.Client client)
-      : super(KeelApiClient(const KeelConfig(apiBaseUrl: 'http://unused'),
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
             const SessionStorage(), client));
   final BookDashboardState value;
   @override
@@ -72,11 +72,11 @@ void main() {
                   client)),
             ],
             child:
-                MaterialApp(theme: KeelTheme.dark, home: const BooksScreen())));
+                MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 200));
         expect(tester.takeException(), isNull);
-        final card = tester.getRect(find.byType(KeelPanel).first);
+        final card = tester.getRect(find.byType(EyelerPanel).first);
         expect(find.byType(TelemetryFreshness), findsNothing);
         final pill = tester.getRect(find.byType(StatusPill).first);
         expect(pill.left, greaterThanOrEqualTo(card.left));

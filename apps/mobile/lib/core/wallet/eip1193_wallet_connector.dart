@@ -13,12 +13,12 @@ class Eip1193Exception implements Exception {
 
 class WalletNetworkConfig {
   const WalletNetworkConfig({
-    this.chainId = const int.fromEnvironment('KEEL_CHAIN_ID', defaultValue: 10143),
-    this.chainName = const String.fromEnvironment('KEEL_CHAIN_NAME', defaultValue: 'Monad Testnet'),
-    this.rpcUrl = const String.fromEnvironment('KEEL_MONAD_RPC_URL'),
-    this.currencyName = const String.fromEnvironment('KEEL_NATIVE_CURRENCY_NAME', defaultValue: 'Monad'),
-    this.currencySymbol = const String.fromEnvironment('KEEL_NATIVE_CURRENCY_SYMBOL', defaultValue: 'MON'),
-    this.explorerUrl = const String.fromEnvironment('KEEL_MONAD_EXPLORER_URL'),
+    this.chainId = const int.fromEnvironment('EYELER_CHAIN_ID', defaultValue: int.fromEnvironment('KEEL_CHAIN_ID', defaultValue: 10143)),
+    this.chainName = const String.fromEnvironment('EYELER_CHAIN_NAME', defaultValue: String.fromEnvironment('KEEL_CHAIN_NAME', defaultValue: 'Monad Testnet')),
+    this.rpcUrl = const String.fromEnvironment('EYELER_MONAD_RPC_URL', defaultValue: String.fromEnvironment('KEEL_MONAD_RPC_URL')),
+    this.currencyName = const String.fromEnvironment('EYELER_NATIVE_CURRENCY_NAME', defaultValue: String.fromEnvironment('KEEL_NATIVE_CURRENCY_NAME', defaultValue: 'Monad')),
+    this.currencySymbol = const String.fromEnvironment('EYELER_NATIVE_CURRENCY_SYMBOL', defaultValue: String.fromEnvironment('KEEL_NATIVE_CURRENCY_SYMBOL', defaultValue: 'MON')),
+    this.explorerUrl = const String.fromEnvironment('EYELER_MONAD_EXPLORER_URL', defaultValue: String.fromEnvironment('KEEL_MONAD_EXPLORER_URL')),
   });
   final int chainId;
   final String chainName;

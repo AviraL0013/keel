@@ -1,10 +1,10 @@
-﻿# KEEL
+﻿# EYELER
 
-KEEL is programmable risk operations for isolated leveraged onchain positions. A Book combines position, reserve, risk constraints, live telemetry, bounded actions, execution verification, and Autopsy evidence. The deterministic server policy returns `HOLD`, `DEFEND`, `REDUCE`, `EXIT`, or `SAFE_MODE`.
+EYELER is programmable risk operations for isolated leveraged onchain positions. A Book combines position, reserve, risk constraints, live telemetry, bounded actions, execution verification, and Autopsy evidence. The deterministic server policy returns `HOLD`, `DEFEND`, `REDUCE`, `EXIT`, or `SAFE_MODE`.
 
 ## Architecture
 
-KEEL is a modular monolith.
+EYELER is a modular monolith.
 
 ```text
 Flutter mobile
@@ -46,25 +46,27 @@ npm run db:migrate
 npm run server:dev
 ```
 
-Set `KEEL_ALLOWED_WALLETS` to the wallets allowed to sign in, or set `MONAD_WALLET_ADDRESS` as the fallback. Testnet/mainnet browser requests must come from an origin listed in `CORS_ORIGIN`; development/test accept any origin.
+Set `EYELER_ALLOWED_WALLETS` to the wallets allowed to sign in, or set `MONAD_WALLET_ADDRESS` as the fallback. Testnet/mainnet browser requests must come from an origin listed in `CORS_ORIGIN`; development/test accept any origin.
+
+Existing installations should follow the [rebrand rollout](docs/deployment/eyeler-rebrand.md). Keep the current PostgreSQL database and its execution history; previous `KEEL_*` settings remain accepted during the transition.
 
 For a credentialless end-to-end local run, use the explicit deterministic venue. It is a real HTTP/application path backed by the in-memory test store and the production risk/execution code; it never masquerades as live Perpl:
 
 ```powershell
-$env:KEEL_ENV='test'
-$env:KEEL_TEST_VENUE='true'
+$env:EYELER_ENV='test'
+$env:EYELER_TEST_VENUE='true'
 $env:PORT='8787'
 npm run server:dev
 ```
 
 ```bash
-export KEEL_ENV=test
-export KEEL_TEST_VENUE=true
+export EYELER_ENV=test
+export EYELER_TEST_VENUE=true
 export PORT=8787
 npm run server:dev
 ```
 
-The Flutter client defaults to `http://localhost:8787`; override it with `--dart-define=KEEL_API_URL=...`. The local venue is labeled `DEV / TEST VENUE` in the client. A browser EVM wallet provider is still required for the real challenge/signature flow. PostgreSQL and live Perpl credentials are optional for deterministic tests; without them `/ready` remains fail-closed.
+The Flutter client defaults to `http://localhost:8787`; override it with `--dart-define=EYELER_API_URL=...`. The local venue is labeled `DEV / TEST VENUE` in the client. A browser EVM wallet provider is still required for the real challenge/signature flow. PostgreSQL and live Perpl credentials are optional for deterministic tests; without them `/ready` remains fail-closed.
 
 ## Checks
 
@@ -91,7 +93,7 @@ cd apps/mobile
 flutter pub get
 flutter analyze
 flutter test
-flutter run --dart-define=KEEL_API_URL=http://localhost:8787
+flutter run --dart-define=EYELER_API_URL=http://localhost:8787
 ```
 
 ```bash
@@ -99,7 +101,7 @@ cd apps/mobile
 flutter pub get
 flutter analyze
 flutter test
-flutter run --dart-define=KEEL_API_URL=http://localhost:8787
+flutter run --dart-define=EYELER_API_URL=http://localhost:8787
 ```
 
 ## API
@@ -110,7 +112,7 @@ Books: `GET /books`, `POST /books`, `GET /books/:id`, `GET /books/:id/position`,
 
 Operations: `GET /capital`, `POST /connections/perpl/validate`, `GET /connections/perpl/positions`, `GET /books/:id/autopsy`, `GET /notifications`, `POST /notifications/:id/read`.
 
-Development-only controls: `POST /dev/test-venue/scenario` with `healthy`, `floor-breach`, `deterioration`, or `stale` when `KEEL_ENV=test` and `KEEL_TEST_VENUE=true`. `POST /controls/kill-switch` disables automation on every Book owned by the authenticated wallet.
+Development-only controls: `POST /dev/test-venue/scenario` with `healthy`, `floor-breach`, `deterioration`, or `stale` when `EYELER_ENV=test` and `EYELER_TEST_VENUE=true`. `POST /controls/kill-switch` disables automation on every Book owned by the authenticated wallet.
 
 All protected routes require the server session. Perpl secrets, reserve authority, risk decisions, and execution state stay server-side.
 

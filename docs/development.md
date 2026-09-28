@@ -23,7 +23,7 @@ Set `DATABASE_URL` and `SESSION_SECRET`. Perpl, Monad, AUSD, Agora, and push cre
 npm run server:dev
 cd apps/mobile
 flutter pub get
-flutter run --dart-define=KEEL_API_URL=http://localhost:8787
+flutter run --dart-define=EYELER_API_URL=http://localhost:8787
 ```
 
 `/health` reports process health. `/ready` fails closed unless PostgreSQL, runtime worker, and venue are ready.

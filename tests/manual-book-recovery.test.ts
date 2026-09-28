@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { databaseFixture } from './helpers/database.js'
-import { KeelRuntime, type RuntimeVenue } from '../server/src/runtime.js'
+import { EyelerRuntime, type RuntimeVenue } from '../server/src/runtime.js'
 import type { CreateBookInput } from '../server/src/infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from '../server/src/infrastructure/database/execution-repository.js'
 import type { Action } from '../packages/domain/src/index.js'
@@ -30,7 +30,7 @@ describe('manual-only Book recovery', () => {
       await repo.finalize(action)
       expect(await store.safetyActionForBook(book.id)).toBe(action.id)
       expect((await store.getBook(user, book.id))?.status).toBe('SAFE_MODE')
-      await expect(new KeelRuntime(store, { ready: () => true, refresh: async () => {}, submit: vi.fn() } as unknown as RuntimeVenue).recoverBook(user, book.id)).rejects.toThrow('POSITION_EXECUTION_UNRESOLVED')
+      await expect(new EyelerRuntime(store, { ready: () => true, refresh: async () => {}, submit: vi.fn() } as unknown as RuntimeVenue).recoverBook(user, book.id)).rejects.toThrow('POSITION_EXECUTION_UNRESOLVED')
 
       const confirmed: Action = { ...action, status: 'CONFIRMED', error: undefined, confirmedAt: new Date().toISOString() }
       await repo.finalize(confirmed)
@@ -38,7 +38,7 @@ describe('manual-only Book recovery', () => {
       expect(persisted.rows[0].venue_progress).toMatchObject({ requestId: '45', admitted: true, response: 'TIMEOUT' })
       const submit = vi.fn()
       const venue = { ready: () => true, refresh: vi.fn(async () => {}), submit } as unknown as RuntimeVenue
-      const restarted = new KeelRuntime(store, venue)
+      const restarted = new EyelerRuntime(store, venue)
       Object.assign(restarted, { lease: { query: async () => ({ rows: [] }) } })
       await (restarted as unknown as { tick(): Promise<void> }).tick()
       expect((await store.getBook(user, book.id))?.status).toBe('ACTIVE')
@@ -54,7 +54,7 @@ describe('manual-only Book recovery', () => {
       const user = await store.ensureUser('owner')
       const book = await store.createBook(user, { ...bookInput(), status: 'ACTIVE' })
       const submit = vi.fn(async () => ({ status: 'FAILED', venueReference: 'fake-venue-rejection', reason: 'TEST_REJECTED' }))
-      const runtime = new KeelRuntime(store, { ready: () => true, refresh: async () => {}, submit } as unknown as RuntimeVenue)
+      const runtime = new EyelerRuntime(store, { ready: () => true, refresh: async () => {}, submit } as unknown as RuntimeVenue)
       const first = await runtime.executeAction(user, book.id, 'REDUCE')
       const second = await runtime.executeAction(user, book.id, 'REDUCE')
       expect(first.status).toBe('FAILED')
@@ -74,7 +74,7 @@ describe('manual-only Book recovery', () => {
       const book = await store.createBook(user, { ...bookInput(), status: 'SAFE_MODE' })
       const submit = vi.fn()
       const refresh = vi.fn(async () => {})
-      const runtime = new KeelRuntime(store, { ready: () => true, refresh, submit } as unknown as RuntimeVenue)
+      const runtime = new EyelerRuntime(store, { ready: () => true, refresh, submit } as unknown as RuntimeVenue)
       const recovered = await runtime.recoverBook(user, book.id)
       expect(recovered.status).toBe('ACTIVE')
       expect(recovered.automationEnabled).toBe(false)
@@ -91,7 +91,7 @@ describe('manual-only Book recovery', () => {
       const book = await store.createBook(user, { ...bookInput(), status: 'SAFE_MODE' })
       const submit = vi.fn()
       const venue = { ready: () => true, refresh: async () => {}, submit } as unknown as RuntimeVenue
-      const runtime = new KeelRuntime(store, venue)
+      const runtime = new EyelerRuntime(store, venue)
       const assertBlocked = async (code: string) => {
         await expect(runtime.recoverBook(user, book.id)).rejects.toThrow(code)
         expect((await store.getBook(user, book.id))?.status).toBe('SAFE_MODE')
@@ -111,7 +111,7 @@ describe('manual-only Book recovery', () => {
       await db.query("UPDATE books SET stance='KILL' WHERE id=$1", [book.id])
       await assertBlocked('BOOK_RECOVERY_NOT_ALLOWED')
       await db.query("UPDATE books SET stance='DEFEND' WHERE id=$1", [book.id])
-      const unavailable = new KeelRuntime(store, { ready: () => false, refresh: async () => {}, submit } as unknown as RuntimeVenue)
+      const unavailable = new EyelerRuntime(store, { ready: () => false, refresh: async () => {}, submit } as unknown as RuntimeVenue)
       await expect(unavailable.recoverBook(user, book.id)).rejects.toThrow('VENUE_UNAVAILABLE')
       expect(submit).not.toHaveBeenCalled()
     } finally { await db.close() }

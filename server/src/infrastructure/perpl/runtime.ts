@@ -14,7 +14,7 @@ import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { readAgoraActivity } from '../agora/activity.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
-import { logger } from '../../config/index.js'
+import { brandEnv, logger } from '../../config/index.js'
 
 export function perplBookCreationReadiness(position: Position, telemetry: NormalizedTelemetry, now = Date.now(), freshnessWindowMs = defaultFreshnessThresholds.marketMs): BookCreationReadiness {
   // Perpl history `at.t` is the venue event time (often the position's
@@ -60,7 +60,7 @@ export function verifiedCloseSnapshotValues(current: { position: WirePosition; o
 export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefined {
   const env = process.env
   if (!env.PERPL_API_KEY || !env.PERPL_API_KEY_SECRET || !env.PERPL_ACCOUNT_ID) return undefined
-  const environment = env.KEEL_ENV === 'mainnet' ? 'mainnet' : 'testnet'
+  const environment = brandEnv(env, 'ENV') === 'mainnet' ? 'mainnet' : 'testnet'
   const network = { ...perplNetworks[environment], ...(env.PERPL_REST_URL ? { restUrl: env.PERPL_REST_URL } : {}), ...(env.PERPL_WS_URL ? { wsUrl: env.PERPL_WS_URL } : {}), ...(env.PERPL_CHAIN_ID ? { chainId: Number(env.PERPL_CHAIN_ID) } : {}) }
   const signer = new Ed25519PerplSigner(env.PERPL_API_KEY, env.PERPL_API_KEY_SECRET, network.chainId)
   const adapter = new PerplAdapter(environment, signer, network)
@@ -239,10 +239,10 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
         walletAusd: wallet ? available(walletAmount!, 'MONAD_AUSD', wallet.decimals, walletUpdatedAt) : unavailable('MONAD_AUSD', walletUnavailableReason ?? 'MONAD_AUSD_UNAVAILABLE'),
         perplAvailable: available(perpl.available, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt),
         perplLocked: available(perpl.locked, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt),
-        bookReserved: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
-        bookDeployed: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
-        bookRemaining: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
-        unreservedCapital: unavailable('KEEL_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        bookReserved: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        bookDeployed: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        bookRemaining: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+        unreservedCapital: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
         ausd: wallet ? { raw: wallet.raw.toString(), decimals: wallet.decimals, symbol: wallet.symbol, token: wallet.token, chainId: wallet.chainId } : undefined,
         agora: agoraMetrics,
       }

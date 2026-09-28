@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/errors/keel_exception.dart';
+import '../../../core/errors/eyeler_exception.dart';
 import '../../../core/networking/backend_status.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
-import '../../../shared/widgets/keel_widgets.dart';
+import '../../../shared/widgets/eyeler_widgets.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../capital/data/capital_repository.dart';
 import '../data/settings_repository.dart';
@@ -29,19 +29,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
           padding: const EdgeInsets.fromLTRB(
-              KeelSpacing.md, KeelSpacing.sm, KeelSpacing.md, KeelSpacing.xl),
+              EyelerSpacing.md, EyelerSpacing.sm, EyelerSpacing.md, EyelerSpacing.xl),
           children: [
-            const Text('Your KEEL settings', style: KeelTypography.display),
-            const SizedBox(height: KeelSpacing.lg),
-            KeelPanel(
+            const Text('Your EYELER settings', style: EyelerTypography.display),
+            const SizedBox(height: EyelerSpacing.lg),
+            EyelerPanel(
                 child: Padding(
                     padding: EdgeInsets.zero,
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text('Account & session',
-                              style: KeelTypography.title),
-                          const SizedBox(height: KeelSpacing.md),
+                              style: EyelerTypography.title),
+                          const SizedBox(height: EyelerSpacing.md),
                           _SettingRow(
                               label: 'Wallet',
                               value: auth.address == null
@@ -49,7 +49,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   : '${auth.address!.substring(0, 6)}...${auth.address!.substring(auth.address!.length - 4)}  Connected',
                               icon: Icons.account_balance_wallet_outlined),
                           _SettingRow(
-                              label: 'KEEL session',
+                              label: 'EYELER session',
                               value: auth.authenticated
                                   ? 'Authenticated'
                                   : 'Disconnected',
@@ -85,34 +85,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   value: 'Unavailable',
                                   icon: Icons.link)),
                         ]))),
-            const SizedBox(height: KeelSpacing.md),
-            KeelPanel(
+            const SizedBox(height: EyelerSpacing.md),
+            EyelerPanel(
                 child: SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(
                         killEnabled ? 'Automation disabled' : 'Kill switch',
-                        style: KeelTypography.section),
+                        style: EyelerTypography.section),
                     subtitle: Text(
                         killEnabled
                             ? 'Backend enforcement is active across automation.'
                             : 'Fail closed across automated actions.',
-                        style: KeelTypography.body.copyWith(
+                        style: EyelerTypography.body.copyWith(
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color)),
                     value: killEnabled,
                     onChanged: busy || killEnabled
                         ? null
                         : (_) => _confirmKillSwitch())),
-            KeelPanel(
+            EyelerPanel(
                 child: SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Bright sunlight mode',
-                        style: KeelTypography.section),
+                        style: EyelerTypography.section),
                     subtitle: Text(
                         themeMode == ThemeMode.light
                             ? 'Light theme enabled.'
                             : 'Dark theme enabled by default.',
-                        style: KeelTypography.body.copyWith(
+                        style: EyelerTypography.body.copyWith(
                             color:
                                 Theme.of(context).textTheme.bodyMedium?.color)),
                     value: themeMode == ThemeMode.light,
@@ -122,27 +122,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (backend.maybeWhen(
                 data: (value) => value.environment == 'test',
                 orElse: () => false)) ...[
-              const SizedBox(height: KeelSpacing.md),
-              KeelPanel(
+              const SizedBox(height: EyelerSpacing.md),
+              EyelerPanel(
                   child: Padding(
                       padding: EdgeInsets.zero,
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text('DEV / TEST VENUE',
-                                style: KeelTypography.label),
-                            const SizedBox(height: KeelSpacing.xs),
+                                style: EyelerTypography.label),
+                            const SizedBox(height: EyelerSpacing.xs),
                             Text(
                                 'Change deterministic telemetry through the backend test adapter.',
-                                style: KeelTypography.body.copyWith(
+                                style: EyelerTypography.body.copyWith(
                                     color: Theme.of(context)
                                         .textTheme
                                         .bodyMedium
                                         ?.color)),
-                            const SizedBox(height: KeelSpacing.md),
+                            const SizedBox(height: EyelerSpacing.md),
                             Wrap(
-                                spacing: KeelSpacing.sm,
-                                runSpacing: KeelSpacing.sm,
+                                spacing: EyelerSpacing.sm,
+                                runSpacing: EyelerSpacing.sm,
                                 children: [
                                   _scenario('Healthy', 'healthy'),
                                   _scenario('Floor breach', 'floor-breach'),
@@ -153,9 +153,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
             if (busy)
               const Padding(
-                  padding: EdgeInsets.symmetric(vertical: KeelSpacing.md),
+                  padding: EdgeInsets.symmetric(vertical: EyelerSpacing.md),
                   child: LinearProgressIndicator()),
-            const SizedBox(height: KeelSpacing.lg),
+            const SizedBox(height: EyelerSpacing.lg),
             OutlinedButton.icon(
                 onPressed: busy
                     ? null
@@ -234,17 +234,17 @@ class _SettingRow extends StatelessWidget {
   final IconData icon;
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.only(bottom: KeelSpacing.md),
+      padding: const EdgeInsets.only(bottom: EyelerSpacing.md),
       child: Row(children: [
-        KeelIconTile(icon: icon, size: 36),
-        const SizedBox(width: KeelSpacing.sm),
+        EyelerIconTile(icon: icon, size: 36),
+        const SizedBox(width: EyelerSpacing.sm),
         Expanded(
             child: Text(label,
-                style: KeelTypography.body.copyWith(
+                style: EyelerTypography.body.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color))),
         Flexible(
             child: Text(value,
                 textAlign: TextAlign.right,
-                style: KeelTypography.section.copyWith(fontSize: 13)))
+                style: EyelerTypography.section.copyWith(fontSize: 13)))
       ]));
 }

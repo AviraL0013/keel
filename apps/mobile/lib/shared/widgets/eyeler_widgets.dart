@@ -15,7 +15,7 @@ class StatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: tone.withValues(alpha: .18),
-        borderRadius: BorderRadius.circular(KeelRadii.pill),
+        borderRadius: BorderRadius.circular(EyelerRadii.pill),
         border: Border.all(color: tone.withValues(alpha: .5)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -28,18 +28,18 @@ class StatusPill extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 softWrap: true,
-                style: KeelTypography.label
+                style: EyelerTypography.label
                     .copyWith(color: tone, fontSize: 11, letterSpacing: .35))),
       ]),
     );
   }
 }
 
-class KeelIconTile extends StatelessWidget {
-  const KeelIconTile(
+class EyelerIconTile extends StatelessWidget {
+  const EyelerIconTile(
       {super.key,
       required this.icon,
-      this.color = KeelColors.accent,
+      this.color = EyelerColors.accent,
       this.size = 48});
   final IconData icon;
   final Color color;
@@ -59,13 +59,13 @@ class KeelIconTile extends StatelessWidget {
       child: Icon(icon, color: color, size: size * .48));
 }
 
-class KeelPanel extends StatelessWidget {
-  const KeelPanel(
+class EyelerPanel extends StatelessWidget {
+  const EyelerPanel(
       {super.key,
       required this.child,
-      this.tone = KeelColors.accent,
-      this.padding = const EdgeInsets.all(KeelSpacing.lg),
-      this.margin = const EdgeInsets.only(bottom: KeelSpacing.md)});
+      this.tone = EyelerColors.accent,
+      this.padding = const EdgeInsets.all(EyelerSpacing.lg),
+      this.margin = const EdgeInsets.only(bottom: EyelerSpacing.md)});
   final Widget child;
   final Color tone;
   final EdgeInsets padding;
@@ -78,7 +78,7 @@ class KeelPanel extends StatelessWidget {
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(KeelRadii.card),
+          borderRadius: BorderRadius.circular(EyelerRadii.card),
           border: Border.all(
               color: dark
                   ? tone.withValues(alpha: .38)
@@ -88,9 +88,9 @@ class KeelPanel extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                      KeelColors.darkElevated.withValues(alpha: .77),
-                      KeelColors.darkSurface,
-                      KeelColors.darkCanvas
+                      EyelerColors.darkElevated.withValues(alpha: .77),
+                      EyelerColors.darkSurface,
+                      EyelerColors.darkCanvas
                     ])
               : null,
           color: dark ? null : Theme.of(context).colorScheme.surface,
@@ -132,15 +132,15 @@ class MetricGauge extends StatelessWidget {
       Row(children: [
         Expanded(
             child: Text(label,
-                style: KeelTypography.label.copyWith(
+                style: EyelerTypography.label.copyWith(
                     color: Theme.of(context).textTheme.bodyMedium?.color))),
-        const SizedBox(width: KeelSpacing.sm),
+        const SizedBox(width: EyelerSpacing.sm),
         Flexible(
             child: Text(valueLabel,
                 textAlign: TextAlign.right,
-                style: KeelTypography.metric.copyWith(fontSize: 16))),
+                style: EyelerTypography.metric.copyWith(fontSize: 16))),
       ]),
-      const SizedBox(height: KeelSpacing.sm),
+      const SizedBox(height: EyelerSpacing.sm),
       LayoutBuilder(builder: (_, constraints) {
         return Stack(children: [
           Container(
@@ -159,7 +159,7 @@ class MetricGauge extends StatelessWidget {
                     child: Container(
                         height: 10,
                         decoration: BoxDecoration(
-                            color: KeelColors.defend,
+                            color: EyelerColors.defend,
                             borderRadius: BorderRadius.circular(100))))),
           if (threshold != null && maximum != null)
             Positioned(
@@ -168,13 +168,13 @@ class MetricGauge extends StatelessWidget {
                     1,
                 top: -3,
                 child:
-                    Container(width: 3, height: 16, color: KeelColors.reduce)),
+                    Container(width: 3, height: 16, color: EyelerColors.reduce)),
         ]);
       }),
       if (thresholdLabel != null) ...[
         const SizedBox(height: 6),
         Text(thresholdLabel!,
-            style: KeelTypography.body.copyWith(
+            style: EyelerTypography.body.copyWith(
                 fontSize: 12,
                 color: Theme.of(context).textTheme.bodyMedium?.color)),
       ],
@@ -191,8 +191,8 @@ class TelemetryFreshness extends StatelessWidget {
   Widget build(BuildContext context) {
     if (freshness != null) {
       return Wrap(
-          spacing: KeelSpacing.sm,
-          runSpacing: KeelSpacing.xs,
+          spacing: EyelerSpacing.sm,
+          runSpacing: EyelerSpacing.xs,
           children: [
             _source(context, 'MARKET', freshness!.market),
             _source(context, 'POSITION', freshness!.position),
@@ -200,11 +200,11 @@ class TelemetryFreshness extends StatelessWidget {
             _source(context, 'DEPTH', freshness!.orderbook),
           ]);
     }
-    return Wrap(spacing: KeelSpacing.sm, runSpacing: KeelSpacing.xs, children: [
+    return Wrap(spacing: EyelerSpacing.sm, runSpacing: EyelerSpacing.xs, children: [
       for (final source in ['MARKET', 'POSITION', 'FUNDING', 'DEPTH'])
         StatusPill(
             label: '$source UNKNOWN',
-            color: KeelColors.hold,
+            color: EyelerColors.hold,
             icon: Icons.help_outline),
     ]);
   }
@@ -212,10 +212,10 @@ class TelemetryFreshness extends StatelessWidget {
   Widget _source(
       BuildContext context, String label, TelemetryFreshnessPoint point) {
     final color = point.stale
-        ? KeelColors.reduce
+        ? EyelerColors.reduce
         : point.fresh
-            ? KeelColors.defend
-            : KeelColors.hold;
+            ? EyelerColors.defend
+            : EyelerColors.hold;
     final status = point.fresh
         ? 'LIVE'
         : point.stale
@@ -254,13 +254,13 @@ class ActionButtonRow extends StatelessWidget {
               onPressed: disabled ? null : onDefend,
               icon: const Icon(Icons.shield_outlined, size: 17),
               label: const Text('DEFEND'))),
-      const SizedBox(width: KeelSpacing.sm),
+      const SizedBox(width: EyelerSpacing.sm),
       Expanded(
           child: OutlinedButton.icon(
               onPressed: disabled ? null : onReduce,
               icon: const Icon(Icons.trending_down, size: 17),
               label: const Text('REDUCE'))),
-      const SizedBox(width: KeelSpacing.sm),
+      const SizedBox(width: EyelerSpacing.sm),
       Expanded(
           child: OutlinedButton.icon(
               onPressed: disabled ? null : onExit,
@@ -286,19 +286,19 @@ class EmptyStateCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
         child: Padding(
-            padding: const EdgeInsets.all(KeelSpacing.lg),
+            padding: const EdgeInsets.all(EyelerSpacing.lg),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Icon(icon,
                   size: 30, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(height: KeelSpacing.md),
-              Text(title, style: KeelTypography.section),
-              const SizedBox(height: KeelSpacing.xs),
+              const SizedBox(height: EyelerSpacing.md),
+              Text(title, style: EyelerTypography.section),
+              const SizedBox(height: EyelerSpacing.xs),
               Text(message,
-                  style: KeelTypography.body.copyWith(
+                  style: EyelerTypography.body.copyWith(
                       color: Theme.of(context).textTheme.bodyMedium?.color)),
               if (action != null) ...[
-                const SizedBox(height: KeelSpacing.md),
+                const SizedBox(height: EyelerSpacing.md),
                 action!
               ],
             ])));
@@ -314,7 +314,7 @@ class ErrorStateCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => EmptyStateCard(
       icon: Icons.cloud_off_outlined,
-      title: 'KEEL SERVER UNAVAILABLE',
+      title: 'EYELER SERVER UNAVAILABLE',
       message: message,
       action: OutlinedButton.icon(
           onPressed: onRetry,

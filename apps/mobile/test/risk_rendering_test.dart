@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/features/books/presentation/widgets/book_widgets.dart';
+import 'package:eyeler_mobile/features/books/presentation/widgets/book_widgets.dart';
 
 void main() {
   testWidgets('risk state and unavailable metrics render clearly', (tester) async {

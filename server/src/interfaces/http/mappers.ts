@@ -33,7 +33,7 @@ export function toBookRiskDto(row: Record<string, unknown> | null): BookRiskDto 
   return { status: 'DECIDED', state: String(row.state), action: String(row.action), amount: number(row.amount), reasonCodes: stringList(row.reason_codes), reasons: stringList(row.human_readable_reasons), reasonCode: null, reason: stringList(row.human_readable_reasons)[0] ?? 'Decision recorded by the deterministic risk engine.', riskFeatures: row.risk_features ?? null, createdAt: text(row.created_at) }
 }
 export function toExecutionSummaryDto(row: Record<string, unknown> | null): ExecutionSummaryDto {
-  if (!row) return { status: 'NO_ACTIVE_EXECUTION', actionId: null, kind: null, amount: null, venueReference: null, error: null, reason: 'No KEEL execution has been submitted for this Book.' }
+  if (!row) return { status: 'NO_ACTIVE_EXECUTION', actionId: null, kind: null, amount: null, venueReference: null, error: null, reason: 'No EYELER execution has been submitted for this Book.' }
   const status = String(row.status)
   const error = text(row.error)
   const reason = status === 'FAILED' && !row.submitted_at && error === 'MARKET_TELEMETRY_STALE'

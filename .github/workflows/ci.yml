@@ -1,4 +1,4 @@
-﻿name: Keel checks
+﻿name: Eyeler checks
 on: [push, pull_request]
 jobs:
   validate:

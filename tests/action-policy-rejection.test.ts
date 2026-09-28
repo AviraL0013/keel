@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { buildTelemetryFreshness, freshnessPoint, type Action, type Book, type NormalizedTelemetry, type Position, type Reserve } from '../packages/domain/src/index.js'
 import { evaluate } from '../packages/risk-engine/src/index.js'
-import { KeelRuntime } from '../server/src/runtime.js'
+import { EyelerRuntime } from '../server/src/runtime.js'
 import { createServer } from '../server/src/index.js'
 import { MemoryStore } from '../server/src/memoryStore.js'
 import { databaseFixture } from './helpers/database.js'
@@ -14,12 +14,12 @@ async function setup(options: SetupOptions = {}) {
   const calls: string[] = []
   const submit = vi.fn(async () => { calls.push('submit'); return { venueReference: 'manual-defend', status: 'SUBMITTED' as const } })
   const reconcile = vi.fn(async (action: Action) => { calls.push('reconcile'); return { ...action, status: 'CONFIRMED' as const, confirmedAt: new Date().toISOString() } })
-  const runtime = new KeelRuntime(store, { submit, reconcile, refresh: async () => undefined, ready: () => options.venueReady ?? true, close: async () => undefined })
-  const previousEnvironment = process.env.KEEL_ENV
-  const previousAllowlist = process.env.KEEL_ALLOWED_WALLETS
+  const runtime = new EyelerRuntime(store, { submit, reconcile, refresh: async () => undefined, ready: () => options.venueReady ?? true, close: async () => undefined })
+  const previousEnvironment = process.env.EYELER_ENV
+  const previousAllowlist = process.env.EYELER_ALLOWED_WALLETS
   const previousFallbackWallet = process.env.MONAD_WALLET_ADDRESS
-  process.env.KEEL_ENV = 'test'
-  delete process.env.KEEL_ALLOWED_WALLETS
+  process.env.EYELER_ENV = 'test'
+  delete process.env.EYELER_ALLOWED_WALLETS
   delete process.env.MONAD_WALLET_ADDRESS
   const app = createServer(memory, { executeAction: runtime.executeAction.bind(runtime) })
   const user = await store.ensureUser('test-policy-owner')
@@ -39,7 +39,7 @@ async function setup(options: SetupOptions = {}) {
   return { app, calls, db, request, submit, reconcile, store, user, book, previousEnvironment, previousAllowlist, previousFallbackWallet }
 }
 
-async function close(value: Awaited<ReturnType<typeof setup>>) { await value.app.close(); await value.db.close(); if (value.previousEnvironment === undefined) delete process.env.KEEL_ENV; else process.env.KEEL_ENV = value.previousEnvironment; if (value.previousAllowlist === undefined) delete process.env.KEEL_ALLOWED_WALLETS; else process.env.KEEL_ALLOWED_WALLETS = value.previousAllowlist; if (value.previousFallbackWallet === undefined) delete process.env.MONAD_WALLET_ADDRESS; else process.env.MONAD_WALLET_ADDRESS = value.previousFallbackWallet }
+async function close(value: Awaited<ReturnType<typeof setup>>) { await value.app.close(); await value.db.close(); if (value.previousEnvironment === undefined) delete process.env.EYELER_ENV; else process.env.EYELER_ENV = value.previousEnvironment; if (value.previousAllowlist === undefined) delete process.env.EYELER_ALLOWED_WALLETS; else process.env.EYELER_ALLOWED_WALLETS = value.previousAllowlist; if (value.previousFallbackWallet === undefined) delete process.env.MONAD_WALLET_ADDRESS; else process.env.MONAD_WALLET_ADDRESS = value.previousFallbackWallet }
 
 describe('manual action policy', () => {
   it('automation OFF holds the automated policy without submitting', () => {

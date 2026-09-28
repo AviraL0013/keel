@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:keel_mobile/core/theme/app_theme.dart';
-import 'package:keel_mobile/features/capital/data/capital_repository.dart';
-import 'package:keel_mobile/features/capital/domain/capital_snapshot.dart';
-import 'package:keel_mobile/features/capital/presentation/capital_screen.dart';
+import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/features/capital/data/capital_repository.dart';
+import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
+import 'package:eyeler_mobile/features/capital/presentation/capital_screen.dart';
 
 void main() {
   testWidgets(
@@ -32,7 +32,7 @@ void main() {
               }
             ],
           })),
-    ], child: MaterialApp(theme: KeelTheme.dark, home: const CapitalScreen())));
+    ], child: MaterialApp(theme: EyelerTheme.dark, home: const CapitalScreen())));
     await tester.pumpAndSettle();
     expect(find.text('Agora account activity'), findsOneWidget);
     expect(find.text('Transaction history. Not a balance or funds available.'),

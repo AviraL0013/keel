@@ -18,4 +18,4 @@ PostgreSQL / Perpl / Monad / AUSD / Agora adapters
 
 The persistent Perpl stream is shared by Books. It publishes normalized market, funding, orderbook, freshness, and connection state. Execution records gateway submission separately from authoritative reconciliation and preserves `UNKNOWN` outcomes.
 
-Flutter uses `KeelApiClient`, feature repositories, and Riverpod providers. It renders `RiskDecision` and telemetry from API responses. It does not reproduce liquidation thresholds, defense sizing, rescue refusal, or action policy.
+Flutter uses `EyelerApiClient`, feature repositories, and Riverpod providers. It renders `RiskDecision` and telemetry from API responses. It does not reproduce liquidation thresholds, defense sizing, rescue refusal, or action policy.

@@ -8,7 +8,7 @@ import '../../domain/book.dart';
 import '../../../positions/domain/position.dart';
 import '../../../positions/data/positions_repository.dart';
 import '../../../capital/data/capital_repository.dart';
-import '../../../../core/errors/keel_exception.dart';
+import '../../../../core/errors/eyeler_exception.dart';
 import 'book_detail_screen.dart';
 
 class CreateBookScreen extends ConsumerStatefulWidget {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Action } from '../packages/domain/src/index.js'
-import { KeelRuntime, type RuntimeVenue } from '../server/src/runtime.js'
+import { EyelerRuntime, type RuntimeVenue } from '../server/src/runtime.js'
 import { databaseFixture } from './helpers/database.js'
 
 async function fixture(first: 'FAILED' | 'CANCELED' | 'UNKNOWN' | 'PARTIAL' = 'FAILED', alwaysFail = false) {
@@ -27,7 +27,7 @@ async function fixture(first: 'FAILED' | 'CANCELED' | 'UNKNOWN' | 'PARTIAL' = 'F
     await db.query('UPDATE risk_snapshots SET timestamp=$2,freshness_detail=NULL WHERE book_id=$1', [book.id, at])
   }, submit, reconcile, close: async () => undefined }
   const runtime = () => {
-    const value = new KeelRuntime(store, venue, () => clock.at)
+    const value = new EyelerRuntime(store, venue, () => clock.at)
     Object.assign(value, { lease: { query: async () => ({ rows: [] }) } })
     return { tick: () => (value as unknown as { tick(): Promise<void> }).tick() }
   }
