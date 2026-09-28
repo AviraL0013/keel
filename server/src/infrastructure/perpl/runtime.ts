@@ -539,12 +539,12 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     async capital(walletAddress?: string) {
       const accountId = Number(env.PERPL_ACCOUNT_ID)
       const perpl = await adapter.getBalance(accountId)
-      const configuredWallet = env.MONAD_WALLET_ADDRESS || walletAddress
+      const sessionWallet = walletAddress
       let wallet: Awaited<ReturnType<AusdAdapter['walletBalance']>> | undefined
       let walletUnavailableReason: string | undefined
-      if (configuredWallet) {
+      if (sessionWallet) {
         try {
-          wallet = await ausd.walletBalance(getAddress(configuredWallet))
+          wallet = await ausd.walletBalance(getAddress(sessionWallet))
         } catch (error) {
           walletUnavailableReason = 'MONAD_AUSD_READ_FAILED'
           logger.warn(
@@ -552,7 +552,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
             'Monad AUSD balance unavailable',
           )
         }
-      } else walletUnavailableReason = 'MONAD_WALLET_ADDRESS_NOT_CONFIGURED'
+      } else walletUnavailableReason = 'SESSION_WALLET_UNAVAILABLE'
       const agoraMetrics = env.AGORA_METRICS_ENABLED === 'true' ? await agora.metrics() : undefined
       const unavailable = (source: string, reason: string, decimals = 6): CapitalAmount => ({
         amount: null,
