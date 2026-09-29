@@ -1,1 +1,18 @@
-// Plugin versions are declared in settings.gradle for Flutter's included build.
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+def newBuildDir = rootProject.layout.buildDirectory.dir('../../build').get()
+rootProject.layout.buildDirectory.set(newBuildDir)
+
+subprojects {
+    project.layout.buildDirectory.set(newBuildDir.dir(project.name))
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}
