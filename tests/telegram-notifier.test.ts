@@ -143,6 +143,22 @@ describe('Telegram notification delivery', () => {
     }
   }, 20_000)
 
+  it('allows a local HTTP app link only for a testnet rehearsal', () => {
+    const env = { TELEGRAM_BOT_TOKEN: 'fake-token', TELEGRAM_CHAT_ID: 'operator-chat', EYELER_ENV: 'testnet' }
+    expect(createTelegramNotifier({} as never, { ...env, EYELER_APP_URL: 'http://localhost:8082' })).toBeInstanceOf(
+      TelegramNotifier,
+    )
+    expect(createTelegramNotifier({} as never, { ...env, EYELER_APP_URL: 'http://127.0.0.1:8082' })).toBeInstanceOf(
+      TelegramNotifier,
+    )
+    expect(() => createTelegramNotifier({} as never, { ...env, EYELER_APP_URL: 'http://evil.example' })).toThrow(
+      'INVALID_EYELER_APP_URL',
+    )
+    expect(() =>
+      createTelegramNotifier({} as never, { ...env, EYELER_ENV: 'mainnet', EYELER_APP_URL: 'http://localhost:8082' }),
+    ).toThrow('INVALID_EYELER_APP_URL')
+  })
+
   it('does not resend after an ambiguous transport failure', async () => {
     const fetcher = vi.fn(async () => {
       throw new Error('SIMULATED_NETWORK_TIMEOUT')
