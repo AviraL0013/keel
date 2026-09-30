@@ -42,3 +42,7 @@ node --env-file=.env dist/scripts/report.js --from <UTC-start-ISO> --to <UTC-end
 ```
 
 The `reports/` directory is gitignored. Review tick gaps, SAFE_MODE episodes, action outcomes, and Telegram deliveries before sharing the report.
+
+## Unresolved orders from older builds
+
+An UNKNOWN action whose `venue_progress.requestedLastExecBlock` is `0` has no provable expiry. A later block height or an empty order-history response does not establish that the order failed. Leave its Book in safety pause with automation off; do not repeat the action, clear the action, or edit the database. Review the request ID in Perpl's order and account history and the chain explorer. If the venue outcome remains unclear, ask Perpl support to investigate the request ID before any manual recovery or new Book on that position. New orders record a bounded execution block and heartbeat continuity; a reconnect or backend restart during that window still leaves an unconfirmed action UNKNOWN.

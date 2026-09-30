@@ -1,4 +1,5 @@
 import WS from 'ws'
+import { randomUUID } from 'node:crypto'
 import { createNonce, type Ed25519PerplSigner } from './signer.js'
 import type { Action, VenueProgress } from '../../domain/src/index.js'
 import type { PerplConfig } from './index.js'
@@ -19,6 +20,7 @@ export type PerplOrder = {
   lv: number
   a?: string
   lb?: number
+  orderTtlBlocks?: number
   p?: number
   ms?: number
   lp?: number
@@ -47,6 +49,10 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>
   admitted: boolean
   requestedLastExecBlock: number
+  sentHeartbeatHead: number
+  sentHeartbeatSequence: number
+  streamEpoch: string
+  orderStatusReceived: boolean
 }
 function progress(
   pending: Pending,
@@ -59,6 +65,10 @@ function progress(
     clientSequence: sequence,
     admitted: pending.admitted,
     requestedLastExecBlock: pending.requestedLastExecBlock,
+    sentHeartbeatHead: pending.sentHeartbeatHead,
+    sentHeartbeatSequence: pending.sentHeartbeatSequence,
+    streamEpoch: pending.streamEpoch,
+    orderStatusReceived: pending.orderStatusReceived,
     response,
     ...details,
   }
@@ -107,6 +117,9 @@ export class PerplTradingClient {
   private sequence = 0
   private readonly pending = new Map<number, Pending>()
   private readonly state = new PerplStateStore()
+  private streamEpoch = ''
+  private readonly requestBySequence = new Map<number, string>()
+  private readonly seenRequestStatuses = new Set<string>()
   private lifecycle: PerplTradingLifecycle = 'DISCONNECTED'
   private reconnectTimer?: ReturnType<typeof setTimeout>
   private keepAliveTimer?: ReturnType<typeof setInterval>
@@ -132,6 +145,7 @@ export class PerplTradingClient {
     private readonly authoritativeBaseline: (accountId: number) => Promise<ForwardedRequestBaseline> = (accountId) =>
       this.readAuthoritativeBaseline(accountId),
     private readonly keepAliveIntervalMs = 30_000,
+    private readonly orderResponseTimeoutMs = 15_000,
   ) {
     this.diagnostic = diagnostic
   }
@@ -157,6 +171,7 @@ export class PerplTradingClient {
     if (!this.socket || this.socket.readyState !== WS.OPEN)
       throw new PerplPreSubmissionError('PERPL_TRADING_NOT_CONNECTED')
     if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
+    if (!this.orderExpiry(order)) throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
     const account = this.state.snapshot().accounts.find((item) => item.id === order.acc)
     if (!account) throw new PerplPreSubmissionError('PERPL_ACCOUNT_NOT_FOUND', 403)
     if (account.fr) throw new PerplPreSubmissionError('PERPL_ACCOUNT_FROZEN', 403)
@@ -225,6 +240,10 @@ export class PerplTradingClient {
       throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
     if (!validForwardedRequestId(rq, String(sendAccount.lfr)))
       throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
+    const expiry = this.orderExpiry(order)
+    if (!expiry) throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
+    const { orderTtlBlocks: _ttl, ...wireOrder } = order
+    wireOrder.lb = expiry.lastExecBlock
     return await new Promise((resolve) => {
       const timer = setTimeout(() => {
         const pending = this.pending.get(sn)
@@ -236,7 +255,7 @@ export class PerplTradingClient {
           reason: 'PERPL_ORDER_RESPONSE_TIMEOUT',
           venueProgress: pending && progress(pending, sn, 'TIMEOUT'),
         })
-      }, 15_000)
+      }, this.orderResponseTimeoutMs)
       this.pending.set(sn, {
         rq,
         accountId: order.acc,
@@ -244,12 +263,17 @@ export class PerplTradingClient {
         timer,
         resolve,
         admitted: false,
-        requestedLastExecBlock: order.lb ?? 0,
+        requestedLastExecBlock: expiry.lastExecBlock,
+        sentHeartbeatHead: expiry.head,
+        sentHeartbeatSequence: expiry.sequence,
+        streamEpoch: expiry.epoch,
+        orderStatusReceived: false,
       })
+      this.requestBySequence.set(sn, rq)
       this.diagnostic(
         `PERPL_WS_ORDER_SEND actionId=${action.id} mt=22 rq=${rq} sn=${sn} accountId=${order.acc} marketId=${order.mkt}`,
       )
-      this.socket!.send(orderFrameWithRequestId({ mt: 22, sn, ...order, fl: 4 }, rq), (error) => {
+      this.socket!.send(orderFrameWithRequestId({ mt: 22, sn, ...wireOrder, fl: 4 }, rq), (error) => {
         if (!error) {
           this.diagnostic(`PERPL_WS_ORDER_WRITE_OK actionId=${action.id} rq=${rq} sn=${sn}`)
           return
@@ -272,6 +296,40 @@ export class PerplTradingClient {
   stateSnapshot() {
     return this.state.snapshot()
   }
+  heartbeat() {
+    const value = this.state.heartbeat()
+    return value && this.streamEpoch ? { ...value, epoch: this.streamEpoch } : undefined
+  }
+  expiryProven(value?: VenueProgress) {
+    const current = this.heartbeat()
+    return !!(
+      value &&
+      current &&
+      Number.isSafeInteger(value.requestedLastExecBlock) &&
+      value.requestedLastExecBlock > 0 &&
+      Number.isSafeInteger(value.sentHeartbeatHead) &&
+      Number.isSafeInteger(value.sentHeartbeatSequence) &&
+      value.sentHeartbeatHead! > 0 &&
+      value.requestedLastExecBlock > value.sentHeartbeatHead! &&
+      typeof value.streamEpoch === 'string' &&
+      value.streamEpoch.length > 0 &&
+      value.streamEpoch === current.epoch &&
+      current.sequence >= value.sentHeartbeatSequence! &&
+      current.head >= value.requestedLastExecBlock &&
+      value.orderStatusReceived === false &&
+      value.response !== 'ORDER_UPDATE' &&
+      value.response !== 'REJECTED' &&
+      !this.seenRequestStatuses.has(value.requestId) &&
+      !this.state.snapshot().orders.some((order) => String(order.rq) === value.requestId)
+    )
+  }
+  private orderExpiry(order: PerplOrder) {
+    const heartbeat = this.heartbeat()
+    const ttl = order.orderTtlBlocks
+    if (!heartbeat || !Number.isSafeInteger(ttl) || ttl! <= 0 || !Number.isSafeInteger(heartbeat.head + ttl!))
+      return undefined
+    return { ...heartbeat, lastExecBlock: heartbeat.head + ttl! }
+  }
   positionSnapshot(accountId: number, marketId: number, positionId?: number) {
     return this.state.positionSnapshot(accountId, marketId, positionId)
   }
@@ -293,6 +351,7 @@ export class PerplTradingClient {
     this.socket?.close()
     this.socket = undefined
     this.state.disconnect()
+    this.streamEpoch = ''
     this.lifecycle = 'DISCONNECTED'
     this.failPending('UNKNOWN')
   }
@@ -341,14 +400,30 @@ export class PerplTradingClient {
     throw new Error('PERPL_ORDER_HISTORY_SCAN_LIMIT')
   }
   private async openAndAuthenticate(): Promise<void> {
-    const socket = new WS(`${this.config.wsUrl}/ws/v1/trading`, { handshakeTimeout: 10_000 })
+    const socket = new WS(`${this.config.wsUrl}/ws/v1/trading`, { handshakeTimeout: 10_000, autoPong: true })
+    let protocolPings = 0
+    let lastProtocolPingAt = 0
+    let lastAppPingAt = 0
+    let maxKeepAliveDelayMs = 0
+    let nextKeepAliveAt = 0
+    socket.on('ping', () => {
+      protocolPings++
+      lastProtocolPingAt = Date.now()
+    })
     this.lastHeartbeatDiagnosticAt = 0
     this.socket = socket
+    this.streamEpoch = randomUUID()
+    this.requestBySequence.clear()
+    this.seenRequestStatuses.clear()
     socket.on('message', (data) => this.handleMessage(String(data)))
     socket.on('close', (code, reason) => {
-      this.diagnostic(`PERPL_WS_CLOSE code=${code} reason=${JSON.stringify(String(reason))}`)
+      const now = Date.now()
+      this.diagnostic(
+        `PERPL_WS_CLOSE at=${new Date(now).toISOString()} code=${code} reason=${JSON.stringify(String(reason))} protocolPings=${protocolPings} lastProtocolPingAgeMs=${lastProtocolPingAt ? now - lastProtocolPingAt : 'never'} appPingAgeMs=${lastAppPingAt ? now - lastAppPingAt : 'never'} maxKeepAliveDelayMs=${maxKeepAliveDelayMs}`,
+      )
       this.stopKeepAlive()
       this.state.disconnect()
+      this.streamEpoch = ''
       this.failPending('UNKNOWN')
       this.socket = undefined
       const waiter = this.readyWaiter
@@ -393,8 +468,13 @@ export class PerplTradingClient {
     )
     this.diagnostic('PERPL_WS_SIGNIN_SENT')
     this.stopKeepAlive()
+    nextKeepAliveAt = Date.now() + this.keepAliveIntervalMs
     this.keepAliveTimer = setInterval(() => {
       if (this.socket !== socket || socket.readyState !== WS.OPEN) return
+      const now = Date.now()
+      maxKeepAliveDelayMs = Math.max(maxKeepAliveDelayMs, Math.max(0, now - nextKeepAliveAt))
+      nextKeepAliveAt = now + this.keepAliveIntervalMs
+      lastAppPingAt = now
       socket.send(JSON.stringify({ mt: 1, t: Date.now() }), (error) => {
         if (error) {
           this.diagnostic(`PERPL_WS_KEEPALIVE_ERROR reason=${JSON.stringify(error.message)}`)
@@ -439,6 +519,7 @@ export class PerplTradingClient {
     let message: TradingMessage
     try {
       message = parsePerplRequestIds(raw) as TradingMessage
+      if (message.mt === 19 && this.state.snapshot().wallet) this.streamEpoch = randomUUID()
       const logHeartbeat = message.mt === 100 && Date.now() - this.lastHeartbeatDiagnosticAt >= 60_000
       if (message.mt !== 100 || logHeartbeat) this.diagnostic(`PERPL_WS_MESSAGE mt=${message.mt ?? 'unknown'}`)
       const applied = this.state.apply(message)
@@ -491,6 +572,7 @@ export class PerplTradingClient {
           return
         } // Admission is not a fill; mt:24/reconciliation decides outcome.
         clearTimeout(pending.timer)
+        this.seenRequestStatuses.add(pending.rq)
         this.pending.delete(message.cid!)
         pending.resolve({
           venueReference: `${pending.accountId}:${pending.rq}`,
@@ -504,6 +586,8 @@ export class PerplTradingClient {
         return
       }
       if (this.lifecycle !== 'AUTHENTICATING' && this.lifecycle !== 'AUTHENTICATED') {
+        const rq = message.cid === undefined ? undefined : this.requestBySequence.get(message.cid)
+        if (rq && message.status?.code !== 0) this.seenRequestStatuses.add(rq)
         this.diagnostic(
           `PERPL_WS_UNMATCHED_STATUS cid=${message.cid ?? 'unknown'} code=${message.status?.code ?? 'unknown'}`,
         )
@@ -524,9 +608,11 @@ export class PerplTradingClient {
     }
     if (message.mt !== 24 || !message.d) return
     for (const order of message.d) {
+      if (order.rq !== undefined) this.seenRequestStatuses.add(String(order.rq))
       const entry = [...this.pending.entries()].find(([, value]) => value.rq === String(order.rq))
       if (!entry) continue
       const [sn, pending] = entry
+      pending.orderStatusReceived = true
       const status = mapPerplOrderStatus(order.st ?? 0)
       if (status === 'SUBMITTED') continue
       clearTimeout(pending.timer)

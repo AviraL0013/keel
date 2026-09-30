@@ -346,7 +346,6 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       config?: { size_decimals?: number; price_decimals?: number }
     } | null
     const protocol = await adapter.getProtocolContext()
-    const chain = protocol.chain as { gas?: { h?: number } } | undefined
     const token = protocol.tokens.find(
       (item) =>
         item.id === protocol.instances.find((instance) => instance.id === market?.instance_id)?.collateral_token_id,
@@ -367,8 +366,8 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
         margin: Number(row.margin),
         status: row.status as Position['status'],
       },
-      headBlock: Number(chain?.gas?.h ?? 0),
-      orderTtlBlocks: market?.order_ttl_blocks ?? 20,
+      headBlock: trading.heartbeat()?.head ?? 0,
+      orderTtlBlocks: market?.order_ttl_blocks ?? 0,
       sizeDecimals: market?.config?.size_decimals ?? 0,
       priceDecimals: market?.config?.price_decimals ?? 0,
       leverageHundredths: Math.round(Number(row.leverage) * 100),

@@ -88,6 +88,7 @@ export class PerplStateStore {
   private snapshots = new Set<number>()
   private connected = false
   private lastHeartbeatAt = 0
+  private heartbeatHead?: number
   reset() {
     this.accounts.clear()
     this.positions.clear()
@@ -99,9 +100,23 @@ export class PerplStateStore {
     this.heartbeatSequence = undefined
     this.connected = false
     this.lastHeartbeatAt = 0
+    this.heartbeatHead = undefined
   }
   disconnect() {
     this.connected = false
+    this.heartbeatHead = undefined
+  }
+  heartbeat(now = Date.now()) {
+    if (
+      !this.connected ||
+      this.heartbeatSequence === undefined ||
+      this.heartbeatHead === undefined ||
+      !this.lastHeartbeatAt ||
+      now < this.lastHeartbeatAt ||
+      now - this.lastHeartbeatAt > 10_000
+    )
+      return undefined
+    return { head: this.heartbeatHead, sequence: this.heartbeatSequence }
   }
   snapshotsReady() {
     return [19, 23, 26].every((type) => this.snapshots.has(type))
@@ -128,11 +143,20 @@ export class PerplStateStore {
       this.snapshots.add(19)
     } else if (message.mt === 21) this.account(message)
     else if (message.mt === 100) {
-      if (!integer(message.sn) || this.heartbeatSequence === undefined || message.sn !== this.heartbeatSequence + 1) {
+      if (
+        !integer(message.sn) ||
+        this.heartbeatSequence === undefined ||
+        message.sn !== this.heartbeatSequence + 1 ||
+        !Number.isSafeInteger(message.h) ||
+        Number(message.h) <= 0 ||
+        (this.heartbeatHead !== undefined && Number(message.h) < this.heartbeatHead)
+      ) {
         this.connected = false
+        this.heartbeatHead = undefined
         return { accepted: false, reason: 'SEQUENCE_GAP' as const }
       }
       this.heartbeatSequence = message.sn
+      this.heartbeatHead = Number(message.h)
       this.lastHeartbeatAt = receivedAt
     } else if ([23, 24, 25, 26, 27].includes(message.mt)) {
       if (!this.wallet || !Array.isArray(message.d)) throw new Error('PERPL_SNAPSHOT_REQUIRED')

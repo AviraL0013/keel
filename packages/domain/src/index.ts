@@ -232,6 +232,10 @@ export type VenueProgress = {
   clientSequence: number
   admitted: boolean
   requestedLastExecBlock: number
+  sentHeartbeatHead?: number
+  sentHeartbeatSequence?: number
+  streamEpoch?: string
+  orderStatusReceived?: boolean
   effectiveLastExecBlock?: number
   response: 'ADMITTED' | 'REJECTED' | 'ORDER_UPDATE' | 'TIMEOUT' | 'TRANSPORT_AMBIGUOUS'
   code?: number

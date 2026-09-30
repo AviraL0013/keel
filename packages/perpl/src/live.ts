@@ -91,6 +91,17 @@ export class PerplLiveAdapter {
         confirmedAt: new Date().toISOString(),
       }
     }
+    if (
+      action.status === 'UNKNOWN' &&
+      evidence.orders.length === 0 &&
+      evidence.accounts.length === 0 &&
+      evidence.fills.length === 0 &&
+      !evidence.positions.some((position) => String(position.rq) === rq) &&
+      action.venueProgress?.requestId === rq &&
+      typeof this.client.expiryProven === 'function' &&
+      this.client.expiryProven(action.venueProgress)
+    )
+      return { ...action, status: 'FAILED', failedAt: new Date().toISOString(), error: 'PERPL_ORDER_WINDOW_EXPIRED' }
     if (action.kind === 'DEFEND' && evidence.orders.length && evidence.orders.every((order) => order.st === 7))
       return unknown('COLLATERAL_OUTCOME_UNVERIFIED')
     if (action.kind === 'REDUCE' || action.kind === 'EXIT') {

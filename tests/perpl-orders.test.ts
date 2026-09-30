@@ -35,7 +35,7 @@ describe('Perpl collateral order', () => {
       s: 0,
       a: '29400',
       lp: 4206532886529,
-      lb: 0,
+      lb: 120,
     })
   })
 
@@ -46,6 +46,17 @@ describe('Perpl collateral order', () => {
     expect(() => buildPerplOrder({ kind: 'DEFEND', amount: 0.0000001 } as Action, context)).toThrow(
       'AMOUNT_PRECISION_EXCEEDED',
     )
+  })
+
+  it('requires a known, bounded heartbeat head and market TTL', () => {
+    for (const headBlock of [0, -1, Number.NaN, Number.MAX_SAFE_INTEGER])
+      expect(() => buildPerplOrder({ kind: 'DEFEND', amount: 1 } as Action, { ...context, headBlock })).toThrow(
+        'PERPL_ORDER_EXPIRY_UNAVAILABLE',
+      )
+    for (const orderTtlBlocks of [0, -1, Number.NaN, 1.5])
+      expect(() => buildPerplOrder({ kind: 'EXIT', amount: 0 } as Action, { ...context, orderTtlBlocks })).toThrow(
+        'PERPL_ORDER_EXPIRY_UNAVAILABLE',
+      )
   })
 })
 
@@ -61,7 +72,7 @@ describe('Perpl close orders', () => {
       s: 2,
       lp: 4206532886529,
       lv: 0,
-      lb: 0,
+      lb: 120,
     })
     expect(
       buildPerplOrder({ kind: 'REDUCE', amount: 0 } as Action, {
@@ -77,7 +88,7 @@ describe('Perpl close orders', () => {
       s: 5,
       lp: 4206532886529,
       lv: 0,
-      lb: 0,
+      lb: 120,
     })
   })
 
