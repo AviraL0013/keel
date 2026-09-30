@@ -28,17 +28,27 @@ describe('Perpl protocol state', () => {
     state.apply({ mt: 23, d: [] })
     state.apply({ mt: 26, d: [] })
     expect(state.ready(1000)).toBe(false)
-    state.apply({ mt: 100, sn: 10 }, 1000)
+    state.apply({ mt: 100, sn: 10, h: 100 }, 1000)
     expect(state.ready(1000)).toBe(true)
+  })
+  it('only exposes a fresh, gap-free heartbeat head and sequence for order expiry', () => {
+    const state = new PerplStateStore()
+    state.apply(wallet, 1000)
+    expect(state.heartbeat(1000)).toBeUndefined()
+    state.apply({ mt: 100, sn: 10, h: 100 }, 1000)
+    expect(state.heartbeat(1000)).toEqual({ head: 100, sequence: 10 })
+    expect(state.heartbeat(11001)).toBeUndefined()
+    expect(state.apply({ mt: 100, sn: 12, h: 101 }, 2000).accepted).toBe(false)
+    expect(state.heartbeat(2000)).toBeUndefined()
   })
   it('keeps the authenticated current ETH size and renews its verification only with gap-free heartbeats', () => {
     const state = new PerplStateStore()
     state.apply(wallet, 1000)
     state.apply({ mt: 23, d: [] }, 1000)
     state.apply({ mt: 26, d: [position(1, 20)] }, 1000)
-    state.apply({ mt: 100, sn: 10 }, 1000)
+    state.apply({ mt: 100, sn: 10, h: 100 }, 1000)
     expect(state.positionSnapshot(1, 1, 1, 1000)?.observedAt).toBe(1000)
-    state.apply({ mt: 100, sn: 11 }, 12000)
+    state.apply({ mt: 100, sn: 11, h: 101 }, 12000)
     const current = state.positionSnapshot(1, 1, 1, 12000)
     expect(current?.observedAt).toBe(12000)
     expect(
@@ -53,7 +63,7 @@ describe('Perpl protocol state', () => {
         12000,
       ).size,
     ).toBe(0.02)
-    expect(state.apply({ mt: 100, sn: 13 }, 13000).accepted).toBe(false)
+    expect(state.apply({ mt: 100, sn: 13, h: 102 }, 13000).accepted).toBe(false)
     expect(state.positionSnapshot(1, 1, 1, 13000)?.observedAt).toBe(1000)
   })
   it('merges delta positions without losing other positions and records WS receipt time', () => {
@@ -71,8 +81,8 @@ describe('Perpl protocol state', () => {
     const state = new PerplStateStore()
     state.apply(wallet)
     state.apply({ mt: 3, sn: 500, cid: 1, status: { code: 0 } })
-    expect(state.apply({ mt: 100, sn: 10 }).accepted).toBe(true)
-    expect(state.apply({ mt: 100, sn: 12 }).accepted).toBe(false)
+    expect(state.apply({ mt: 100, sn: 10, h: 100 }).accepted).toBe(true)
+    expect(state.apply({ mt: 100, sn: 12, h: 102 }).accepted).toBe(false)
   })
   it('rejects malformed input and missing initial account', () => {
     expect(() => decodeTradingMessage(null)).toThrow()

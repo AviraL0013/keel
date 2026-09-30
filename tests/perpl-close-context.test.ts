@@ -74,6 +74,7 @@ it('uses the persisted Book side when constructing a live LONG REDUCE', async ()
       submitted = order
       return { venueReference: '642:1', status: 'SUBMITTED' }
     })
+    vi.spyOn(PerplTradingClient.prototype, 'heartbeat').mockReturnValue({ head: 100, sequence: 10, epoch: 'test' })
     venue = createPerplRuntime(store)
     const action = {
       id: crypto.randomUUID(),
@@ -86,7 +87,7 @@ it('uses the persisted Book side when constructing a live LONG REDUCE', async ()
       beforeState: { position: { ...position, bookId: book.id }, reserve: {} as never, telemetry: {} as never },
     } as Action
     await venue!.submit(action)
-    expect(submitted).toMatchObject({ acc: 642, mkt: 32, t: 3, s: 10, lp: 4320379535360, lv: 0 })
+    expect(submitted).toMatchObject({ acc: 642, mkt: 32, t: 3, s: 10, lp: 4320379535360, lv: 0, lb: 120 })
   } finally {
     await venue?.close()
     vi.restoreAllMocks()

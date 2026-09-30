@@ -173,7 +173,13 @@ export function createTelegramNotifier(
   if (!botToken || !chatId) return undefined
   const appUrl = brandEnv(env, 'APP_URL')?.trim().replace(/\/$/, '')
   try {
-    if (!appUrl || new URL(appUrl).origin !== appUrl || !appUrl.startsWith('https://')) throw new Error()
+    if (!appUrl) throw new Error()
+    const parsed = new URL(appUrl)
+    const localTestnet =
+      brandEnv(env, 'ENV') === 'testnet' &&
+      parsed.protocol === 'http:' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+    if (parsed.origin !== appUrl || (parsed.protocol !== 'https:' && !localTestnet)) throw new Error()
   } catch {
     throw new Error('INVALID_EYELER_APP_URL')
   }
