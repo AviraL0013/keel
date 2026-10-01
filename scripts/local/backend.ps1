@@ -4,12 +4,12 @@ Set-Location -LiteralPath $root
 New-Item -ItemType Directory -Path (Join-Path $root 'logs') -Force | Out-Null
 
 $logPath = Join-Path $root 'logs\api.log'
-# A native pipeline stops on Ctrl+C before Tee-Object can drain Node's
-# graceful-shutdown output. A transcript records direct console output instead.
-Start-Transcript -Path $logPath -Append | Out-Null
+# Keep Node attached to this console so Ctrl+C reaches its shutdown handler.
+# The preload copies Node output to the log without a PowerShell pipeline.
+$env:EYELER_LOCAL_LOG_FILE = $logPath
 try {
     Write-Host 'EYELER backend running. Press Ctrl+C here for graceful shutdown.'
-    node --env-file=.env dist/server/src/index.js
+    node --require (Join-Path $PSScriptRoot 'tee-output.cjs') --env-file=.env dist/server/src/index.js
 } finally {
-    Stop-Transcript | Out-Null
+    Remove-Item Env:EYELER_LOCAL_LOG_FILE -ErrorAction SilentlyContinue
 }
