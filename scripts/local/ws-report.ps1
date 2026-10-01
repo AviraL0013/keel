@@ -8,8 +8,13 @@ if (-not (Test-Path -LiteralPath $LogPath)) { throw 'API_LOG_MISSING' }
 
 $now = [DateTimeOffset]::UtcNow
 $start = $now.AddMinutes(-$Minutes)
-$events = @(
-    foreach ($line in Get-Content -LiteralPath $LogPath) {
+$events = [System.Collections.Generic.List[object]]::new()
+$stream = [System.IO.FileStream]::new((Resolve-Path -LiteralPath $LogPath).Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+try {
+    # Older PowerShell transcripts wrote UTF-16; direct Node output now appends UTF-8.
+    # Force UTF-8 so the live segment remains readable in the mixed legacy log.
+    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $false)
+    while ($null -ne ($line = $reader.ReadLine())) {
         if ($line -notmatch 'PERPL_WS_CLOSE at=(?<at>\S+) .*?code=(?<code>\d+) reason="(?<reason>[^"]*)"') { continue }
         $stamp = [DateTimeOffset]::MinValue
         if (-not [DateTimeOffset]::TryParse($Matches.at, [ref]$stamp)) { continue }
@@ -21,9 +26,13 @@ $events = @(
             'too many requests' { 'too many requests' }
             default { '(other)' }
         }
-        [pscustomobject]@{ At = $stamp; Code = $Matches.code; Reason = $reason }
+        $events.Add([pscustomobject]@{ At = $stamp; Code = $Matches.code; Reason = $reason })
     }
-) | Sort-Object At
+} finally {
+    if ($reader) { $reader.Dispose() }
+    $stream.Dispose()
+}
+$events = @($events | Sort-Object At)
 
 Write-Output "Window: last $Minutes minutes (UTC)"
 Write-Output "Closes: $($events.Count)"
