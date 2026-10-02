@@ -59,4 +59,18 @@ void main() {
     expect(error.userMessage, contains('Perpl is rate limiting EYELER'));
     expect(error.userMessage, isNot(contains('server unavailable')));
   });
+
+  test('insufficient Perpl free balance explains that DEFEND was not sent', () {
+    const error =
+        EyelerException('PERPL_FREE_BALANCE_INSUFFICIENT', statusCode: 409);
+    expect(error.userMessage, contains('not submitted'));
+    expect(error.userMessage, contains('free balance'));
+  });
+
+  test('stale Perpl balance explains that DEFEND was not sent', () {
+    const error =
+        EyelerException('PERPL_FREE_BALANCE_UNAVAILABLE', statusCode: 409);
+    expect(error.userMessage, contains('not submitted'));
+    expect(error.userMessage, contains('balance'));
+  });
 }

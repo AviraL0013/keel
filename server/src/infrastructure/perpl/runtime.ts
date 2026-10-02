@@ -7,6 +7,7 @@ import {
   decodePrice,
   decodeSize,
   normalizePerplPosition,
+  type PerplBalance,
 } from '../../../../packages/perpl/src/index.js'
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
@@ -32,6 +33,25 @@ import { readAgoraActivity } from '../agora/activity.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
 import { brandEnv, logger } from '../../config/index.js'
+
+export function assertPerplFreeBalance(
+  balance: PerplBalance,
+  amount: number,
+  now = Date.now(),
+  freshnessMs = defaultFreshnessThresholds.marketMs,
+) {
+  if (!Number.isFinite(balance.updatedAt) || balance.updatedAt! > now || now - balance.updatedAt! > freshnessMs)
+    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  try {
+    const free = new Decimal(balance.available).minus(balance.locked)
+    const needed = new Decimal(amount)
+    if (!free.isFinite() || !needed.isFinite() || needed.lte(0)) throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+    if (free.lt(needed)) throw new Error('PERPL_FREE_BALANCE_INSUFFICIENT')
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PERPL_FREE_BALANCE_INSUFFICIENT') throw error
+    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  }
+}
 
 export function perplBookCreationReadiness(
   position: Position,
@@ -417,6 +437,16 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       return result.rows.length > 0
     },
     async (action, order) => {
+      if (action.kind === 'DEFEND') {
+        let balance: PerplBalance
+        try {
+          balance = await adapter.getBalance(order.acc)
+        } catch {
+          throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+        }
+        assertPerplFreeBalance(balance, action.amount)
+        return
+      }
       if (action.kind !== 'REDUCE' && action.kind !== 'EXIT') return
       const before = action.beforeState?.position
       if (!before || !order.lp) throw new Error('CLOSE_BASELINE_UNAVAILABLE')
