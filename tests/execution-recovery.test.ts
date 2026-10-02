@@ -28,7 +28,7 @@ const action: Action = {
   error: 'VENUE_OUTCOME_PENDING',
 }
 
-function runtimeFor(result: Action, active: Action = action) {
+function runtimeFor(result: Action, active: Action = action, currentBook: Book = book) {
   const submit = vi.fn(async () => {
     throw new Error('MUST_NOT_RESUBMIT')
   })
@@ -39,7 +39,8 @@ function runtimeFor(result: Action, active: Action = action) {
   const poolQuery = vi.fn(async () => ({ rows: [{ id: book.id, user_id: book.userId }] }))
   const store = {
     pool: { query: poolQuery },
-    getBook: vi.fn(async () => book),
+    getBook: vi.fn(async () => currentBook),
+    updateBookControls: vi.fn(),
   }
   const runtime = new EyelerRuntime(store as never, {
     submit,
@@ -60,10 +61,26 @@ function runtimeFor(result: Action, active: Action = action) {
     finalize,
     saveAction,
     poolQuery,
+    updateBookControls: store.updateBookControls,
   }
 }
 
 describe('existing execution recovery', () => {
+  it('keeps an armed Book active while a bounded DEFEND verifies past its block window', async () => {
+    const armed = { ...book, status: 'ACTIVE' as const, automationEnabled: true }
+    const verifying = {
+      ...action,
+      status: 'VERIFYING' as const,
+      venueProgress: { requestId: '1', requestedLastExecBlock: 120, orderStatusReceived: false },
+    }
+    const value = runtimeFor(verifying, verifying, armed)
+    await value.tick()
+    expect(value.saveAction).toHaveBeenCalledWith(verifying)
+    expect(value.finalize).not.toHaveBeenCalled()
+    expect(value.updateBookControls).not.toHaveBeenCalled()
+    expect(value.submit).not.toHaveBeenCalled()
+    expect(armed).toMatchObject({ status: 'ACTIVE', automationEnabled: true })
+  })
   it('persists a heartbeat after a completed tick', async () => {
     const value = runtimeFor(action)
     await value.tick()
