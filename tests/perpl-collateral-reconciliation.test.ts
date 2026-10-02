@@ -63,7 +63,7 @@ const action = {
   beforeState: { telemetry: { block: 65915580 } },
 } as Action
 
-function historyFor(requestId = rq) {
+function historyFor(requestId = rq, accountStampHasBlock = true) {
   const transport = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === 'https://rpc') {
       const body = JSON.parse(String(init?.body)) as { method: string }
@@ -86,7 +86,17 @@ function historyFor(requestId = rq) {
         : resource === 'position-history'
           ? [{ acc: 642, mkt: 16, pid: 4206532886529, c: '22509', at }]
           : resource === 'account-history'
-            ? [{ id: 642, m: 16, p: 4206532886529, et: 3, a: '-22509', at }]
+            ? [
+                {
+                  id: 642,
+                  m: 16,
+                  p: 4206532886529,
+                  r: rq,
+                  et: 3,
+                  a: '-22509',
+                  at: accountStampHasBlock ? at : { txid: at.txid },
+                },
+              ]
             : []
     return new Response(JSON.stringify({ d }), { status: 200 })
   }) as typeof fetch
@@ -100,6 +110,16 @@ function historyFor(requestId = rq) {
 }
 
 describe('forwarded DEFEND duplicate outcome', () => {
+  it('uses verified receipt block when signed account event omits its block', async () => {
+    const history = historyFor(rq, false)
+    const evidence = await history.evidence(642, rq, 16, 4206532886529, {
+      amount: 0.022509,
+      decimals: 6,
+      minBlock: 65915580,
+    })
+    expect(evidence.collateralSuccess).toMatchObject({ block: 65915588, txHash: hash })
+  })
+
   it('confirms verified collateral increase despite later duplicate sr:32 failure', async () => {
     const history = historyFor()
     const context = vi.fn(async () => ({

@@ -35,7 +35,7 @@ const context = {
   leverageHundredths: 500,
 }
 
-function adapter(lfr: string, operationType: number, amountRaw = '1000000') {
+function adapter(lfr: string, operationType: number, amountRaw = '1000000', operationBlock = 115) {
   const order = {
     acc: 642,
     mkt: 16,
@@ -64,6 +64,7 @@ function adapter(lfr: string, operationType: number, amountRaw = '1000000') {
         marketId: order.mkt,
         positionId: order.lp,
         amountRaw,
+        block: operationBlock,
         txHash: `0x${order.at.txid}`,
       },
     ]),
@@ -99,6 +100,37 @@ describe('Perpl request ID supersession', () => {
   it('does not supersede the same operation', async () => {
     const { live } = adapter('45', 6)
     expect((await live.reconcile(action)).status).toBe('CONFIRMED')
+  })
+
+  it('allows a matching operation executed at the last execution block', async () => {
+    const { live } = adapter('45', 6, '1000000', 120)
+    expect((await live.reconcile(action)).status).toBe('CONFIRMED')
+  })
+
+  it('supersedes a matching operation executed after the action last execution block', async () => {
+    const { live } = adapter('45', 6, '1000000', 121)
+    expect(await live.reconcile(action)).toMatchObject({
+      status: 'FAILED',
+      error: 'PERPL_REQUEST_ID_SUPERSEDED',
+      venueProgress: { supersededBy: { requestId: '45', type: 6, block: 121 } },
+    })
+  })
+
+  it('supersedes a late collateral receipt even when no order history exists', async () => {
+    const { live, history } = adapter('45', 6)
+    history.verifiedRequestOperations.mockResolvedValue([])
+    history.evidence.mockResolvedValue({
+      orders: [],
+      positions: [],
+      accounts: [],
+      fills: [],
+      collateralSuccess: { txHash: `0x${'a'.repeat(64)}`, block: 121 },
+    })
+    expect(await live.reconcile(action)).toMatchObject({
+      status: 'FAILED',
+      error: 'PERPL_REQUEST_ID_SUPERSEDED',
+      venueProgress: { supersededBy: { requestId: '45', type: 6, block: 121 } },
+    })
   })
 
   it('fails the same type when the verified amount differs', async () => {
@@ -188,7 +220,7 @@ describe('Perpl request ID supersession', () => {
       exchange,
     )
     expect(await history.verifiedRequestOperations(642, '45')).toMatchObject([
-      { requestId: '45', type: 3, marketId: 16, positionId: 77, sizeRaw: '1', txHash },
+      { requestId: '45', type: 3, marketId: 16, positionId: 77, sizeRaw: '1', block: 115, txHash },
     ])
     receiptStatus = '0x0'
     expect(await history.verifiedRequestOperations(642, '45')).toEqual([])

@@ -266,6 +266,7 @@ export type VenueProgress = {
     positionId?: number
     sizeRaw?: string
     amountRaw?: string
+    block?: number
     txHash: string
   }
 }
