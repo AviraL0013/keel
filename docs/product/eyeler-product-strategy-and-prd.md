@@ -78,7 +78,7 @@ The following assessment comes from [architecture](../architecture/overview.md),
 | Agora | Adapter for metrics, session, and transaction reads; optional metrics fetch | No consumer Agora funding flow, transfer, mint, redeem, or reserve settlement is shipped |
 | Autopsy and in-app notifications | Implemented | Push delivery and notification effectiveness need end-to-end validation |
 
-Do not treat [the archived implementation-status page](../implementation-status.md) as a live release dashboard; its test counts and environment notes predate current work. Release evidence should be generated for each candidate build.
+Use the [CI pointer](../implementation-status.md) to find checks for the exact commit under review. Release evidence should be generated for each candidate build.
 
 ## 5. Information architecture and consumer experience
 

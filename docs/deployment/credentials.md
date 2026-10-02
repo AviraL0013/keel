@@ -1,6 +1,6 @@
 # Credentials required for live activation
 
-These values activate external services; none belong in mobile bundles. Current implementation limits are listed in [docs/implementation-status.md](../implementation-status.md); credentials alone do not close those gaps.
+These values activate external services; none belong in mobile bundles. Check the [current CI run](../implementation-status.md) and [pre-deploy audit](../audit/pre-deploy-audit.md) for release evidence and known limits; credentials alone do not close those gaps.
 
 ## PERPL TESTNET — REQUIRED
 
