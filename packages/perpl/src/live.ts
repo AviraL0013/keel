@@ -12,7 +12,7 @@ export class PerplLiveAdapter {
   constructor(
     private readonly client: PerplTradingClient,
     private readonly context: (action: Action) => Promise<ReconciliationContext>,
-    private readonly history: Pick<PerplHistory, 'evidence'>,
+    private readonly history: Pick<PerplHistory, 'evidence'> & Partial<Pick<PerplHistory, 'verifiedRequestOperations'>>,
     private readonly persistReference: (action: Action) => Promise<void>,
     private readonly persistEvidence: (
       action: Action,
@@ -70,6 +70,56 @@ export class PerplLiveAdapter {
       return unknown('MISSING_DURABLE_VENUE_REFERENCE')
     }
     const minBlock = action.beforeState?.telemetry.block
+    if (
+      (action.status === 'UNKNOWN' || action.status === 'VERIFYING') &&
+      this.history.verifiedRequestOperations &&
+      typeof this.client.stateSnapshot === 'function'
+    ) {
+      const accountState = this.client.stateSnapshot().accounts.find((item) => item.id === account)
+      if (accountState && requestId(accountState.lfr) >= requestId(rq)) {
+        let operations: Awaited<ReturnType<PerplHistory['verifiedRequestOperations']>> = []
+        try {
+          operations = await this.history.verifiedRequestOperations(account, rq, minBlock)
+        } catch (error) {
+          if (
+            action.kind !== 'DEFEND' ||
+            action.status !== 'VERIFYING' ||
+            !this.client.verificationPending(action.venueProgress)
+          )
+            throw error
+        }
+        let expected: ReturnType<typeof buildPerplOrder> | undefined
+        try {
+          expected = buildPerplOrder(action, {
+            ...context,
+            position: action.beforeState?.position ?? context.position,
+          })
+        } catch {
+          // Type and binding mismatches can still be proven without a size estimate.
+        }
+        const mismatch = operations.find(
+          (operation) =>
+            operation.type !==
+              (action.kind === 'DEFEND'
+                ? 6
+                : (action.beforeState?.position.side ?? context.position.side) === 'LONG'
+                  ? 3
+                  : 4) ||
+            operation.marketId !== context.marketId ||
+            (operation.positionId !== undefined && operation.positionId !== context.positionId) ||
+            (operation.type === 6 && expected?.a !== undefined && operation.amountRaw !== expected.a) ||
+            (operation.type !== 6 && expected?.s !== undefined && operation.sizeRaw !== String(expected.s)),
+        )
+        if (mismatch)
+          return {
+            ...action,
+            status: 'FAILED',
+            error: 'PERPL_REQUEST_ID_SUPERSEDED',
+            failedAt: new Date().toISOString(),
+            venueProgress: action.venueProgress && { ...action.venueProgress, supersededBy: mismatch },
+          }
+      }
+    }
     let evidence: Awaited<ReturnType<PerplHistory['evidence']>>
     try {
       evidence = await this.history.evidence(

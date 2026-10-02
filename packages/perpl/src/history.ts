@@ -149,6 +149,67 @@ export class PerplHistory {
       }
     })
   }
+  async verifiedRequestOperations(accountId: number, requestedId: string, minBlock?: number) {
+    if (!this.rpcUrl || !this.exchangeAddress) return []
+    const orders = await this.read<WireOrder>(
+      'order-history',
+      (item) =>
+        item.acc === accountId &&
+        String(item.rq) === requestedId &&
+        [4, 10].includes(item.st) &&
+        /^[0-9a-f]{64}$/i.test(item.at.txid ?? ''),
+      minBlock,
+    )
+    const operations: Array<{
+      requestId: string
+      type: number
+      marketId: number
+      positionId?: number
+      sizeRaw?: string
+      amountRaw?: string
+      txHash: string
+    }> = []
+    for (const order of orders) {
+      const txHash = `0x${order.at.txid}`
+      const [tx, receipt] = await Promise.all([
+        this.rpc('eth_getTransactionByHash', txHash),
+        this.rpc('eth_getTransactionReceipt', txHash),
+      ])
+      if (
+        String(tx.to).toLowerCase() !== this.exchangeAddress.toLowerCase() ||
+        String(receipt.status) !== '0x1' ||
+        String(receipt.transactionHash).toLowerCase() !== txHash.toLowerCase() ||
+        (order.at.b !== undefined && BigInt(String(receipt.blockNumber)) !== BigInt(order.at.b))
+      )
+        continue
+      try {
+        const decoded = decodeFunctionData({ abi: forwardAbi, data: String(tx.input) as `0x${string}` })
+        if (decoded.functionName !== 'execFwdPositionOpsV2') continue
+        for (const item of decoded.args[0]) {
+          if (
+            item.accountId !== BigInt(accountId) ||
+            item.orderDesc.orderDescId !== BigInt(requestedId) ||
+            item.orderDesc.perpId !== BigInt(order.mkt) ||
+            Number(item.orderDesc.orderType) + 1 !== order.t ||
+            (order.lp !== undefined && item.triggerPositionId !== BigInt(order.lp))
+          )
+            continue
+          operations.push({
+            requestId: requestedId,
+            type: Number(item.orderDesc.orderType) + 1,
+            marketId: Number(item.orderDesc.perpId),
+            positionId: Number(item.triggerPositionId),
+            sizeRaw: item.orderDesc.lotLNS.toString(),
+            amountRaw: item.orderDesc.amountCNS.toString(),
+            txHash,
+          })
+        }
+      } catch {
+        continue
+      }
+    }
+    return operations
+  }
   async evidence(
     accountId: number,
     requestId: string,
