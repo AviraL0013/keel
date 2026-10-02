@@ -12,6 +12,7 @@ dist
 dist-ssr
 coverage/
 reports/
+runs/
 *.local
 *.tsbuildinfo
 
