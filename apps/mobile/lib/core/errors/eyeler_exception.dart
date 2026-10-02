@@ -16,6 +16,12 @@ class EyelerException implements Exception {
     if (message == 'PERPL_ACCOUNT_NOT_FOUND') {
       return 'Perpl account is not available to submit this action.';
     }
+    if (message == 'PERPL_FREE_BALANCE_INSUFFICIENT') {
+      return 'DEFEND not submitted. Your Perpl account does not have enough free balance.';
+    }
+    if (message == 'PERPL_FREE_BALANCE_UNAVAILABLE') {
+      return 'DEFEND not submitted. Eyeler could not verify a fresh Perpl balance.';
+    }
     if (message == 'PERPL_RATE_LIMITED') {
       return 'Perpl is rate limiting EYELER. Live venue data is unavailable; retry after Perpl recovers.';
     }

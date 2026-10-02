@@ -60,6 +60,7 @@ const action = (progress: VenueProgress): Action => ({
   idempotencyKey: 'once',
   venueReference: '642:45',
   venueProgress: progress,
+  submittedAt: new Date().toISOString(),
 })
 
 function progress(value: PerplTradingClient, overrides: Partial<VenueProgress> = {}): VenueProgress {
@@ -155,7 +156,7 @@ describe('Perpl bounded order expiry', () => {
     expect(value.expiryProven(sent)).toBe(false)
   })
 
-  it('moves an evidence-free UNKNOWN to FAILED only with proven expiry', async () => {
+  it('keeps bounded actions in verification without post-expiry lfr proof', async () => {
     const value = await connected()
     const sent = progress(value)
     const context = {
@@ -190,19 +191,26 @@ describe('Perpl bounded order expiry', () => {
       history as never,
       async () => undefined,
     )
-    expect((await live.reconcile(action(sent))).status).toBe('UNKNOWN')
+    expect((await live.reconcile(action(sent))).status).toBe('VERIFYING')
+    expect((await live.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('VERIFYING')
+    const historyUnavailable = new PerplLiveAdapter(
+      value,
+      async () => context,
+      {
+        evidence: async () => {
+          throw new Error('VENUE_HTTP_429')
+        },
+      } as never,
+      async () => undefined,
+    )
+    expect((await historyUnavailable.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('VERIFYING')
     peer!.send(JSON.stringify({ mt: 100, sn: 11, h: 101 }))
     peer!.send(JSON.stringify({ mt: 100, sn: 12, h: 102 }))
     await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(await live.reconcile(action(sent))).toMatchObject({ status: 'FAILED', error: 'PERPL_ORDER_WINDOW_EXPIRED' })
-    expect(await live.reconcile(action({ ...sent, admitted: true }))).toMatchObject({
-      status: 'FAILED',
-      error: 'PERPL_ORDER_WINDOW_EXPIRED',
-    })
-    expect(await live.reconcile({ ...action(sent), kind: 'EXIT' })).toMatchObject({
-      status: 'FAILED',
-      error: 'PERPL_ORDER_WINDOW_EXPIRED',
-    })
+    expect((await live.reconcile(action(sent))).status).toBe('VERIFYING')
+    expect((await live.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('VERIFYING')
+    expect((await live.reconcile(action({ ...sent, admitted: true }))).status).toBe('VERIFYING')
+    expect((await live.reconcile({ ...action(sent), kind: 'EXIT' })).status).toBe('VERIFYING')
     expect((await live.reconcile(action({ ...sent, requestedLastExecBlock: 0 }))).status).toBe('UNKNOWN')
     expect((await live.reconcile(action({ ...sent, requestId: '46' }))).status).toBe('UNKNOWN')
     peer!.terminate()
@@ -212,6 +220,7 @@ describe('Perpl bounded order expiry', () => {
     peer!.send(JSON.stringify({ mt: 100, sn: 11, h: 101 }))
     peer!.send(JSON.stringify({ mt: 100, sn: 12, h: 102 }))
     await new Promise((resolve) => setTimeout(resolve, 10))
-    expect((await live.reconcile(action({ ...sent, admitted: true }))).status).toBe('UNKNOWN')
+    expect((await live.reconcile(action({ ...sent, admitted: true }))).status).toBe('VERIFYING')
+    expect((await live.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('VERIFYING')
   })
 })

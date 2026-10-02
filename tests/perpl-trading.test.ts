@@ -400,7 +400,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     )
     try {
       await client.connect()
-      const result = await client.submit({ id: 'admitted-silent-action' } as never, {
+      const result = await client.submit({ id: 'admitted-silent-action', kind: 'DEFEND' } as never, {
         mkt: 16,
         acc: 642,
         t: 6,
@@ -408,7 +408,7 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
         lv: 1500,
         orderTtlBlocks: 20,
       })
-      expect(result).toMatchObject({ status: 'UNKNOWN' })
+      expect(result).toMatchObject({ status: 'SUBMITTED' })
       expect(result.venueProgress).toMatchObject({
         admitted: true,
         orderStatusReceived: false,

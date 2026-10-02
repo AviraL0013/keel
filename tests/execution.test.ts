@@ -134,6 +134,16 @@ describe('execution worker safety', () => {
     expect(action.status).toBe('UNKNOWN')
     expect(action.error).toBe('VENUE_OUTCOME_UNKNOWN')
   })
+  it('keeps a DEFEND in verification while history has no final evidence', async () => {
+    const r = repo()
+    const worker = new ExecutionWorker(r, {
+      submit: async () => ({ venueReference: '642:45', status: 'SUBMITTED' as const }),
+      reconcile: async (action) => ({ ...action, status: 'VERIFYING' as const }),
+    })
+    const action = await worker.execute(await worker.evaluate('b'))
+    expect(action.status).toBe('VERIFYING')
+    expect(r.actions[0].status).toBe('VERIFYING')
+  })
 })
 
 describe('execution submission boundary', () => {

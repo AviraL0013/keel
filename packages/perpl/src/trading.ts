@@ -249,11 +249,12 @@ export class PerplTradingClient {
         const pending = this.pending.get(sn)
         this.pending.delete(sn)
         this.diagnostic(`PERPL_WS_ORDER_TIMEOUT actionId=${action.id} rq=${rq} sn=${sn}`)
+        const venueProgress = pending && progress(pending, sn, 'TIMEOUT')
         resolve({
           venueReference: reference,
-          status: 'UNKNOWN',
+          status: this.boundedVerification(venueProgress) ? 'SUBMITTED' : 'UNKNOWN',
           reason: 'PERPL_ORDER_RESPONSE_TIMEOUT',
-          venueProgress: pending && progress(pending, sn, 'TIMEOUT'),
+          venueProgress,
         })
       }, this.orderResponseTimeoutMs)
       this.pending.set(sn, {
@@ -299,6 +300,46 @@ export class PerplTradingClient {
   heartbeat() {
     const value = this.state.heartbeat()
     return value && this.streamEpoch ? { ...value, epoch: this.streamEpoch } : undefined
+  }
+  boundedVerification(value?: VenueProgress) {
+    return !!(
+      value &&
+      Number.isSafeInteger(value.requestedLastExecBlock) &&
+      value.requestedLastExecBlock > 0 &&
+      value.orderStatusReceived === false &&
+      value.response !== 'REJECTED' &&
+      !this.seenRequestStatuses.has(value.requestId)
+    )
+  }
+  async accountRequestState(accountId: number): Promise<{ lfr: string; block: number }> {
+    const wallet = parsePerplRequestIds(await this.signedRead('/v1/trading/wallet')) as {
+      at?: { b?: number }
+      as?: Array<{ id: number; lfr?: string | number }>
+    }
+    const account = wallet.as?.find((item) => item.id === accountId)
+    if (!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED')
+    if (!Number.isSafeInteger(wallet.at?.b) || wallet.at!.b! <= 0)
+      throw new Error('PERPL_ACCOUNT_STATE_BLOCK_UNAVAILABLE')
+    return { lfr: requestId(account.lfr).toString(), block: wallet.at!.b! }
+  }
+  verificationPending(value?: VenueProgress) {
+    const current = this.heartbeat()
+    return !!(
+      value &&
+      current &&
+      this.state.ready() &&
+      Number.isSafeInteger(value.requestedLastExecBlock) &&
+      Number.isSafeInteger(value.sentHeartbeatHead) &&
+      Number.isSafeInteger(value.sentHeartbeatSequence) &&
+      value.requestedLastExecBlock! > value.sentHeartbeatHead! &&
+      value.streamEpoch === current.epoch &&
+      current.sequence >= value.sentHeartbeatSequence! &&
+      current.head < value.requestedLastExecBlock! &&
+      value.orderStatusReceived === false &&
+      value.response !== 'REJECTED' &&
+      !this.seenRequestStatuses.has(value.requestId) &&
+      !this.state.snapshot().orders.some((order) => String(order.rq) === value.requestId)
+    )
   }
   expiryProven(value?: VenueProgress) {
     const current = this.heartbeat()

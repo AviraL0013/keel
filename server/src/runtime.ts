@@ -145,12 +145,20 @@ export class EyelerRuntime {
           if (Date.now() < (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) continue
           if (!this.venue) throw new Error('VENUE_NOT_CONFIGURED')
           const result = await this.venue.reconcile(active)
-          if (result.status === 'PARTIAL') {
+          if (result.status === 'PARTIAL' || result.status === 'VERIFYING') {
             await this.repository.saveAction(result)
             this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })
             continue
           }
           if (result.status === 'UNKNOWN') {
+            if (
+              active.status === 'VERIFYING' &&
+              (active.kind === 'DEFEND' || (active.venueProgress?.requestedLastExecBlock ?? 0) > 0)
+            ) {
+              await this.repository.finalize(result)
+              this.reconciliationSchedule.delete(book.id)
+              continue
+            }
             if (result.error === 'VENUE_REFERENCE_COLLISION' && active.error !== result.error)
               await this.repository.saveAction(result)
             this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })

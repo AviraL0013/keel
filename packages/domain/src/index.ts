@@ -241,6 +241,15 @@ export type VenueProgress = {
   code?: number
   orderStatus?: number
   orderReason?: number
+  supersededBy?: {
+    requestId: string
+    type: number
+    marketId: number
+    positionId?: number
+    sizeRaw?: string
+    amountRaw?: string
+    txHash: string
+  }
 }
 export type Action = {
   id: string
