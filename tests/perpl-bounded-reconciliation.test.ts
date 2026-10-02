@@ -85,6 +85,23 @@ function setup(lfr: string, observedBlock = 67324090) {
 }
 
 describe('bounded Perpl reconciliation', () => {
+  it('keeps a real low-word lfr 45 DEFEND VERIFYING until delayed collateral history confirms it', async () => {
+    now = started + 15_000
+    const { live, setEvidence } = setup('45')
+    expect((await live.reconcile(baseAction())).status).toBe('VERIFYING')
+    now = started + 60_000
+    setEvidence({ ...empty(), collateralSuccess: { txHash: `0x${'a'.repeat(64)}`, block: 67324070 } } as never)
+    expect((await live.reconcile(baseAction())).status).toBe('CONFIRMED')
+  })
+
+  it('does not expire the transport-ambiguous EXIT when low-word lfr 45 has passed its rq', async () => {
+    now = started + 60_000
+    const { live } = setup('45')
+    expect((await live.reconcile(baseAction('EXIT'))).status).toBe('VERIFYING')
+    now = started + 180_001
+    expect((await live.reconcile(baseAction('EXIT'))).status).toBe('UNKNOWN')
+  })
+
   it('keeps t:6 VERIFYING beyond a 20-block window while history lags 60 seconds, then confirms', async () => {
     now = started + 15_000
     const { live, setEvidence } = setup('1791001362471')

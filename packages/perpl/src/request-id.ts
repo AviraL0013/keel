@@ -20,6 +20,13 @@ export function forwardedRequestDelta(candidate: string, baseline: string): bigi
   return BigInt.asIntN(32, requestId(candidate) - requestId(baseline))
 }
 
+/** A nonpositive contract serial delta is no longer ahead of lfr. This permits
+ * evidence lookup; it does not by itself prove the request executed.
+ */
+export function forwardedRequestProcessed(candidate: string, lfr: string): boolean {
+  return forwardedRequestDelta(candidate, lfr) <= 0n
+}
+
 export function validForwardedRequestId(candidate: string, baseline: string): boolean {
   return requestId(candidate) > requestId(baseline) && forwardedRequestDelta(candidate, baseline) > 0n
 }

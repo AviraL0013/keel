@@ -26,6 +26,12 @@ reserved ID, every persisted action reference for that account, and the signed h
 known forwarded sr=32 high-water mark. Direct UI/on-chain order-history IDs do not seed
 the forwarding allocator. No timestamp fallback is used.
 
+The REST wallet and trading WebSocket account snapshots expose `lfr` as the low 32-bit
+serial, while EYELER's `rq` is a full uint64. Reconciliation uses the signed low-word
+delta above. A nonpositive delta permits a search for verified execution; it does not
+alone prove that the request executed. An expiry failure also needs an account-state
+block at or after the order's last execution block and a positive serial delta.
+
 The failed request was 1790412137977 (`0x1a0dce125f9`). With `lfr=0`, its signed low-word
 delta is **-589224455**. Incrementing it by one would still fail. The smallest candidate
 above it with a valid serial delta is **1791001362433** (`0x1a100000001`, delta 1).

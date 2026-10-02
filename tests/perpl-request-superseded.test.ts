@@ -82,6 +82,44 @@ function adapter(lfr: string, operationType: number, amountRaw = '1000000', oper
 }
 
 describe('Perpl request ID supersession', () => {
+  it.each([false, true])(
+    'supersedes legacy DEFEND 30515205 with low-word lfr 45 (REST unavailable=%s)',
+    async (restUnavailable) => {
+      const accountRequestState = vi.fn(async () => {
+        if (restUnavailable) throw new Error('REST_UNAVAILABLE')
+        return { lfr: '45', block: 66880110 }
+      })
+      const verifiedRequestOperations = vi.fn(async () => [
+        {
+          requestId: '1791001362457',
+          type: 3,
+          marketId: 32,
+          positionId: 0,
+          sizeRaw: '50',
+          block: 66880106,
+          txHash: `0x${'a'.repeat(64)}`,
+        },
+      ])
+      const live = new PerplLiveAdapter(
+        { accountRequestState, stateSnapshot: () => ({ accounts: [{ id: 642, lfr: '45' }] }) } as never,
+        async () => ({ ...context, marketId: 32 }) as never,
+        {
+          verifiedRequestOperations,
+          evidence: async () => ({ orders: [], positions: [], accounts: [], fills: [] }),
+        } as never,
+        async () => undefined,
+      )
+      const result = await live.reconcile({
+        ...action,
+        venueReference: '642:1791001362457',
+        venueProgress: { ...action.venueProgress!, requestId: '1791001362457', requestedLastExecBlock: 0 },
+      })
+      expect(accountRequestState).toHaveBeenCalledWith(642)
+      expect(verifiedRequestOperations).toHaveBeenCalledWith(642, '1791001362457', undefined)
+      expect(result).toMatchObject({ status: 'FAILED', error: 'PERPL_REQUEST_ID_SUPERSEDED' })
+    },
+  )
+
   it('fails an unknown DEFEND when signed history proves the ID executed as a close', async () => {
     const { live } = adapter('45', 3)
     expect(await live.reconcile(action)).toMatchObject({

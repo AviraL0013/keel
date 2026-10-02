@@ -6,6 +6,7 @@ import type { PerplConfig } from './index.js'
 import { PerplStateStore } from './decoder.js'
 import {
   forwardedRequestDelta,
+  forwardedRequestProcessed,
   orderFrameWithRequestId,
   parsePerplRequestIds,
   requestId,
@@ -196,8 +197,8 @@ export class PerplTradingClient {
       throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CONTRADICTORY')
     // A numerically larger ID can still fail the contract's signed-32 serial comparison.
     // Only that explained rejection may be superseded. A serial-valid rejected ID stays blocked.
-    if (requestId(baseline.rejectedForwardedRq) > lfr) {
-      if (forwardedRequestDelta(baseline.rejectedForwardedRq, lfr.toString()) > 0n) {
+    if (requestId(baseline.rejectedForwardedRq) !== 0n) {
+      if (!forwardedRequestProcessed(baseline.rejectedForwardedRq, lfr.toString())) {
         this.diagnostic(
           `PERPL_RQ_REJECTION_UNRESOLVED account=${order.acc} lfr=${lfr} rejectedRq=${baseline.rejectedForwardedRq}`,
         )

@@ -643,6 +643,46 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     }
   })
 
+  it('blocks a serial-valid rejected low word across wrap before allocation or mt:22', async () => {
+    server = new WebSocketServer({ port: 0 })
+    let orders = 0,
+      allocations = 0
+    const wrappedWallet = { ...wallet, as: [{ ...wallet.as[0], lfr: 4294967295 }] }
+    server.on('connection', (socket) =>
+      socket.on('message', (raw) => {
+        const frame = JSON.parse(String(raw)) as { mt: number }
+        if (frame.mt === 29) snapshotsWithWallet(socket, wrappedWallet)
+        if (frame.mt === 22) orders++
+      }),
+    )
+    const client = new PerplTradingClient(
+      config(await listen(server)),
+      signer,
+      () => undefined,
+      async () => {
+        allocations++
+        throw new Error('ALLOCATED_UNEXPECTED')
+      },
+      async () => ({ lfr: '4294967295', rejectedForwardedRq: '1' }),
+    )
+    try {
+      await client.connect()
+      await expect(
+        client.submit({ id: 'manual-action' } as never, {
+          mkt: 16,
+          acc: 642,
+          t: 6,
+          s: 0,
+          lv: 1500,
+          orderTtlBlocks: 20,
+        }),
+      ).rejects.toThrow('PERPL_REQUEST_ID_FORWARDED_REJECTION_UNRESOLVED')
+      expect({ orders, allocations }).toEqual({ orders: 0, allocations: 0 })
+    } finally {
+      client.close()
+    }
+  })
+
   it('sends a contract-valid DEFEND after the explained historical signed-window rejection', async () => {
     server = new WebSocketServer({ port: 0 })
     const sent: Array<{ mt: number; rq: number; sn: number; t: number; acc: number }> = []
