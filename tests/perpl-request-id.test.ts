@@ -3,6 +3,7 @@ import { databaseFixture } from './helpers/database.js'
 import { PerplRequestIdAllocator } from '../server/src/infrastructure/perpl/request-id-allocator.js'
 import {
   forwardedRequestDelta,
+  forwardedRequestProcessed,
   nextForwardedRequestId,
   orderFrameWithRequestId,
   parsePerplRequestIds,
@@ -11,6 +12,19 @@ import {
 } from '../packages/perpl/src/request-id.js'
 
 describe('Exchange signed-32 forwarding window', () => {
+  it.each([
+    ['45', '1791001362457', true],
+    ['45', '1791001362471', true],
+    ['45', '1791001362477', true],
+    ['45', '1791001362478', false],
+    ['46', '1791001362478', true],
+    ['4294967295', '4294967296', false],
+    ['0', '4294967295', true],
+    ['0', '2147483648', true],
+  ])('compares lfr %s with request %s by signed low-word serial', (lfr, rq, processed) => {
+    expect(forwardedRequestProcessed(rq, lfr)).toBe(processed)
+  })
+
   it('reproduces the failed on-chain ID and selects the verified recovery candidate', () => {
     expect(forwardedRequestDelta('1790412137977', '0')).toBe(-589224455n)
     expect(validForwardedRequestId('1790412137977', '0')).toBe(false)

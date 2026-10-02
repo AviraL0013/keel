@@ -5,7 +5,7 @@ import type { PerplTradingClient } from './trading.js'
 import { PerplPreSubmissionError } from './trading.js'
 import type { PerplHistory } from './history.js'
 import type { WirePosition } from './decoder.js'
-import { requestId } from './request-id.js'
+import { forwardedRequestProcessed, requestId } from './request-id.js'
 
 export type ReconciliationContext = OrderContext & { positionId: number; collateralDecimals: number }
 function reconstructionExpiry(action: Action, context: ReconciliationContext) {
@@ -89,7 +89,7 @@ export class PerplLiveAdapter {
     if (bounded && action.venueProgress?.requestId !== rq) return unknown('VENUE_PROGRESS_REQUEST_MISMATCH')
     const minBlock = action.beforeState?.telemetry.block
     let accountState: { lfr: string; block: number } | undefined
-    if (bounded && typeof this.client.accountRequestState === 'function') {
+    if (typeof this.client.accountRequestState === 'function') {
       try {
         accountState = await this.client.accountRequestState(account)
       } catch {
@@ -102,7 +102,7 @@ export class PerplLiveAdapter {
       (action.status === 'UNKNOWN' || action.status === 'VERIFYING') &&
       this.history.verifiedRequestOperations &&
       currentLfr &&
-      requestId(currentLfr) >= requestId(rq)
+      forwardedRequestProcessed(rq, currentLfr)
     ) {
       let operations: Awaited<ReturnType<PerplHistory['verifiedRequestOperations']>> = []
       try {
@@ -200,7 +200,7 @@ export class PerplLiveAdapter {
       evidence.fills.length === 0 &&
       !evidence.positions.some((position) => String(position.rq) === rq)
     if (bounded && noEvidence) {
-      if (accountState && accountState.block >= lastExecBlock! && requestId(accountState.lfr) < requestId(rq))
+      if (accountState && accountState.block >= lastExecBlock! && !forwardedRequestProcessed(rq, accountState.lfr))
         return {
           ...action,
           status: 'FAILED',
