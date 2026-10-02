@@ -98,8 +98,8 @@ export class PerplHistory {
     marketId: number,
     positionId: number,
     amountRaw: string,
-  ): Promise<boolean> {
-    if (!this.rpcUrl || !this.exchangeAddress || !/^[0-9a-f]{64}$/i.test(event.at.txid ?? '')) return false
+  ): Promise<number | undefined> {
+    if (!this.rpcUrl || !this.exchangeAddress || !/^[0-9a-f]{64}$/i.test(event.at.txid ?? '')) return undefined
     const hash = `0x${event.at.txid}`
     const [tx, receipt] = await Promise.all([
       this.rpc('eth_getTransactionByHash', hash),
@@ -110,15 +110,21 @@ export class PerplHistory {
       String(receipt.status) !== '0x1' ||
       String(receipt.transactionHash).toLowerCase() !== hash.toLowerCase()
     )
-      return false
-    if (event.at.b !== undefined && BigInt(String(receipt.blockNumber)) !== BigInt(event.at.b)) return false
+      return undefined
+    let block: number
+    try {
+      block = Number(BigInt(String(receipt.blockNumber)))
+    } catch {
+      return undefined
+    }
+    if (!Number.isSafeInteger(block) || (event.at.b !== undefined && block !== event.at.b)) return undefined
     let forwarded: ReturnType<typeof decodeFunctionData<typeof forwardAbi>>
     try {
       forwarded = decodeFunctionData({ abi: forwardAbi, data: String(tx.input) as `0x${string}` })
     } catch {
-      return false
+      return undefined
     }
-    if (forwarded.functionName !== 'execFwdPositionOpsV2') return false
+    if (forwarded.functionName !== 'execFwdPositionOpsV2') return undefined
     const match = forwarded.args[0].some(
       (item) =>
         item.accountId === BigInt(accountId) &&
@@ -128,8 +134,8 @@ export class PerplHistory {
         item.orderDesc.amountCNS === BigInt(amountRaw) &&
         item.triggerPositionId === BigInt(positionId),
     )
-    if (!match || !Array.isArray(receipt.logs)) return false
-    return receipt.logs.some((raw) => {
+    if (!match || !Array.isArray(receipt.logs)) return undefined
+    const matchedLog = receipt.logs.some((raw) => {
       const log = raw as { address?: string; topics?: `0x${string}`[]; data?: `0x${string}` }
       if (log.address?.toLowerCase() !== this.exchangeAddress!.toLowerCase() || !log.topics?.length || !log.data)
         return false
@@ -148,6 +154,7 @@ export class PerplHistory {
         return false
       }
     })
+    return matchedLog ? block : undefined
   }
   async verifiedRequestOperations(accountId: number, requestedId: string, minBlock?: number) {
     if (!this.rpcUrl || !this.exchangeAddress) return []
@@ -167,6 +174,7 @@ export class PerplHistory {
       positionId?: number
       sizeRaw?: string
       amountRaw?: string
+      block: number
       txHash: string
     }> = []
     for (const order of orders) {
@@ -175,11 +183,18 @@ export class PerplHistory {
         this.rpc('eth_getTransactionByHash', txHash),
         this.rpc('eth_getTransactionReceipt', txHash),
       ])
+      let block: number
+      try {
+        block = Number(BigInt(String(receipt.blockNumber)))
+      } catch {
+        continue
+      }
+      if (!Number.isSafeInteger(block)) continue
       if (
         String(tx.to).toLowerCase() !== this.exchangeAddress.toLowerCase() ||
         String(receipt.status) !== '0x1' ||
         String(receipt.transactionHash).toLowerCase() !== txHash.toLowerCase() ||
-        (order.at.b !== undefined && BigInt(String(receipt.blockNumber)) !== BigInt(order.at.b))
+        (order.at.b !== undefined && BigInt(block) !== BigInt(order.at.b))
       )
         continue
       try {
@@ -201,6 +216,7 @@ export class PerplHistory {
             positionId: Number(item.triggerPositionId),
             sizeRaw: item.orderDesc.lotLNS.toString(),
             amountRaw: item.orderDesc.amountCNS.toString(),
+            block,
             txHash,
           })
         }
@@ -253,8 +269,9 @@ export class PerplHistory {
         (item) => item.et === 3 && item.p === positionId && item.a === `-${amountRaw}`,
       )) {
         if (!positions.some((item) => item.at.txid === event.at.txid && item.pid === positionId)) continue
-        if (await this.collateralReceipt(event, requestId, accountId, marketId, positionId, amountRaw)) {
-          collateralSuccess = { txHash: `0x${event.at.txid}`, block: event.at.b ?? 0 }
+        const block = await this.collateralReceipt(event, requestId, accountId, marketId, positionId, amountRaw)
+        if (block !== undefined) {
+          collateralSuccess = { txHash: `0x${event.at.txid}`, block }
           break
         }
       }

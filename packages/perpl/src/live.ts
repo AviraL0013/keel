@@ -122,6 +122,7 @@ export class PerplLiveAdapter {
       }
       const mismatch = operations.find(
         (operation) =>
+          (bounded && operation.block !== undefined && operation.block > lastExecBlock!) ||
           operation.type !==
             (action.kind === 'DEFEND'
               ? 6
@@ -164,6 +165,24 @@ export class PerplLiveAdapter {
         return action
       throw error
     }
+    if (bounded && evidence.collateralSuccess && evidence.collateralSuccess.block > lastExecBlock!)
+      return {
+        ...action,
+        status: 'FAILED',
+        error: 'PERPL_REQUEST_ID_SUPERSEDED',
+        failedAt: new Date(this.now()).toISOString(),
+        venueProgress: action.venueProgress && {
+          ...action.venueProgress,
+          supersededBy: {
+            requestId: rq,
+            type: 6,
+            marketId: context.marketId,
+            positionId: context.positionId,
+            block: evidence.collateralSuccess.block,
+            txHash: evidence.collateralSuccess.txHash,
+          },
+        },
+      }
     if (action.kind === 'DEFEND' && evidence.collateralSuccess) {
       await this.persistEvidence(action, evidence)
       return {
