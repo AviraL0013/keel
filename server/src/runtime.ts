@@ -39,7 +39,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     }>
   >
   capital?(walletAddress?: string, userId?: string): Promise<CapitalSnapshot>
-  agoraActivity?(walletAddress?: string): Promise<AgoraActivity>
+  agoraActivity?(walletAddress?: string, cursor?: string): Promise<AgoraActivity>
   start?(): Promise<void>
   syncClosedBooks?(books: Book[]): Promise<void>
   refresh(book: Book): Promise<void>

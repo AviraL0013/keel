@@ -62,6 +62,11 @@ void main() {
                     'updatedAt': '2026-10-02T00:00:00Z'
                   }
                 ],
+                'ausdMetrics': {
+                  'status': 'AVAILABLE',
+                  'scope': 'GLOBAL_AUSD',
+                  'supply': '253317445.813025'
+                },
               })),
           agoraActivityProvider.overrideWith((ref) async =>
               AgoraActivity.fromJson({
@@ -78,6 +83,41 @@ void main() {
     expect(find.textContaining('0.100001 USD'), findsOneWidget);
     expect(find.textContaining('Perpl balance unavailable'), findsOneWidget);
     expect(find.textContaining('ETH'), findsWidgets);
+    expect(find.text('About AUSD'), findsOneWidget);
+    expect(find.textContaining('253317445.813025 AUSD'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'optional public metrics outage is shown without changing Book balances',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(427, 1700);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          capitalProvider.overrideWith((ref) async => CapitalSnapshot.fromJson({
+                'bookRemaining': {
+                  'amount': '2.000000',
+                  'asset': 'USD',
+                  'availability': 'AVAILABLE',
+                  'freshness': 'FRESH'
+                },
+                'ausdMetrics': {
+                  'status': 'UNAVAILABLE',
+                  'reason': 'AGORA_METRICS_READ_FAILED'
+                },
+              })),
+          agoraActivityProvider.overrideWith((ref) async =>
+              AgoraActivity.fromJson({'status': 'UNAVAILABLE', 'rows': []})),
+        ],
+        child:
+            MaterialApp(theme: EyelerTheme.dark, home: const CapitalScreen())));
+    await tester.pumpAndSettle();
+    expect(find.text('About AUSD'), findsOneWidget);
+    expect(find.textContaining('AGORA_METRICS_READ_FAILED'), findsOneWidget);
+    expect(find.textContaining('2.000000 USD'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -95,6 +135,7 @@ void main() {
           agoraActivityProvider
               .overrideWith((ref) async => AgoraActivity.fromJson({
                     'status': 'AVAILABLE',
+                    'nextCursor': 'more-records',
                     'rows': [
                       {
                         'type': 'mint',
@@ -105,6 +146,8 @@ void main() {
                         'amount': '12.000000',
                         'timestamp': '2026-09-27T00:01:00Z',
                         'match': 'POSSIBLE_MATCH',
+                        'transactionHash':
+                            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                       }
                     ],
                   })),
@@ -117,6 +160,8 @@ void main() {
         findsOneWidget);
     expect(find.text('Possible match with on-chain evidence'), findsOneWidget);
     expect(find.textContaining('12.000000 AUSD'), findsOneWidget);
+    expect(find.text('Load more activity'), findsOneWidget);
+    expect(find.textContaining('Transaction 0xaaaaaaaa'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

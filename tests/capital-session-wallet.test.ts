@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { AusdAdapter } from '../packages/ausd/src/index.js'
 import { PerplAdapter } from '../packages/perpl/src/index.js'
+import { AgoraAdapter } from '../packages/chain/src/agora.js'
 import { createPerplRuntime } from '../server/src/infrastructure/perpl/runtime.js'
 import { databaseFixture } from './helpers/database.js'
 
@@ -68,6 +69,44 @@ it('reads testnet USD for the signed-in wallet and separates user Book allocatio
     const noWallet = await venue!.capital!(signedIn, userId)
     expect(noWallet.walletAusd).toMatchObject({ amount: null, reason: 'MONAD_COLLATERAL_READ_FAILED' })
     expect(noWallet.perplAvailable.amount).toBe('1.500000')
+  } finally {
+    await venue?.close()
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    await db.close()
+  }
+}, 20_000)
+
+it('keeps public AUSD supply optional and isolates an Agora outage from wallet and ledger cards', async () => {
+  const wallet = '0x0000000000000000000000000000000000000004'
+  vi.stubEnv('PERPL_API_KEY', 'test-read-only')
+  vi.stubEnv('PERPL_API_KEY_SECRET', '11'.repeat(32))
+  vi.stubEnv('PERPL_ACCOUNT_ID', '642')
+  vi.stubEnv('AGORA_METRICS_ENABLED', 'true')
+  vi.spyOn(AusdAdapter.prototype, 'walletBalance').mockResolvedValue({
+    token: '0x0000000000000000000000000000000000000003',
+    chainId: 10143,
+    raw: 123000000n,
+    decimals: 6,
+    symbol: 'USD',
+  })
+  vi.spyOn(PerplAdapter.prototype, 'getBalance').mockResolvedValue({ available: '2.000000', locked: '0', decimals: 6 })
+  const metrics = vi
+    .spyOn(AgoraAdapter.prototype, 'metrics')
+    .mockResolvedValue({ totalSupply: '253317445.813025', partial: false })
+  const { db, store } = await databaseFixture()
+  const userId = await store.ensureUser(wallet)
+  const venue = createPerplRuntime(store)
+  try {
+    expect((await venue!.capital!(wallet, userId)).ausdMetrics).toMatchObject({
+      status: 'AVAILABLE',
+      supply: '253317445.813025',
+    })
+    metrics.mockRejectedValueOnce(new Error('AGORA_OFFLINE'))
+    const degraded = await venue!.capital!(wallet, userId)
+    expect(degraded.ausdMetrics).toMatchObject({ status: 'UNAVAILABLE', reason: 'AGORA_METRICS_READ_FAILED' })
+    expect(degraded.walletAusd.amount).toBe('123')
+    expect(degraded.bookRemaining.amount).toBe('0.000000')
   } finally {
     await venue?.close()
     vi.restoreAllMocks()

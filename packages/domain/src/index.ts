@@ -178,6 +178,7 @@ export type AgoraActivity = {
   reason?: string
   checkedAt?: string
   limited?: boolean
+  nextCursor?: string
   rows: Array<{
     id: string
     type: string
@@ -189,6 +190,7 @@ export type AgoraActivity = {
     timestamp: string
     match: 'POSSIBLE_MATCH' | 'UNMATCHED'
     evidence: 'WALLET_TRANSFER' | 'WALLET_AND_PERPL' | 'NONE'
+    transactionHash?: string
   }>
 }
 export type CapitalSnapshot = {
@@ -210,6 +212,13 @@ export type CapitalSnapshot = {
     updatedAt: string
   }>
   reserveCoverage?: { promised: string; perplFree: string; shortfall: string }
+  ausdMetrics?: {
+    status: 'AVAILABLE' | 'UNAVAILABLE'
+    scope?: 'GLOBAL_AUSD'
+    supply?: string
+    checkedAt?: string
+    reason?: string
+  }
   ausd?: { raw: string; decimals: number; symbol: string; token: string; chainId: number }
   agora?: Record<string, unknown>
 }

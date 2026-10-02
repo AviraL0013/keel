@@ -30,6 +30,7 @@ import { ChainAdapter } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { readAgoraActivity } from '../agora/activity.js'
+import { publicAusdSupply } from '../agora/metrics.js'
 import { reconcileBookCapital, type BookCapitalRow } from '../capital/reconciliation.js'
 import { formatMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
@@ -618,12 +619,12 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
           // A failed ledger read never becomes a displayed zero.
         }
       }
-      let agoraMetrics: Record<string, unknown> | undefined
+      let ausdMetrics: ReturnType<typeof publicAusdSupply> | { status: 'UNAVAILABLE'; reason: string } | undefined
       if (env.AGORA_METRICS_ENABLED === 'true') {
         try {
-          agoraMetrics = await agora.metrics()
+          ausdMetrics = publicAusdSupply(await agora.metrics())
         } catch {
-          // Public supply metrics never fail the user's capital snapshot.
+          ausdMetrics = { status: 'UNAVAILABLE', reason: 'AGORA_METRICS_READ_FAILED' }
         }
       }
       const unavailable = (source: string, reason: string, decimals = 6): CapitalAmount => ({
@@ -692,12 +693,12 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
               chainId: wallet.chainId,
             }
           : undefined,
-        agora: agoraMetrics,
+        ausdMetrics,
       }
     },
-    async agoraActivity(walletAddress?: string) {
+    async agoraActivity(walletAddress?: string, cursor?: string) {
       if (!env.AGORA_API_KEY) return { status: 'UNAVAILABLE' as const, reason: 'AGORA_NOT_CONNECTED', rows: [] }
-      return readAgoraActivity(agora, walletAddress, agoraEvidence)
+      return readAgoraActivity(agora, walletAddress, agoraEvidence, cursor)
     },
     async start() {
       try {

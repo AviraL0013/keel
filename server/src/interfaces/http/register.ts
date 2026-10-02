@@ -517,8 +517,11 @@ export function registerRoutes(context: HttpContext) {
   })
   app.get('/capital/agora-activity', async (request) => {
     const current = await requireSession(request)
+    const cursor = (request.query as { cursor?: unknown }).cursor
+    if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > 1024 || cursor.length === 0))
+      throw new ValidationError('INVALID_AGORA_CURSOR')
     return (
-      context.venue?.agoraActivity?.(current.walletAddress) ?? {
+      context.venue?.agoraActivity?.(current.walletAddress, cursor as string | undefined) ?? {
         status: 'UNAVAILABLE',
         reason: 'AGORA_NOT_CONNECTED',
         rows: [],

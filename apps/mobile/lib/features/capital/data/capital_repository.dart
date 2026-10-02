@@ -9,8 +9,10 @@ class CapitalRepository {
       '/capital',
       (value) =>
           CapitalSnapshot.fromJson(Map<String, dynamic>.from(value as Map)));
-  Future<AgoraActivity> getAgoraActivity() => api.get(
-      '/capital/agora-activity',
+  Future<AgoraActivity> getAgoraActivity({String? cursor}) => api.get(
+      cursor == null
+          ? '/capital/agora-activity'
+          : '/capital/agora-activity?cursor=${Uri.encodeQueryComponent(cursor)}',
       (value) =>
           AgoraActivity.fromJson(Map<String, dynamic>.from(value as Map)));
 }

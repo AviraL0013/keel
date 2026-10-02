@@ -11,10 +11,10 @@ This is a non-custodial testnet build. The wallet signs in; server-side Perpl cr
 | Risk decisions and limits | Same deterministic engine | Same deterministic engine |
 | DEFEND, REDUCE and EXIT | Perpl testnet submission and reconciliation | Simulated execution, clearly labeled |
 | Autopsy and run report | PostgreSQL evidence | In-memory evidence, lost on restart |
-| Agora | Read-only account activity and possible matches | Unavailable unless configured |
+| Capital and Agora | Separate wallet, Perpl and Book balances; read-only Agora activity and optional global AUSD supply | Fake venue balances; Agora unavailable unless configured |
 | Telegram | Optional operator-only alerts | Off |
 
-The Flutter app calls Fastify over HTTPS. The server owns authentication, the one-second monitor, policy and execution; PostgreSQL holds Books, actions, snapshots and evidence. The Perpl adapter handles REST/WS state and submissions. Monad supplies wallet AUSD balance; Agora is informational only. The client never authorizes an order.
+The Flutter app calls Fastify over HTTPS. The server owns authentication, the one-second monitor, policy and execution; PostgreSQL holds Books, actions, snapshots and evidence. The Perpl adapter handles REST/WS state and submissions. Monad supplies the signed-in wallet's collateral-token balance (testnet USD; mainnet AUSD). Capital keeps wallet, Perpl free/locked and Book allocations separate, and warns when available Book reserves exceed Perpl free balance. Agora activity and optional global AUSD supply are informational only. The client never authorizes an order.
 
 ## Try it locally
 
