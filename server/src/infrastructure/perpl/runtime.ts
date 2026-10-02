@@ -374,6 +374,9 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       collateralDecimals: token?.decimals ?? 6,
     }
   }
+  const verificationTimeoutMs = Number(process.env.EYELER_ORDER_VERIFY_TIMEOUT_MS ?? 180_000)
+  if (!Number.isSafeInteger(verificationTimeoutMs) || verificationTimeoutMs < 15_000)
+    throw new Error('INVALID_EYELER_ORDER_VERIFY_TIMEOUT_MS')
   const live = new PerplLiveAdapter(
     trading,
     contextFor,
@@ -431,6 +434,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
         throw new Error('CLOSE_POSITION_CHANGED_BEFORE_SEND')
       if (order.t !== (position.side === 'LONG' ? 3 : 4)) throw new Error('CLOSE_DIRECTION_MISMATCH_BEFORE_SEND')
     },
+    verificationTimeoutMs,
   )
   return {
     accountId: Number(env.PERPL_ACCOUNT_ID),

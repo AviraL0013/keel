@@ -183,7 +183,11 @@ export class ExecutionWorker {
       action.status = 'VERIFYING'
       await this.repo.saveAction(action)
       const reconciledRaw = await this.venue.reconcile(action)
-      if (reconciledRaw.status === 'VERIFYING' && action.kind === 'DEFEND' && submitted.status !== 'UNKNOWN') {
+      if (
+        reconciledRaw.status === 'VERIFYING' &&
+        ((action.kind === 'DEFEND' && submitted.status !== 'UNKNOWN') ||
+          (action.venueProgress?.requestedLastExecBlock ?? 0) > 0)
+      ) {
         await this.repo.saveAction(reconciledRaw)
         return reconciledRaw
       }

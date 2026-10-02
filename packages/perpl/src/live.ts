@@ -8,6 +8,14 @@ import type { WirePosition } from './decoder.js'
 import { requestId } from './request-id.js'
 
 export type ReconciliationContext = OrderContext & { positionId: number; collateralDecimals: number }
+function reconstructionExpiry(action: Action, context: ReconciliationContext) {
+  const head = action.venueProgress?.sentHeartbeatHead
+  const last = action.venueProgress?.requestedLastExecBlock
+  if (Number.isSafeInteger(head) && Number.isSafeInteger(last) && last! > head!)
+    return { headBlock: head!, orderTtlBlocks: last! - head! }
+  return { headBlock: context.headBlock, orderTtlBlocks: context.orderTtlBlocks }
+}
+
 export class PerplLiveAdapter {
   constructor(
     private readonly client: PerplTradingClient,
@@ -26,6 +34,8 @@ export class PerplLiveAdapter {
       action: Action,
       order: ReturnType<typeof buildPerplOrder>,
     ) => Promise<void> = async () => undefined,
+    private readonly verificationTimeoutMs = 180_000,
+    private readonly now: () => number = Date.now,
   ) {}
   async submit(action: Action) {
     let order: ReturnType<typeof buildPerplOrder>
@@ -58,6 +68,13 @@ export class PerplLiveAdapter {
   }
   async reconcile(action: Action): Promise<Action> {
     const unknown = (error: string): Action => ({ ...action, status: 'UNKNOWN', error })
+    const lastExecBlock = action.venueProgress?.requestedLastExecBlock
+    const bounded = Number.isSafeInteger(lastExecBlock) && lastExecBlock! > 0
+    const submittedAt = Date.parse(action.submittedAt ?? '')
+    const pending = (error: string): Action =>
+      bounded && Number.isFinite(submittedAt) && this.now() - submittedAt < this.verificationTimeoutMs
+        ? { ...action, status: 'VERIFYING', error: undefined }
+        : unknown(error)
     if (await this.referenceConflicts(action)) return unknown('VENUE_REFERENCE_COLLISION')
     const context = await this.context(action)
     const reference = action.venueReference?.split(':') ?? []
@@ -69,56 +86,61 @@ export class PerplLiveAdapter {
     } catch {
       return unknown('MISSING_DURABLE_VENUE_REFERENCE')
     }
+    if (bounded && action.venueProgress?.requestId !== rq) return unknown('VENUE_PROGRESS_REQUEST_MISMATCH')
     const minBlock = action.beforeState?.telemetry.block
+    let accountState: { lfr: string; block: number } | undefined
+    if (bounded && typeof this.client.accountRequestState === 'function') {
+      try {
+        accountState = await this.client.accountRequestState(account)
+      } catch {
+        // An unavailable account snapshot never proves expiry.
+      }
+    }
+    const streamAccount = this.client.stateSnapshot?.().accounts.find((item) => item.id === account)
+    const currentLfr = accountState?.lfr ?? (streamAccount ? String(streamAccount.lfr) : undefined)
     if (
       (action.status === 'UNKNOWN' || action.status === 'VERIFYING') &&
       this.history.verifiedRequestOperations &&
-      typeof this.client.stateSnapshot === 'function'
+      currentLfr &&
+      requestId(currentLfr) >= requestId(rq)
     ) {
-      const accountState = this.client.stateSnapshot().accounts.find((item) => item.id === account)
-      if (accountState && requestId(accountState.lfr) >= requestId(rq)) {
-        let operations: Awaited<ReturnType<PerplHistory['verifiedRequestOperations']>> = []
-        try {
-          operations = await this.history.verifiedRequestOperations(account, rq, minBlock)
-        } catch (error) {
-          if (
-            action.kind !== 'DEFEND' ||
-            action.status !== 'VERIFYING' ||
-            !this.client.verificationPending(action.venueProgress)
-          )
-            throw error
-        }
-        let expected: ReturnType<typeof buildPerplOrder> | undefined
-        try {
-          expected = buildPerplOrder(action, {
-            ...context,
-            position: action.beforeState?.position ?? context.position,
-          })
-        } catch {
-          // Type and binding mismatches can still be proven without a size estimate.
-        }
-        const mismatch = operations.find(
-          (operation) =>
-            operation.type !==
-              (action.kind === 'DEFEND'
-                ? 6
-                : (action.beforeState?.position.side ?? context.position.side) === 'LONG'
-                  ? 3
-                  : 4) ||
-            operation.marketId !== context.marketId ||
-            (operation.positionId !== undefined && operation.positionId !== context.positionId) ||
-            (operation.type === 6 && expected?.a !== undefined && operation.amountRaw !== expected.a) ||
-            (operation.type !== 6 && expected?.s !== undefined && operation.sizeRaw !== String(expected.s)),
-        )
-        if (mismatch)
-          return {
-            ...action,
-            status: 'FAILED',
-            error: 'PERPL_REQUEST_ID_SUPERSEDED',
-            failedAt: new Date().toISOString(),
-            venueProgress: action.venueProgress && { ...action.venueProgress, supersededBy: mismatch },
-          }
+      let operations: Awaited<ReturnType<PerplHistory['verifiedRequestOperations']>> = []
+      try {
+        operations = await this.history.verifiedRequestOperations(account, rq, minBlock)
+      } catch (error) {
+        if (!bounded && (action.kind !== 'DEFEND' || action.status !== 'VERIFYING')) throw error
       }
+      let expected: ReturnType<typeof buildPerplOrder> | undefined
+      try {
+        expected = buildPerplOrder(action, {
+          ...context,
+          position: action.beforeState?.position ?? context.position,
+          ...reconstructionExpiry(action, context),
+        })
+      } catch {
+        // Type and binding mismatches can still be proven without a size estimate.
+      }
+      const mismatch = operations.find(
+        (operation) =>
+          operation.type !==
+            (action.kind === 'DEFEND'
+              ? 6
+              : (action.beforeState?.position.side ?? context.position.side) === 'LONG'
+                ? 3
+                : 4) ||
+          operation.marketId !== context.marketId ||
+          (operation.positionId !== undefined && operation.positionId !== context.positionId) ||
+          (operation.type === 6 && expected?.a !== undefined && operation.amountRaw !== expected.a) ||
+          (operation.type !== 6 && expected?.s !== undefined && operation.sizeRaw !== String(expected.s)),
+      )
+      if (mismatch)
+        return {
+          ...action,
+          status: 'FAILED',
+          error: 'PERPL_REQUEST_ID_SUPERSEDED',
+          failedAt: new Date(this.now()).toISOString(),
+          venueProgress: action.venueProgress && { ...action.venueProgress, supersededBy: mismatch },
+        }
     }
     let evidence: Awaited<ReturnType<PerplHistory['evidence']>>
     try {
@@ -133,6 +155,7 @@ export class PerplLiveAdapter {
         minBlock,
       )
     } catch (error) {
+      if (bounded) return pending('VENUE_EVIDENCE_UNAVAILABLE')
       if (
         action.kind === 'DEFEND' &&
         action.status === 'VERIFYING' &&
@@ -152,19 +175,23 @@ export class PerplLiveAdapter {
         confirmedAt: new Date().toISOString(),
       }
     }
-    if (
-      (action.status === 'UNKNOWN' || action.status === 'VERIFYING') &&
+    const noEvidence =
       evidence.orders.length === 0 &&
       evidence.accounts.length === 0 &&
       evidence.fills.length === 0 &&
-      !evidence.positions.some((position) => String(position.rq) === rq) &&
-      action.venueProgress?.requestId === rq &&
-      typeof this.client.expiryProven === 'function' &&
-      this.client.expiryProven(action.venueProgress)
-    )
-      return { ...action, status: 'FAILED', failedAt: new Date().toISOString(), error: 'PERPL_ORDER_WINDOW_EXPIRED' }
+      !evidence.positions.some((position) => String(position.rq) === rq)
+    if (bounded && noEvidence) {
+      if (accountState && accountState.block >= lastExecBlock! && requestId(accountState.lfr) < requestId(rq))
+        return {
+          ...action,
+          status: 'FAILED',
+          failedAt: new Date(this.now()).toISOString(),
+          error: 'PERPL_ORDER_WINDOW_EXPIRED',
+        }
+      return pending('VENUE_OUTCOME_UNVERIFIED')
+    }
     if (action.kind === 'DEFEND' && evidence.orders.length && evidence.orders.every((order) => order.st === 7))
-      return unknown('COLLATERAL_OUTCOME_UNVERIFIED')
+      return bounded ? pending('COLLATERAL_OUTCOME_UNVERIFIED') : unknown('COLLATERAL_OUTCOME_UNVERIFIED')
     if (
       action.kind === 'DEFEND' &&
       action.status === 'VERIFYING' &&
@@ -178,8 +205,11 @@ export class PerplLiveAdapter {
       let requested: ReturnType<typeof buildPerplOrder>
       let beforeSize: number
       try {
-        requested = buildPerplOrder(action, { ...context, position: before })
-        beforeSize = buildPerplOrder({ ...action, kind: 'EXIT' }, { ...context, position: before }).s
+        requested = buildPerplOrder(action, { ...context, position: before, ...reconstructionExpiry(action, context) })
+        beforeSize = buildPerplOrder(
+          { ...action, kind: 'EXIT' },
+          { ...context, position: before, ...reconstructionExpiry(action, context) },
+        ).s
       } catch {
         return unknown('CLOSE_ORDER_UNVERIFIABLE')
       }
@@ -232,7 +262,7 @@ export class PerplLiveAdapter {
             failedAt: new Date().toISOString(),
             error: order.st === 5 ? 'VENUE_ORDER_CANCELED' : 'VENUE_ORDER_EXPIRED',
           }
-        return unknown('CLOSE_FILL_PENDING')
+        return pending('CLOSE_FILL_PENDING')
       }
       if (fills.some((fill) => !Number.isSafeInteger(fill.s) || fill.s <= 0)) return unknown('CLOSE_FILL_INVALID')
       const filled = fills.reduce((sum, fill) => sum + BigInt(fill.s), 0n)
@@ -252,7 +282,7 @@ export class PerplLiveAdapter {
           (a, b) => (b.at.b ?? 0) - (a.at.b ?? 0) || (b.at.tx ?? 0) - (a.at.tx ?? 0) || (b.at.l ?? 0) - (a.at.l ?? 0),
         )[0]
       if (!after || !Number.isSafeInteger(after.s) || after.s < 0 || remaining < 0n)
-        return unknown('POSITION_NOT_RECONCILED')
+        return pending('POSITION_NOT_RECONCILED')
       if (after.sd !== (before.side === 'LONG' ? 1 : 2)) return unknown('CLOSE_SIDE_MISMATCH')
       if (filled < BigInt(requested.s) || order.st === 3 || order.st === 5 || order.st === 6) {
         if (after.st !== 1 || remaining <= 0n) return unknown('PARTIAL_POSITION_UNVERIFIED')

@@ -151,7 +151,10 @@ export class EyelerRuntime {
             continue
           }
           if (result.status === 'UNKNOWN') {
-            if (active.status === 'VERIFYING' && active.kind === 'DEFEND') {
+            if (
+              active.status === 'VERIFYING' &&
+              (active.kind === 'DEFEND' || (active.venueProgress?.requestedLastExecBlock ?? 0) > 0)
+            ) {
               await this.repository.finalize(result)
               this.reconciliationSchedule.delete(book.id)
               continue

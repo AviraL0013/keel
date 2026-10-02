@@ -252,7 +252,7 @@ export class PerplTradingClient {
         const venueProgress = pending && progress(pending, sn, 'TIMEOUT')
         resolve({
           venueReference: reference,
-          status: action.kind === 'DEFEND' && this.verificationPending(venueProgress) ? 'SUBMITTED' : 'UNKNOWN',
+          status: this.boundedVerification(venueProgress) ? 'SUBMITTED' : 'UNKNOWN',
           reason: 'PERPL_ORDER_RESPONSE_TIMEOUT',
           venueProgress,
         })
@@ -300,6 +300,27 @@ export class PerplTradingClient {
   heartbeat() {
     const value = this.state.heartbeat()
     return value && this.streamEpoch ? { ...value, epoch: this.streamEpoch } : undefined
+  }
+  boundedVerification(value?: VenueProgress) {
+    return !!(
+      value &&
+      Number.isSafeInteger(value.requestedLastExecBlock) &&
+      value.requestedLastExecBlock > 0 &&
+      value.orderStatusReceived === false &&
+      value.response !== 'REJECTED' &&
+      !this.seenRequestStatuses.has(value.requestId)
+    )
+  }
+  async accountRequestState(accountId: number): Promise<{ lfr: string; block: number }> {
+    const wallet = parsePerplRequestIds(await this.signedRead('/v1/trading/wallet')) as {
+      at?: { b?: number }
+      as?: Array<{ id: number; lfr?: string | number }>
+    }
+    const account = wallet.as?.find((item) => item.id === accountId)
+    if (!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED')
+    if (!Number.isSafeInteger(wallet.at?.b) || wallet.at!.b! <= 0)
+      throw new Error('PERPL_ACCOUNT_STATE_BLOCK_UNAVAILABLE')
+    return { lfr: requestId(account.lfr).toString(), block: wallet.at!.b! }
   }
   verificationPending(value?: VenueProgress) {
     const current = this.heartbeat()
