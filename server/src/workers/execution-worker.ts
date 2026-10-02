@@ -183,6 +183,10 @@ export class ExecutionWorker {
       action.status = 'VERIFYING'
       await this.repo.saveAction(action)
       const reconciledRaw = await this.venue.reconcile(action)
+      if (reconciledRaw.status === 'VERIFYING' && action.kind === 'DEFEND' && submitted.status !== 'UNKNOWN') {
+        await this.repo.saveAction(reconciledRaw)
+        return reconciledRaw
+      }
       const reconciled =
         reconciledRaw.status === 'VERIFYING'
           ? { ...reconciledRaw, status: 'UNKNOWN' as const, error: reconciledRaw.error ?? 'VENUE_OUTCOME_UNKNOWN' }

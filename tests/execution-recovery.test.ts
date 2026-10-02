@@ -114,6 +114,24 @@ describe('existing execution recovery', () => {
     }
   })
 
+  it('keeps DEFEND verification active without finalizing or resubmitting', async () => {
+    const verifying = { ...action, status: 'VERIFYING' as const, error: undefined }
+    const value = runtimeFor(verifying, verifying)
+    await value.tick()
+    expect(value.saveAction).toHaveBeenCalledWith(verifying)
+    expect(value.finalize).not.toHaveBeenCalled()
+    expect(value.submit).not.toHaveBeenCalled()
+  })
+
+  it('finalizes an uncertain DEFEND after verification loses continuity', async () => {
+    const verifying = { ...action, status: 'VERIFYING' as const, error: undefined }
+    const uncertain = { ...verifying, status: 'UNKNOWN' as const, error: 'PERPL_ORDER_TRANSPORT_AMBIGUOUS' }
+    const value = runtimeFor(uncertain, verifying)
+    await value.tick()
+    expect(value.finalize).toHaveBeenCalledWith(uncertain)
+    expect(value.submit).not.toHaveBeenCalled()
+  })
+
   it('does not reconcile or resubmit an action whose reference is not yet durable', async () => {
     const interrupted = { ...action, status: 'SUBMITTING' as const, venueReference: undefined }
     const value = runtimeFor(interrupted, interrupted)

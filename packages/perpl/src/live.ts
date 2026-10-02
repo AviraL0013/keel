@@ -70,16 +70,27 @@ export class PerplLiveAdapter {
       return unknown('MISSING_DURABLE_VENUE_REFERENCE')
     }
     const minBlock = action.beforeState?.telemetry.block
-    const evidence = await this.history.evidence(
-      account,
-      rq,
-      context.marketId,
-      context.positionId,
-      action.kind === 'DEFEND'
-        ? { amount: action.amount, decimals: context.collateralDecimals, minBlock: minBlock ?? 0 }
-        : undefined,
-      minBlock,
-    )
+    let evidence: Awaited<ReturnType<PerplHistory['evidence']>>
+    try {
+      evidence = await this.history.evidence(
+        account,
+        rq,
+        context.marketId,
+        context.positionId,
+        action.kind === 'DEFEND'
+          ? { amount: action.amount, decimals: context.collateralDecimals, minBlock: minBlock ?? 0 }
+          : undefined,
+        minBlock,
+      )
+    } catch (error) {
+      if (
+        action.kind === 'DEFEND' &&
+        action.status === 'VERIFYING' &&
+        this.client.verificationPending(action.venueProgress)
+      )
+        return action
+      throw error
+    }
     if (action.kind === 'DEFEND' && evidence.collateralSuccess) {
       await this.persistEvidence(action, evidence)
       return {
@@ -92,7 +103,7 @@ export class PerplLiveAdapter {
       }
     }
     if (
-      action.status === 'UNKNOWN' &&
+      (action.status === 'UNKNOWN' || action.status === 'VERIFYING') &&
       evidence.orders.length === 0 &&
       evidence.accounts.length === 0 &&
       evidence.fills.length === 0 &&
@@ -104,6 +115,12 @@ export class PerplLiveAdapter {
       return { ...action, status: 'FAILED', failedAt: new Date().toISOString(), error: 'PERPL_ORDER_WINDOW_EXPIRED' }
     if (action.kind === 'DEFEND' && evidence.orders.length && evidence.orders.every((order) => order.st === 7))
       return unknown('COLLATERAL_OUTCOME_UNVERIFIED')
+    if (
+      action.kind === 'DEFEND' &&
+      action.status === 'VERIFYING' &&
+      this.client.verificationPending(action.venueProgress)
+    )
+      return { ...action, error: undefined }
     if (action.kind === 'REDUCE' || action.kind === 'EXIT') {
       const before = action.beforeState?.position
       if (!before || before.status !== 'OPEN' || before.side !== context.position.side)

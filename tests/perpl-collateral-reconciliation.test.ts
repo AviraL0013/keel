@@ -110,6 +110,10 @@ describe('forwarded DEFEND duplicate outcome', () => {
     }))
     const adapter = new PerplLiveAdapter({} as never, context as never, history, async () => undefined)
     expect(await adapter.reconcile(action)).toMatchObject({ status: 'CONFIRMED', error: undefined })
+    expect(await adapter.reconcile({ ...action, status: 'VERIFYING' })).toMatchObject({
+      status: 'CONFIRMED',
+      error: undefined,
+    })
   })
 
   it('keeps DEFEND unresolved when account event transaction has another request ID', async () => {

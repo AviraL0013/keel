@@ -191,10 +191,26 @@ describe('Perpl bounded order expiry', () => {
       async () => undefined,
     )
     expect((await live.reconcile(action(sent))).status).toBe('UNKNOWN')
+    expect((await live.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('VERIFYING')
+    const historyUnavailable = new PerplLiveAdapter(
+      value,
+      async () => context,
+      {
+        evidence: async () => {
+          throw new Error('VENUE_HTTP_429')
+        },
+      } as never,
+      async () => undefined,
+    )
+    expect((await historyUnavailable.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('VERIFYING')
     peer!.send(JSON.stringify({ mt: 100, sn: 11, h: 101 }))
     peer!.send(JSON.stringify({ mt: 100, sn: 12, h: 102 }))
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(await live.reconcile(action(sent))).toMatchObject({ status: 'FAILED', error: 'PERPL_ORDER_WINDOW_EXPIRED' })
+    expect(await live.reconcile({ ...action(sent), status: 'VERIFYING' })).toMatchObject({
+      status: 'FAILED',
+      error: 'PERPL_ORDER_WINDOW_EXPIRED',
+    })
     expect(await live.reconcile(action({ ...sent, admitted: true }))).toMatchObject({
       status: 'FAILED',
       error: 'PERPL_ORDER_WINDOW_EXPIRED',
@@ -213,5 +229,6 @@ describe('Perpl bounded order expiry', () => {
     peer!.send(JSON.stringify({ mt: 100, sn: 12, h: 102 }))
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect((await live.reconcile(action({ ...sent, admitted: true }))).status).toBe('UNKNOWN')
+    expect((await live.reconcile({ ...action(sent), status: 'VERIFYING' })).status).toBe('UNKNOWN')
   })
 })
