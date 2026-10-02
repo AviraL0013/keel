@@ -26,10 +26,13 @@ import {
   type NormalizedTelemetry,
   type Position,
 } from '../../../../packages/domain/src/index.js'
-import { ChainAdapter, chainConfigs } from '../../../../packages/chain/src/index.js'
+import { ChainAdapter } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { readAgoraActivity } from '../agora/activity.js'
+import { publicAusdSupply } from '../agora/metrics.js'
+import { reconcileBookCapital, type BookCapitalRow } from '../capital/reconciliation.js'
+import { formatMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
 import { brandEnv, logger } from '../../config/index.js'
@@ -190,7 +193,9 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
   const chain = new ChainAdapter(environment, {
     rpcUrl: env.MONAD_RPC_URL ?? network.rpcUrl,
     chainId: Number(env.MONAD_CHAIN_ID ?? network.chainId),
-    ausdToken: getAddress(env.AUSD_TOKEN_ADDRESS ?? chainConfigs[environment].ausdToken),
+    ausdToken: getAddress(
+      environment === 'testnet' ? network.collateralToken : (env.AUSD_TOKEN_ADDRESS ?? network.collateralToken),
+    ),
   })
   const ausd = new AusdAdapter(chain)
   const agora = new AgoraAdapter(env.AGORA_API_URL, env.AGORA_API_KEY, (requestId, path, status) =>
@@ -569,27 +574,62 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       }
       return result
     },
-    async capital(walletAddress?: string) {
+    async capital(walletAddress?: string, userId?: string) {
       const accountId = Number(env.PERPL_ACCOUNT_ID)
-      const perpl = await adapter.getBalance(accountId)
-      const sessionWallet = walletAddress
+      const asset = environment === 'testnet' ? 'USD' : 'AUSD'
+      let perpl: Awaited<ReturnType<PerplAdapter['getBalance']>> | undefined
+      let perplFree: string | undefined
+      try {
+        perpl = await adapter.getBalance(accountId)
+        const free = moneyMicros(perpl.available) - moneyMicros(perpl.locked)
+        if (free < 0n) throw new Error('PERPL_BALANCE_INVALID')
+        perplFree = formatMoney(free)
+      } catch {
+        perpl = undefined
+      }
       let wallet: Awaited<ReturnType<AusdAdapter['walletBalance']>> | undefined
-      let walletUnavailableReason: string | undefined
-      if (sessionWallet) {
+      let walletUnavailableReason = walletAddress ? 'MONAD_COLLATERAL_READ_FAILED' : 'SESSION_WALLET_UNAVAILABLE'
+      if (walletAddress) {
         try {
-          wallet = await ausd.walletBalance(getAddress(sessionWallet))
-        } catch (error) {
-          walletUnavailableReason = 'MONAD_AUSD_READ_FAILED'
-          logger.warn(
-            { error: error instanceof Error ? error.message : 'MONAD_AUSD_READ_FAILED' },
-            'Monad AUSD balance unavailable',
-          )
+          wallet = await ausd.walletBalance(getAddress(walletAddress))
+        } catch {
+          walletUnavailableReason = 'MONAD_COLLATERAL_READ_FAILED'
         }
-      } else walletUnavailableReason = 'SESSION_WALLET_UNAVAILABLE'
-      const agoraMetrics = env.AGORA_METRICS_ENABLED === 'true' ? await agora.metrics() : undefined
+      }
+      let ledger: ReturnType<typeof reconcileBookCapital> | undefined
+      if (userId) {
+        try {
+          const result = await store.pool.query(
+            `SELECT b.id AS book_id,b.market,r.available::text AS available,r.reserved::text AS reserved,
+              r.deployed::text AS deployed,r.updated_at AS updated_at
+             FROM books b JOIN reserves r ON r.book_id=b.id
+             WHERE b.user_id=$1 AND b.status<>'CLOSED' ORDER BY b.created_at,b.id`,
+            [userId],
+          )
+          const rows: BookCapitalRow[] = result.rows.map((row) => ({
+            bookId: String(row.book_id),
+            market: String(row.market),
+            available: String(row.available),
+            reserved: String(row.reserved),
+            deployed: String(row.deployed),
+            updatedAt: new Date(row.updated_at).toISOString(),
+          }))
+          ledger = reconcileBookCapital(rows, perplFree)
+        } catch {
+          // A failed ledger read never becomes a displayed zero.
+        }
+      }
+      let ausdMetrics: ReturnType<typeof publicAusdSupply> | { status: 'UNAVAILABLE'; reason: string } | undefined
+      if (env.AGORA_METRICS_ENABLED === 'true') {
+        try {
+          ausdMetrics = publicAusdSupply(await agora.metrics())
+        } catch {
+          ausdMetrics = { status: 'UNAVAILABLE', reason: 'AGORA_METRICS_READ_FAILED' }
+        }
+      }
       const unavailable = (source: string, reason: string, decimals = 6): CapitalAmount => ({
         amount: null,
-        asset: 'AUSD',
+        asset,
         decimals,
         source,
         availability: 'UNAVAILABLE',
@@ -598,11 +638,11 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       })
       const available = (amount: string, source: string, decimals: number, updatedAt?: number): CapitalAmount => {
         if (updatedAt === undefined)
-          return { amount, asset: 'AUSD', decimals, source, availability: 'AVAILABLE', freshness: 'UNKNOWN' }
+          return { amount, asset, decimals, source, availability: 'AVAILABLE', freshness: 'UNKNOWN' }
         const ageMs = Math.max(0, Date.now() - updatedAt)
         return {
           amount,
-          asset: 'AUSD',
+          asset,
           decimals,
           source,
           availability: 'AVAILABLE',
@@ -611,35 +651,54 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
           updatedAt: new Date(updatedAt).toISOString(),
         }
       }
-      const walletAmount = wallet ? decodeAmount(wallet.raw.toString(), wallet.decimals) : null
-      const walletUpdatedAt = wallet ? Date.now() : undefined
+      const ledgerReason = userId ? 'BOOK_LEDGER_READ_FAILED' : 'SESSION_USER_UNAVAILABLE'
+      const ledgerUpdatedAt = ledger?.updatedAt ? Date.parse(ledger.updatedAt) : Date.now()
+      const ledgerAmount = (amount: string | undefined, reason = ledgerReason) =>
+        amount === undefined
+          ? unavailable('EYELER_LEDGER', reason)
+          : available(amount, 'EYELER_LEDGER', 6, ledgerUpdatedAt)
       return {
         status: 'VALID' as const,
         accountId,
         walletAusd: wallet
-          ? available(walletAmount!, 'MONAD_AUSD', wallet.decimals, walletUpdatedAt)
-          : unavailable('MONAD_AUSD', walletUnavailableReason ?? 'MONAD_AUSD_UNAVAILABLE'),
-        perplAvailable: available(perpl.available, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt),
-        perplLocked: available(perpl.locked, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt),
-        bookReserved: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
-        bookDeployed: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
-        bookRemaining: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
-        unreservedCapital: unavailable('EYELER_LEDGER', 'BOOK_LEDGER_NOT_AGGREGATED'),
+          ? available(
+              decodeAmount(wallet.raw.toString(), wallet.decimals),
+              'MONAD_COLLATERAL',
+              wallet.decimals,
+              Date.now(),
+            )
+          : unavailable('MONAD_COLLATERAL', walletUnavailableReason),
+        perplAvailable:
+          perpl && perplFree
+            ? available(perplFree, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt)
+            : unavailable('PERPL_COLLATERAL', 'PERPL_BALANCE_READ_FAILED'),
+        perplLocked: perpl
+          ? available(perpl.locked, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt)
+          : unavailable('PERPL_COLLATERAL', 'PERPL_BALANCE_READ_FAILED'),
+        bookReserved: ledgerAmount(ledger?.reserved),
+        bookDeployed: ledgerAmount(ledger?.deployed),
+        bookRemaining: ledgerAmount(ledger?.available),
+        unreservedCapital: ledgerAmount(
+          ledger?.unreserved ?? undefined,
+          perplFree ? ledgerReason : 'PERPL_BALANCE_READ_FAILED',
+        ),
+        bookAllocations: ledger?.allocations,
+        reserveCoverage: ledger?.coverage,
         ausd: wallet
           ? {
               raw: wallet.raw.toString(),
               decimals: wallet.decimals,
-              symbol: wallet.symbol,
+              symbol: asset,
               token: wallet.token,
               chainId: wallet.chainId,
             }
           : undefined,
-        agora: agoraMetrics,
+        ausdMetrics,
       }
     },
-    async agoraActivity(walletAddress?: string) {
+    async agoraActivity(walletAddress?: string, cursor?: string) {
       if (!env.AGORA_API_KEY) return { status: 'UNAVAILABLE' as const, reason: 'AGORA_NOT_CONNECTED', rows: [] }
-      return readAgoraActivity(agora, walletAddress, agoraEvidence)
+      return readAgoraActivity(agora, walletAddress, agoraEvidence, cursor)
     },
     async start() {
       try {

@@ -143,14 +143,60 @@ describe('read-only Agora activity', () => {
     expect(activity.rows[0]).toMatchObject({ match: 'UNMATCHED', evidence: 'NONE' })
   })
 
+  it('pages only the signed-in wallet records and preserves exact six-decimal amounts and transaction proof', async () => {
+    const transaction = (id: string, address: string) => ({
+      id,
+      type: 'mint',
+      status: 'settled',
+      initiatedAt: '2026-10-02T00:00:00Z',
+      settledAt: '2026-10-02T00:01:00Z',
+      source: { kind: 'bank' },
+      recipient: { kind: 'wallet', chain: 'monad', address, amounts: [{ amount: '0.100001', currency: 'ausd' }] },
+    })
+    const pages: string[] = []
+    const adapter = {
+      listAccounts: async () => [{ id: 'wallet', kind: 'wallet', address: wallet, networks: [{ chain: 'monad' }] }],
+      listTransactions: async (cursor?: string) => {
+        pages.push(cursor ?? 'first')
+        return cursor
+          ? { data: [transaction(id, wallet)], nextCursor: null }
+          : { data: [transaction('other', otherWallet)], nextCursor: 'next-page' }
+      },
+      transaction: async () => ({
+        ...transaction(id, wallet),
+        legs: [
+          {
+            amount: '0.100001',
+            currency: 'ausd',
+            occurredAt: '2026-10-02T00:01:00Z',
+            source: { kind: 'bank' },
+            recipient: { kind: 'wallet', chain: 'monad', address: wallet },
+            detail: { type: 'token', transactionHash: `0x${'a'.repeat(64)}` },
+          },
+        ],
+      }),
+    }
+    const first = await readAgoraActivity(adapter as never, wallet, async () => 'NONE')
+    expect(first.rows).toHaveLength(0)
+    expect(first.nextCursor).toBe('next-page')
+    const second = await readAgoraActivity(adapter as never, wallet, async () => 'WALLET_TRANSFER', 'next-page')
+    expect(pages).toEqual(['first', 'next-page'])
+    expect(second.rows[0]).toMatchObject({
+      amount: '0.100001',
+      transactionHash: `0x${'a'.repeat(64)}`,
+      match: 'POSSIBLE_MATCH',
+    })
+    expect(JSON.stringify(second)).not.toContain(otherWallet)
+  })
+
   it('requires a EYELER session and passes only its wallet to the activity reader', async () => {
     const store = new MemoryStore()
     const userId = await store.ensureUser(wallet)
     await store.createSession('agora-test-session', { userId, walletAddress: wallet, expiresAt: Date.now() + 60_000 })
-    const seen: string[] = []
+    const seen: Array<{ address?: string; cursor?: string }> = []
     const venue = {
-      agoraActivity: async (address?: string) => {
-        seen.push(address ?? '')
+      agoraActivity: async (address?: string, cursor?: string) => {
+        seen.push({ address, cursor })
         return { status: 'AVAILABLE' as const, rows: [] }
       },
       submit: async () => ({ venueReference: 'unused', status: 'UNKNOWN' as const }),
@@ -170,7 +216,15 @@ describe('read-only Agora activity', () => {
       })
       expect(result.statusCode).toBe(200)
       expect(result.json()).toEqual({ status: 'AVAILABLE', rows: [] })
-      expect(seen).toEqual([wallet])
+      const next = await app.inject({
+        url: '/capital/agora-activity?cursor=next-page',
+        headers: { authorization: 'Bearer agora-test-session' },
+      })
+      expect(next.statusCode).toBe(200)
+      expect(seen).toEqual([
+        { address: wallet, cursor: undefined },
+        { address: wallet, cursor: 'next-page' },
+      ])
     } finally {
       await app.close()
       if (previousAllowlist === undefined) delete process.env.EYELER_ALLOWED_WALLETS

@@ -73,9 +73,9 @@ The following assessment comes from [architecture](../architecture/overview.md),
 | Explicit manual DEFEND, REDUCE, EXIT | Implemented with Perpl testnet evidence | Repeated multi-account and adverse-network evidence still needed |
 | Durable actions, request IDs, venue reconciliation | Implemented | Unknown outcomes remain blocked until authoritative resolution |
 | Pause, kill switch, manual-only recovery | Implemented | Recovery cannot clear an unresolved action |
-| Capital screen | Implemented | EYELER aggregate Book capital currently reports unavailable where ledger aggregation is not complete |
-| Monad wallet AUSD balance | Implemented as read-only context | Wallet amount is not Perpl collateral or spendable Book reserve by itself |
-| Agora | Adapter for metrics, session, and transaction reads; optional metrics fetch | No consumer Agora funding flow, transfer, mint, redeem, or reserve settlement is shipped |
+| Capital screen | Distinct wallet, Perpl and Book balances with reserve coverage warning | Balances are never summed across sources; a stale or failed source is labeled separately |
+| Monad wallet collateral balance | Implemented as read-only context | Testnet uses Perpl USD; mainnet uses AUSD. Wallet amount is not Perpl collateral or Book reserve by itself |
+| Agora | Read-only, paged wallet activity; optional public global AUSD supply | No funding flow, transfer, mint, redeem, or reserve settlement is shipped |
 | Autopsy and in-app notifications | Implemented | Push delivery and notification effectiveness need end-to-end validation |
 
 Use the [CI pointer](../implementation-status.md) to find checks for the exact commit under review. Release evidence should be generated for each candidate build.
@@ -111,7 +111,7 @@ Never describe an HTTP timeout or order admission as a completed trade. Never la
 
 ### Capital
 
-Display separate source cards for wallet AUSD, Perpl available/locked collateral, and EYELER Book ledger. Every amount needs asset, source, freshness, and availability. Do not sum values across sources when doing so would double-count capital. If ledger aggregation is unavailable, state “Unavailable,” not zero.
+Display separate source cards for wallet collateral token, Perpl free/locked collateral, EYELER Book ledger and Agora activity. Every amount needs asset, source, freshness, and availability. Do not sum values across sources when doing so would double-count capital. If a source is unavailable, state “Unavailable,” not zero. A reserve-coverage warning compares available Book allocations with Perpl free balance; it never changes an execution decision.
 
 ### Notifications and Autopsy
 
@@ -221,19 +221,19 @@ Perpl is not the user’s entire product experience. EYELER owns Book rules, exp
 
 ### Monad and AUSD: source-of-funds context
 
-The current Monad adapter reads wallet AUSD. The Capital screen must show wallet balance separately from Perpl available and locked collateral. Any future transfer or deposit journey must prove source wallet, destination account, chain, token address, decimals, transaction finality, and resulting Perpl balance before labeling funds available to a Book. Agora lists different Monad mainnet and testnet AUSD deployments; use environment-specific configuration. [Agora contract deployments](https://docs.agora.finance/developer/contract-deployments)
+The Monad adapter reads the environment's wallet collateral token: Perpl USD on testnet and AUSD on mainnet. The Capital screen shows that wallet balance separately from Perpl free and locked collateral and EYELER Book allocations. Any future transfer or deposit journey must prove source wallet, destination account, chain, token address, decimals, transaction finality, and resulting Perpl balance before labeling funds available to a Book. Agora lists different Monad mainnet and testnet AUSD deployments; do not confuse testnet Agora AUSD with Perpl's USD collateral. [Agora contract deployments](https://docs.agora.finance/developer/contract-deployments)
 
 ### Agora: staged integration, not a decorative badge
 
 Agora’s current API exposes public AUSD supply metrics and authenticated organizational Accounts, Routes, and Transactions. Its monetary values are decimal strings and its responses carry a `Request-Id` for support tracing. These are integration capabilities, **not** proof that EYELER users can mint, redeem, bridge, or transfer through EYELER today. [Agora Public API](https://docs.agora.finance/api)
 
-| Stage | User value | Product requirement | Gate |
-| --- | --- | --- | --- |
-| 0 — current | Correct wallet AUSD context | Read onchain wallet balance; preserve Perpl collateral separation | Asset/network labels correct |
-| 1 — near term | Understand capital movement | Complete EYELER reserve ledger totals; reconcile wallet, deposit, Perpl collateral, and Book allocation as distinct states | No double counting; transaction proof |
-| 2 — optional | AUSD transparency | Show public Agora metrics only if they answer a user question; never imply supply metrics change Book safety | Measured user value; graceful outage |
-| 3 — partnership-dependent | Funding and settlement history | Explore authenticated Agora transactions/routes for eligible organizations | Agora access, contract terms, privacy, support, legal review |
-| 4 — future | In-app funding route | Design deposit/mint/redeem or cross-chain movement only after explicit integration and custody model | End-to-end settlement, reversals, limits, and compliance approval |
+| Stage | Status | User value | Product requirement | Gate |
+| --- | --- | --- | --- | --- |
+| 0 — wallet context | Done | Correct collateral-token context | Read the signed-in wallet's onchain testnet USD or mainnet AUSD balance; preserve Perpl separation | Asset/network labels correct |
+| 1 — capital reconciliation | Done for displayed balances | Understand capital allocation | Show wallet, Perpl free/locked and per-Book ledger states separately, with exact reserve coverage; never imply an unproved deposit credit | No double counting; movement claims require transaction proof |
+| 2 — optional AUSD transparency | Behind `AGORA_METRICS_ENABLED`, off by default | See global AUSD supply | Display public six-decimal global supply as context only, with an unavailable state | No risk-engine dependency; graceful outage |
+| 3 — partnership-dependent | Read-only activity polished | See wallet-linked settlement history | Page authenticated Agora records for the signed-in wallet; redact counterparties and label matches as possible | Agora access, privacy and support review |
+| 4 — future | Out of scope | In-app funding route | Deposit/mint/redeem or cross-chain movement needs an explicit integration and custody model | Settlement, reversals, limits and compliance approval |
 
 Do not put Agora API keys or session tokens in Flutter. Do not use JavaScript floating-point numbers for AUSD ledger amounts. Do not treat an Agora transaction record as a Perpl collateral credit until Perpl and chain evidence reconcile it.
 

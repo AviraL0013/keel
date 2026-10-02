@@ -96,8 +96,10 @@ export class AgoraAdapter {
     }
     throw new Error('AGORA_ACCOUNTS_INCOMPLETE')
   }
-  async listTransactions(): Promise<Page<AgoraTransaction>> {
-    return this.authenticated<Page<AgoraTransaction>>('/v0/transactions?limit=200')
+  async listTransactions(cursor?: string): Promise<Page<AgoraTransaction>> {
+    return this.authenticated<Page<AgoraTransaction>>(
+      `/v0/transactions?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+    )
   }
   async transaction(id: string): Promise<AgoraTransactionDetail> {
     if (!/^[0-9a-fA-F-]{36}$/.test(id)) throw new Error('AGORA_TRANSACTION_ID_INVALID')

@@ -50,7 +50,9 @@ Connections, capital, and notifications (authenticated):
 - `POST /connections/perpl/validate`
 - `GET /connections/perpl/positions`
 - `GET /capital`
-- `GET /capital/agora-activity`
+- `GET /capital/agora-activity?cursor=<opaque>` (cursor optional; returns only the session wallet's records and an optional `nextCursor`)
+
+`/capital` reports wallet collateral token, Perpl free and locked balances, user-owned Book allocations, and a reserve-coverage warning as separate sources. Each source can independently be unavailable. Testnet wallet collateral is USD; mainnet is AUSD. Optional `AGORA_METRICS_ENABLED=true` adds a read-only global AUSD supply card. Agora activity is not a balance or a Perpl collateral credit; transaction hashes are shown as evidence, and matches stay advisory.
 - `POST /devices`
 - `GET /notifications`
 - `POST /notifications/:id/read`
