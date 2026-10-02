@@ -64,5 +64,5 @@ export type VenuePort = {
       bookCreation: BookCreationReadiness
     }>
   >
-  capital?(walletAddress?: string): Promise<CapitalSnapshot>
+  capital?(walletAddress?: string, userId?: string): Promise<CapitalSnapshot>
 }

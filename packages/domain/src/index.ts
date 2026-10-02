@@ -201,6 +201,15 @@ export type CapitalSnapshot = {
   bookDeployed: CapitalAmount
   bookRemaining: CapitalAmount
   unreservedCapital: CapitalAmount
+  bookAllocations?: Array<{
+    bookId: string
+    market?: string
+    available: string
+    reserved: string
+    deployed: string
+    updatedAt: string
+  }>
+  reserveCoverage?: { promised: string; perplFree: string; shortfall: string }
   ausd?: { raw: string; decimals: number; symbol: string; token: string; chainId: number }
   agora?: Record<string, unknown>
 }

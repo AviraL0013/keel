@@ -48,7 +48,7 @@ class CapitalScreen extends ConsumerWidget {
                                 Theme.of(context).textTheme.bodyMedium?.color)),
                     const SizedBox(height: EyelerSpacing.lg),
                     _CapitalSection(
-                        title: 'Wallet / AUSD',
+                        title: 'Wallet / ${snapshot.walletAusd.asset}',
                         icon: Icons.account_balance_wallet_outlined,
                         values: {'AUSD balance': snapshot.walletAusd}),
                     _CapitalSection(
@@ -67,6 +67,21 @@ class CapitalScreen extends ConsumerWidget {
                           'Remaining': snapshot.bookRemaining,
                           'Unreserved': snapshot.unreservedCapital
                         }),
+                    if (snapshot.reserveCoverage case final coverage?)
+                      EyelerPanel(
+                          tone: EyelerColors.reduce,
+                          child: Text(
+                              'Your Books promise ${coverage['promised']} ${snapshot.perplAvailable.asset} of defense, but Perpl has ${coverage['perplFree']} ${snapshot.perplAvailable.asset} free. Short by ${coverage['shortfall']} ${snapshot.perplAvailable.asset}.')),
+                    if (snapshot.bookAllocations.isNotEmpty)
+                      EyelerPanel(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            const Text('Book allocations',
+                                style: EyelerTypography.title),
+                            ...snapshot.bookAllocations.map((row) => Text(
+                                '${row['market'] ?? 'Book'} · Available ${row['available']} ${snapshot.bookRemaining.asset} · Reserved ${row['reserved']} · Deployed ${row['deployed']}')),
+                          ])),
                   ]),
             ),
             _AgoraActivitySection(activity: agoraActivity),
@@ -149,7 +164,7 @@ class _CapitalSection extends StatelessWidget {
       Row(children: [
         EyelerIconTile(
             icon: icon,
-            color: title == 'Wallet / AUSD'
+            color: title.startsWith('Wallet /')
                 ? EyelerColors.info
                 : EyelerColors.accent),
         const SizedBox(width: EyelerSpacing.md),
@@ -195,7 +210,7 @@ class _CapitalSection extends StatelessWidget {
     if (value.amount == null) {
       return value.reason == null ? 'UNAVAILABLE' : _reason(value.reason!);
     }
-    return '${value.freshness}${value.ageMs == null ? '' : '  ${_age(value.ageMs!)}'}';
+    return '${value.source} · ${value.freshness}${value.ageMs == null ? '' : '  ${_age(value.ageMs!)}'}';
   }
 
   String _reason(String reason) => switch (reason) {
@@ -203,6 +218,9 @@ class _CapitalSection extends StatelessWidget {
           'Wallet AUSD address unavailable',
         'MONAD_AUSD_READ_FAILED' => 'Monad AUSD read unavailable',
         'BOOK_LEDGER_NOT_AGGREGATED' => 'Book ledger unavailable',
+        'BOOK_LEDGER_READ_FAILED' => 'Book ledger unavailable',
+        'PERPL_BALANCE_READ_FAILED' => 'Perpl balance unavailable',
+        'MONAD_COLLATERAL_READ_FAILED' => 'Wallet balance unavailable',
         _ => 'Source unavailable',
       };
 }

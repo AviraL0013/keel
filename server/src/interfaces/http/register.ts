@@ -513,7 +513,7 @@ export function registerRoutes(context: HttpContext) {
         unreservedCapital: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED'),
       }
     }
-    return context.venue.capital(current.walletAddress)
+    return context.venue.capital(current.walletAddress, current.userId)
   })
   app.get('/capital/agora-activity', async (request) => {
     const current = await requireSession(request)

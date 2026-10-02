@@ -64,6 +64,8 @@ class CapitalSnapshot {
       required this.bookDeployed,
       required this.bookRemaining,
       required this.unreservedCapital,
+      this.reserveCoverage,
+      this.bookAllocations = const [],
       this.accountId});
   final String status;
   final int? accountId;
@@ -74,51 +76,38 @@ class CapitalSnapshot {
   final CapitalAmount bookDeployed;
   final CapitalAmount bookRemaining;
   final CapitalAmount unreservedCapital;
+  final Map<String, String>? reserveCoverage;
+  final List<Map<String, String>> bookAllocations;
   String? get ausdBalance => walletAusd.amount;
-  factory CapitalSnapshot.fromJson(Map<String, dynamic> json) =>
-      CapitalSnapshot(
-          status: json['status'] as String? ?? 'UNAVAILABLE',
-          accountId: (json['accountId'] as num?)?.toInt(),
-          walletAusd: CapitalAmount.fromJson(
-              json['walletAusd'] ?? json['ausdBalance'],
-              asset: 'AUSD',
-              source: 'MONAD_AUSD',
-              fallbackReason:
-                  json[
-                              'walletAusd'] ==
-                          null
-                      ? 'WALLET_BALANCE_NOT_RETURNED'
-                      : null),
-          perplAvailable:
-              CapitalAmount
-                  .fromJson(
-                      json['perplAvailable'],
-                      asset: 'AUSD',
-                      source: 'PERPL_COLLATERAL'),
-          perplLocked:
-              CapitalAmount
-                  .fromJson(
-                      json['perplLocked'],
-                      asset: 'AUSD',
-                      source: 'PERPL_COLLATERAL'),
-          bookReserved:
-              CapitalAmount
-                  .fromJson(
-                      json['bookReserved'],
-                      asset: 'AUSD',
-                      source: 'EYELER_LEDGER'),
-          bookDeployed:
-              CapitalAmount
-                  .fromJson(
-                      json['bookDeployed'],
-                      asset: 'AUSD',
-                      source: 'EYELER_LEDGER'),
-          bookRemaining:
-              CapitalAmount
-                  .fromJson(json['bookRemaining'],
-                      asset: 'AUSD', source: 'EYELER_LEDGER'),
-          unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'],
-              asset: 'AUSD', source: 'EYELER_LEDGER'));
+  factory CapitalSnapshot.fromJson(Map<String, dynamic> json) => CapitalSnapshot(
+      status: json['status'] as String? ?? 'UNAVAILABLE',
+      accountId: (json['accountId'] as num?)?.toInt(),
+      reserveCoverage: json['reserveCoverage'] is Map
+          ? Map<String, String>.from(json['reserveCoverage'] as Map)
+          : null,
+      bookAllocations: (json['bookAllocations'] as List? ?? const [])
+          .whereType<Map>()
+          .map((row) => Map<String, String>.from(row))
+          .toList(),
+      walletAusd: CapitalAmount.fromJson(
+          json['walletAusd'] ?? json['ausdBalance'],
+          asset: 'AUSD',
+          source: 'MONAD_AUSD',
+          fallbackReason: json['walletAusd'] == null
+              ? 'WALLET_BALANCE_NOT_RETURNED'
+              : null),
+      perplAvailable: CapitalAmount.fromJson(json['perplAvailable'],
+          asset: 'AUSD', source: 'PERPL_COLLATERAL'),
+      perplLocked: CapitalAmount.fromJson(json['perplLocked'],
+          asset: 'AUSD', source: 'PERPL_COLLATERAL'),
+      bookReserved: CapitalAmount.fromJson(json['bookReserved'],
+          asset: 'AUSD', source: 'EYELER_LEDGER'),
+      bookDeployed: CapitalAmount.fromJson(json['bookDeployed'],
+          asset: 'AUSD', source: 'EYELER_LEDGER'),
+      bookRemaining: CapitalAmount.fromJson(json['bookRemaining'],
+          asset: 'AUSD', source: 'EYELER_LEDGER'),
+      unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'],
+          asset: 'AUSD', source: 'EYELER_LEDGER'));
 }
 
 String? _text(Object? value) => value is num
