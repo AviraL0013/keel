@@ -125,14 +125,14 @@ jobs:
         env:
           EYELER_BUILD_SHA: ${{ github.sha }}
         run: |
-          scripts/deploy/build-web.sh testnet
+          sh scripts/deploy/build-web.sh testnet
           mkdir -p build/eyeler-app
           cp -R apps/mobile/build/web/. build/eyeler-app/
       - name: Build sandbox web app
         env:
           EYELER_BUILD_SHA: ${{ github.sha }}
         run: |
-          scripts/deploy/build-web.sh sandbox
+          sh scripts/deploy/build-web.sh sandbox
           mkdir -p build/eyeler-sandbox
           cp -R apps/mobile/build/web/. build/eyeler-sandbox/
       - name: Deploy live app to Vercel
