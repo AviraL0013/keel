@@ -76,6 +76,37 @@ describe('monitor readiness', () => {
     }
   })
 
+  it('reports a worker waiting for the advisory lock', async () => {
+    const app = Fastify()
+    const store = Object.assign(Object.create(PostgresStore.prototype) as PostgresStore, {
+      pool: { query: async () => ({ rows: [{ '?column?': 1 }] }) },
+    })
+    registerRoutes({
+      app,
+      config: loadConfig({ EYELER_ENV: 'test' }),
+      persistence: store,
+      auth: {} as AuthService,
+      notificationStore: null,
+      runtime: {
+        health: () => ({
+          running: false,
+          executionReady: false,
+          lastTickAgeMs: 0,
+          venueReady: false,
+          lockOwned: false,
+          waitingForLock: true,
+        }),
+      } as EyelerRuntime,
+    })
+    try {
+      const response = await app.inject({ method: 'GET', url: '/ready' })
+      expect(response.statusCode).toBe(503)
+      expect(response.json()).toMatchObject({ ready: false, reason: 'WAITING_FOR_LOCK', lockOwned: false })
+    } finally {
+      await app.close()
+    }
+  })
+
   it('reports the emergency execution stop in readiness', async () => {
     const previous = process.env.EYELER_EXECUTION_DISABLED
     process.env.EYELER_EXECUTION_DISABLED = 'true'

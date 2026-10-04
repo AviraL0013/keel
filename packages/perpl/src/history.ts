@@ -16,6 +16,10 @@ export type AccountEvent = {
   a: string
   at: Stamp
 }
+export type PerplWalletSnapshot = {
+  at: Stamp
+  as: Array<{ id: number; b: string; lb: string; lfr?: string | number }>
+}
 const forwardAbi = parseAbi([
   'function execFwdPositionOpsV2((uint256 accountId,uint256 feePer100K,(uint256 orderDescId,uint256 perpId,uint8 orderType,uint256 orderId,uint256 pricePNS,uint256 lotLNS,uint256 expiryBlock,bool postOnly,bool fillOrKill,bool immediateOrCancel,uint256 maxMatches,uint256 leverageHdths,uint256 lastExecutionBlock,uint256 amountCNS,uint256 maxNegPnlCollatBPS) orderDesc,bool execTriggerOrder,uint256 triggerPricePNS,uint8 triggerPriceCondition,uint256 triggerRequestId,uint256 triggerPositionId)[] forwardedOrders,bytes[] extensions)',
 ])
@@ -74,6 +78,38 @@ export class PerplHistory {
       page = data.np
     }
     throw new Error('PERPL_HISTORY_SCAN_LIMIT')
+  }
+  async wallet(): Promise<PerplWalletSnapshot> {
+    const target = '/v1/trading/wallet'
+    const timestamp = String(Date.now()),
+      nonce = createNonce()
+    const signature = await this.signer.sign('GET', target, '', timestamp, nonce)
+    const response = await this.transport(`${this.baseUrl.replace(/\/$/, '')}${target}`, {
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        'X-API-Key': this.signer.apiKey,
+        'X-API-Timestamp': timestamp,
+        'X-API-Nonce': nonce,
+        'X-API-Signature': signature,
+      },
+    })
+    if (!response.ok) throw new Error(`PERPL_WALLET_HTTP_${response.status}`)
+    const data = parsePerplRequestIds(await response.text()) as Partial<PerplWalletSnapshot>
+    if (
+      !data.at ||
+      !Number.isSafeInteger(data.at.b) ||
+      data.at.b! <= 0 ||
+      !Array.isArray(data.as) ||
+      data.as.some(
+        (account) =>
+          !account ||
+          !Number.isSafeInteger(account.id) ||
+          typeof account.b !== 'string' ||
+          typeof account.lb !== 'string',
+      )
+    )
+      throw new Error('PERPL_WALLET_SNAPSHOT_INVALID')
+    return data as PerplWalletSnapshot
   }
   private async rpc(
     method: 'eth_getTransactionByHash' | 'eth_getTransactionReceipt',

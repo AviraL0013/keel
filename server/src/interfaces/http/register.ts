@@ -90,6 +90,8 @@ export function registerRoutes(context: HttpContext) {
       return reply.code(503).send({ ready: false, reason: 'DATABASE_NOT_CONFIGURED', ...detail })
     try {
       await persistence.pool.query('SELECT 1')
+      if (health?.waitingForLock)
+        return reply.code(503).send({ ready: false, reason: 'WAITING_FOR_LOCK', ...detail, worker: health })
       if (!health?.executionReady || !health.running)
         return reply.code(503).send({ ready: false, reason: 'WORKER_OR_VENUE_UNAVAILABLE', ...detail, worker: health })
       if (detail.lastTickAgeMs !== null && detail.lastTickAgeMs > config.tickStaleMs)

@@ -80,6 +80,10 @@ export class EyelerRuntime {
   private readonly reconciliationSchedule = new Map<string, { nextAt: number; rateLimitFailures: number }>()
   private readonly freshRecoveryTicks = new Map<string, number>()
   private lease?: PoolClient
+  private lockRetryTimer?: ReturnType<typeof setInterval>
+  private waitingForLock = false
+  private venueStarted = false
+  private starting = false
   constructor(
     private readonly store: PostgresStore,
     private readonly venue?: RuntimeVenue,
@@ -90,31 +94,34 @@ export class EyelerRuntime {
     this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000, () => undefined, now)
   }
   async start() {
-    await this.venue?.start?.()
-    this.lease = await this.store.pool.connect()
-    const result = await this.lease.query('SELECT pg_try_advisory_lock(187471,1) AS owned')
-    if (!result.rows[0].owned) {
-      this.lease.release()
-      this.lease = undefined
-      throw new Error('WORKER_ALREADY_RUNNING')
-    }
-    this.lease.on('error', () => {
-      void this.scheduler.stop()
-      this.lease = undefined
-    })
-    this.scheduler.start()
+    if (this.lease || this.waitingForLock || this.scheduler.health().running) return
+    this.waitingForLock = true
+    await this.tryAcquireAndStart()
+    if (!this.lease) this.scheduleLockRetry()
   }
   health() {
     const lockOwned = Boolean(this.lease)
     const venueReady = Boolean(this.venue?.ready())
-    return { ...this.scheduler.health(), lockOwned, venueReady, executionReady: lockOwned && venueReady }
+    return {
+      ...this.scheduler.health(),
+      lockOwned,
+      venueReady,
+      waitingForLock: this.waitingForLock,
+      executionReady: lockOwned && venueReady,
+    }
   }
   async stop() {
+    if (this.lockRetryTimer) {
+      clearInterval(this.lockRetryTimer)
+      this.lockRetryTimer = undefined
+    }
+    this.waitingForLock = false
     try {
       await this.scheduler.stop()
     } finally {
       try {
-        await this.venue?.close()
+        if (this.venueStarted || this.lease) await this.venue?.close()
+        this.venueStarted = false
       } finally {
         if (this.lease) {
           const lease = this.lease
@@ -126,6 +133,61 @@ export class EyelerRuntime {
           }
         }
       }
+    }
+  }
+  private scheduleLockRetry() {
+    if (this.lockRetryTimer) return
+    this.lockRetryTimer = setInterval(() => void this.tryAcquireAndStart(), 2_000)
+    ;(this.lockRetryTimer as unknown as { unref?: () => void }).unref?.()
+  }
+  private async tryAcquireAndStart() {
+    if (this.lease || this.starting) return
+    this.starting = true
+    let candidate: PoolClient | undefined
+    try {
+      candidate = await this.store.pool.connect()
+      const result = await candidate.query('SELECT pg_try_advisory_lock(187471,1) AS owned')
+      if (!result.rows[0]?.owned) {
+        candidate.release()
+        return
+      }
+      this.lease = candidate
+      this.waitingForLock = false
+      if (this.lockRetryTimer) {
+        clearInterval(this.lockRetryTimer)
+        this.lockRetryTimer = undefined
+      }
+      this.lease.on('error', () => {
+        const lease = this.lease
+        this.lease = undefined
+        this.waitingForLock = true
+        this.venueStarted = false
+        lease?.release()
+        void this.scheduler.stop().finally(() => {
+          void this.venue?.close()
+          this.scheduleLockRetry()
+        })
+      })
+      await this.venue?.start?.()
+      this.venueStarted = Boolean(this.venue)
+      this.scheduler.start()
+    } catch (error) {
+      if (this.lease === candidate) {
+        const failedLease = this.lease
+        this.lease = undefined
+        try {
+          await failedLease?.query('SELECT pg_advisory_unlock(187471,1)')
+        } catch {
+          // The connection is being released; a failed unlock cannot retain ownership.
+        }
+        failedLease?.release()
+        candidate = undefined
+      }
+      candidate?.release()
+      this.waitingForLock = true
+      logger.warn({ error: error instanceof Error ? error.message : 'WORKER_START_FAILED' }, 'Worker start deferred')
+    } finally {
+      this.starting = false
     }
   }
   private async tick() {

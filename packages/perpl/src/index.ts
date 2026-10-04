@@ -62,7 +62,13 @@ export type PerplContext = {
     funding: Record<string, unknown>
   }>
 }
-export type PerplBalance = { available: string; locked: string; decimals: number; updatedAt?: number }
+export type PerplBalance = {
+  available: string
+  locked: string
+  decimals: number
+  updatedAt?: number
+  observedBlock?: number
+}
 export type VenueAdapter = {
   getProtocolContext(): Promise<PerplContext>
   getMarket(marketId: number): Promise<unknown>
@@ -279,18 +285,20 @@ export class PerplAdapter implements VenueAdapter {
   }
   async getBalance(accountId: number): Promise<PerplBalance> {
     if (!this.history) throw new Error('PERPL_SIGNER_NOT_CONFIGURED')
-    const rows = await this.history.read<{ id: number; b: string; lb: string; at?: { b?: number; t?: number } }>(
-      'account-history',
-      (item) => item.id === accountId,
-    )
-    const row = newestHistory(rows)
-    if (!row) throw new Error('PERPL_ACCOUNT_HISTORY_EMPTY')
+    const snapshot = await this.history.wallet()
+    if (!snapshot.at || !Number.isSafeInteger(snapshot.at.b) || snapshot.at.b! <= 0 || !Array.isArray(snapshot.as))
+      throw new Error('PERPL_WALLET_SNAPSHOT_INVALID')
+    const account = snapshot.as.find((item) => item.id === accountId)
+    if (!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED')
     const context = await this.getProtocolContext()
-    const account = context.instances.find((instance) =>
-      context.tokens.some((token) => token.id === instance.collateral_token_id),
+    const instance = context.instances.find((item) =>
+      context.tokens.some((token) => token.id === item.collateral_token_id),
     )
-    const token = context.tokens.find((item) => item.id === account?.collateral_token_id)
-    return normalizePerplBalance(row.b, row.lb, token?.decimals ?? 6, decodeTimestamp(row.at?.t))
+    const token = context.tokens.find((item) => item.id === instance?.collateral_token_id)
+    return {
+      ...normalizePerplBalance(account.b, account.lb, token?.decimals ?? 6, Date.now()),
+      observedBlock: snapshot.at.b,
+    }
   }
   async submit(
     _action: Action,
