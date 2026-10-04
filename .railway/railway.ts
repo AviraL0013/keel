@@ -4,7 +4,7 @@ import { defineRailway, github, project, service } from 'railway/iac'
 export const partial = 'eyeler-backends'
 
 const common = {
-  source: github('AviraL0013/keel', { branch: 'main' }),
+  source: github('AviraL0013/keel', { branch: 'main', checkSuites: true }),
   build: { builder: 'DOCKERFILE' as const, dockerfilePath: 'Dockerfile' },
   deploy: {
     healthcheckPath: '/health',
