@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { assertPerplFreeBalance } from '../server/src/infrastructure/perpl/runtime.js'
 import { PerplLiveAdapter } from '../packages/perpl/src/live.js'
+import { PerplAdapter } from '../packages/perpl/src/index.js'
 import type { Action } from '../packages/domain/src/index.js'
 
 const now = 1_800_000_000_000
@@ -12,6 +13,29 @@ const balance = (available: string, locked: string, updatedAt = now) => ({
 })
 
 describe('Perpl DEFEND free balance', () => {
+  it('uses a fresh current wallet snapshot even when its balance changed hours ago', async () => {
+    const adapter = new PerplAdapter('testnet', { apiKey: 'key', sign: async () => 'sig' })
+    const history = {
+      wallet: vi.fn().mockResolvedValue({ at: { b: 100 }, as: [{ id: 642, b: '1180776', lb: '200000' }] }),
+    }
+    Object.assign(adapter, { history })
+    vi.spyOn(adapter, 'getProtocolContext').mockResolvedValue({
+      chain: {},
+      instances: [{ id: 1, collateral_token_id: 2 }],
+      tokens: [{ id: 2, decimals: 6 }],
+      markets: [],
+    })
+    const value = await adapter.getBalance(642)
+    expect(value).toMatchObject({ available: '1.180776', locked: '0.200000', observedBlock: 100 })
+    expect(() => assertPerplFreeBalance(value, 0.980776, Date.now())).not.toThrow()
+  })
+
+  it('fails closed when the current wallet snapshot has no state block', async () => {
+    const adapter = new PerplAdapter('testnet', { apiKey: 'key', sign: async () => 'sig' })
+    Object.assign(adapter, { history: { wallet: vi.fn().mockResolvedValue({ as: [{ id: 642, b: '10', lb: '0' }] }) } })
+    await expect(adapter.getBalance(642)).rejects.toThrow('PERPL_WALLET_SNAPSHOT_INVALID')
+  })
+
   it('compares b minus lb exactly at the boundary', () => {
     expect(() => assertPerplFreeBalance(balance('1.180776', '0.200000'), 0.980776, now)).not.toThrow()
     expect(() => assertPerplFreeBalance(balance('1.180775', '0.200000'), 0.980776, now)).toThrow(

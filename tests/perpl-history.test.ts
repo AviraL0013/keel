@@ -1,6 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PerplHistory } from '../packages/perpl/src/history.js'
 describe('Perpl signed history adapter', () => {
+  it('reads the current wallet snapshot with its state block', async () => {
+    const sign = vi.fn().mockResolvedValue('sig')
+    const transport = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ at: { b: 123 }, as: [{ id: 642, b: '1000000', lb: '200000' }] }), {
+        status: 200,
+      }),
+    )
+    const history = new PerplHistory('https://testnet.perpl.xyz/api', { apiKey: 'key', sign }, transport)
+    await expect(history.wallet()).resolves.toEqual({
+      at: { b: 123 },
+      as: [{ id: 642, b: '1000000', lb: '200000' }],
+    })
+    expect(sign).toHaveBeenCalledWith('GET', '/v1/trading/wallet', '', expect.any(String), expect.any(String))
+    expect(transport).toHaveBeenCalledWith(
+      'https://testnet.perpl.xyz/api/v1/trading/wallet',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-API-Key': 'key', 'X-API-Signature': 'sig' }) }),
+    )
+  })
+
   it('signs exact target, paginates, filters, and rejects cursor loops', async () => {
     const sign = vi.fn().mockResolvedValue('sig')
     let page = 0
