@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/config/build_info.dart';
 import '../../../../core/errors/eyeler_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/eyeler_widgets.dart';
@@ -187,6 +188,14 @@ class BookDetailScreen extends ConsumerWidget {
                                             height: EyelerSpacing.md),
                                         BookTechnicalMetrics(
                                             telemetry: dashboard.telemetry),
+                                        const SizedBox(
+                                            height: EyelerSpacing.md),
+                                        Text('Build: $eyelerBuildSha',
+                                            style: EyelerTypography.label
+                                                .copyWith(
+                                                    color:
+                                                        EyelerColors.darkMuted,
+                                                    letterSpacing: .4)),
                                       ]))
                             ])),
                       ]);
