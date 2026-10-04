@@ -81,9 +81,10 @@ export class EyelerRuntime {
   private readonly freshRecoveryTicks = new Map<string, number>()
   private lease?: PoolClient
   private lockRetryTimer?: ReturnType<typeof setInterval>
+  private lockAttempt?: Promise<void>
   private waitingForLock = false
   private venueStarted = false
-  private starting = false
+  private stopping = false
   constructor(
     private readonly store: PostgresStore,
     private readonly venue?: RuntimeVenue,
@@ -95,9 +96,10 @@ export class EyelerRuntime {
   }
   async start() {
     if (this.lease || this.waitingForLock || this.scheduler.health().running) return
+    this.stopping = false
     this.waitingForLock = true
     await this.tryAcquireAndStart()
-    if (!this.lease) this.scheduleLockRetry()
+    if (!this.lease && !this.stopping) this.scheduleLockRetry()
   }
   health() {
     const lockOwned = Boolean(this.lease)
@@ -111,11 +113,13 @@ export class EyelerRuntime {
     }
   }
   async stop() {
+    this.stopping = true
     if (this.lockRetryTimer) {
       clearInterval(this.lockRetryTimer)
       this.lockRetryTimer = undefined
     }
     this.waitingForLock = false
+    await this.lockAttempt
     try {
       await this.scheduler.stop()
     } finally {
@@ -136,17 +140,34 @@ export class EyelerRuntime {
     }
   }
   private scheduleLockRetry() {
-    if (this.lockRetryTimer) return
+    if (this.lockRetryTimer || this.stopping) return
     this.lockRetryTimer = setInterval(() => void this.tryAcquireAndStart(), 2_000)
     ;(this.lockRetryTimer as unknown as { unref?: () => void }).unref?.()
   }
-  private async tryAcquireAndStart() {
-    if (this.lease || this.starting) return
-    this.starting = true
+  private tryAcquireAndStart(): Promise<void> {
+    if (this.lease || this.stopping) return Promise.resolve()
+    if (this.lockAttempt) return this.lockAttempt
+    const attempt = this.acquireAndStart()
+    this.lockAttempt = attempt
+    void attempt.finally(() => {
+      if (this.lockAttempt === attempt) this.lockAttempt = undefined
+    })
+    return attempt
+  }
+  private async acquireAndStart() {
     let candidate: PoolClient | undefined
     try {
       candidate = await this.store.pool.connect()
+      if (this.stopping) {
+        candidate.release()
+        return
+      }
       const result = await candidate.query('SELECT pg_try_advisory_lock(187471,1) AS owned')
+      if (this.stopping) {
+        if (result.rows[0]?.owned) await candidate.query('SELECT pg_advisory_unlock(187471,1)')
+        candidate.release()
+        return
+      }
       if (!result.rows[0]?.owned) {
         candidate.release()
         return
@@ -170,7 +191,7 @@ export class EyelerRuntime {
       })
       await this.venue?.start?.()
       this.venueStarted = Boolean(this.venue)
-      this.scheduler.start()
+      if (!this.stopping) this.scheduler.start()
     } catch (error) {
       if (this.lease === candidate) {
         const failedLease = this.lease
@@ -186,8 +207,6 @@ export class EyelerRuntime {
       candidate?.release()
       this.waitingForLock = true
       logger.warn({ error: error instanceof Error ? error.message : 'WORKER_START_FAILED' }, 'Worker start deferred')
-    } finally {
-      this.starting = false
     }
   }
   private async tick() {

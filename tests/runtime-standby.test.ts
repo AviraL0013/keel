@@ -36,6 +36,27 @@ function venue() {
 }
 
 describe('runtime standby lock handover', () => {
+  it('does not start the venue when shutdown begins during a lock attempt', async () => {
+    let finishConnect!: (value: Client) => void
+    const connecting = new Promise<Client>((resolve) => {
+      finishConnect = resolve
+    })
+    const lease = client(
+      () => true,
+      () => undefined,
+    )
+    const pool = { connect: vi.fn(() => connecting), query: vi.fn(async () => ({ rows: [] })) }
+    const value = venue()
+    const runtime = new EyelerRuntime({ pool } as unknown as PostgresStore, value)
+    const starting = runtime.start()
+    const stopping = runtime.stop()
+    finishConnect(lease)
+    await Promise.all([starting, stopping])
+    expect(value.start).not.toHaveBeenCalled()
+    expect(runtime.health()).toMatchObject({ lockOwned: false, running: false })
+    expect(lease.release).toHaveBeenCalledOnce()
+  })
+
   it('starts healthy in standby, does not touch the venue, and acquires the lock on retry', async () => {
     vi.useFakeTimers()
     try {
