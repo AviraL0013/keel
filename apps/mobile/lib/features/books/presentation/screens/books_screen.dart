@@ -191,11 +191,11 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     final books = ref.watch(booksProvider);
     return Scaffold(
       appBar: AppBar(
-          title: const Row(mainAxisSize: MainAxisSize.min, children: [
-            EyelerLogoMark(size: 25),
-            SizedBox(width: 9),
-            Text('EYELER'),
-          ]),
+          title: const Image(
+              image: AssetImage('assets/branding/eyeler-lockup.png'),
+              width: 112,
+              height: 30,
+              fit: BoxFit.contain),
           actions: [
             if (MediaQuery.sizeOf(context).width >= 360)
               SizedBox(

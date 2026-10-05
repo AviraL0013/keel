@@ -254,8 +254,8 @@ class _BrandHeader extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Image(
                     image: AssetImage('assets/branding/eyeler-lockup.png'),
-                    width: 150,
-                    height: 44,
+                    width: 180,
+                    height: 48,
                     fit: BoxFit.contain))),
         status.when(
           data: (value) => StatusPill(
