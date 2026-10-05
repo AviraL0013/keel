@@ -8,18 +8,20 @@ abstract final class EyelerColors {
   static const darkText = Color(0xFFF2F7F7);
   static const darkMuted = Color(0xFF9FB5B8);
   static const darkBorder = Color(0xFF245159);
-  static const lightBackground = Color(0xFFEAF7FB);
-  static const lightCanvas = Color(0xFFC8E6F1);
+  // The light palette follows the reference wallet's warm paper canvas and
+  // quiet ink typography. Risk accents remain deliberately semantic.
+  static const lightBackground = Color(0xFFF1F3F0);
+  static const lightCanvas = Color(0xFFE6EAE6);
   static const lightSurface = Color(0xFFFFFFFF);
-  static const lightElevated = Color(0xFF87DCFB);
-  static const lightText = Color(0xFF171717);
-  static const lightMuted = Color(0xFF607078);
-  static const lightBorder = Color(0xFFD6E7EC);
+  static const lightElevated = Color(0xFFE9ECE8);
+  static const lightText = Color(0xFF292A28);
+  static const lightMuted = Color(0xFF757A75);
+  static const lightBorder = Color(0xFFE1E4E0);
   static const accent = Color(0xFF69E8FF);
   static const hold = Color(0xFF9AAEB0);
-  static const defend = Color(0xFF35E6B0);
-  static const reduce = Color(0xFFF2B84B);
-  static const exit = Color(0xFFFF6B6B);
+  static const defend = Color(0xFF4EA65A);
+  static const reduce = Color(0xFFF0A328);
+  static const exit = Color(0xFFE45A5A);
   static const safeMode = reduce;
   static const info = accent;
 }
@@ -194,9 +196,9 @@ class EyelerTheme {
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               textStyle: EyelerTypography.label.copyWith(color: text))),
       navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: background,
-          indicatorColor: EyelerColors.accent.withValues(alpha: .16),
-          elevation: 8,
+          backgroundColor: surface,
+          indicatorColor: text.withValues(alpha: .08),
+          elevation: 0,
           labelTextStyle: WidgetStatePropertyAll(EyelerTypography.label
               .copyWith(fontSize: 10, letterSpacing: .2, color: text))),
       dividerTheme: DividerThemeData(color: border, space: 1),

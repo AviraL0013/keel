@@ -191,11 +191,22 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     final books = ref.watch(booksProvider);
     return Scaffold(
       appBar: AppBar(
-          title: const Image(
-              image: AssetImage('assets/branding/eyeler-lockup.png'),
-              width: 112,
-              height: 30,
-              fit: BoxFit.contain),
+          titleSpacing: EyelerSpacing.md,
+          title: Row(children: [
+            Container(
+                width: 34,
+                height: 34,
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                    color: EyelerColors.darkText,
+                    borderRadius: BorderRadius.circular(12)),
+                child: Image.asset('assets/branding/eyeler-eye.png')),
+            const SizedBox(width: 10),
+            Text('EYELER',
+                style: EyelerTypography.section.copyWith(
+                    letterSpacing: 1.8,
+                    color: Theme.of(context).colorScheme.onSurface)),
+          ]),
           actions: [
             if (MediaQuery.sizeOf(context).width >= 360)
               SizedBox(
@@ -211,9 +222,24 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                                       : '',
                           style: EyelerTypography.label))),
             IconButton(
-                tooltip: 'Resync Books',
-                onPressed: _syncing ? null : _resync,
-                icon: const Icon(Icons.refresh))
+                tooltip: 'Notifications',
+                onPressed: () {},
+                icon: const Icon(Icons.notifications_none_rounded)),
+            Padding(
+                padding: const EdgeInsets.only(right: EyelerSpacing.sm),
+                child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        shape: BoxShape.circle),
+                    child: IconButton(
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Refresh',
+                        onPressed: _syncing ? null : _resync,
+                        icon: Icon(Icons.refresh,
+                            size: 19,
+                            color: Theme.of(context).colorScheme.surface))))
           ]),
       body: books.when(
         skipLoadingOnReload: true,
@@ -248,6 +274,10 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                 return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      _WalletOverview(
+                          currentCount: currentCount,
+                          historyCount: historyCount,
+                          books: items),
                       if (_syncError != null)
                         Text(_syncError!, style: EyelerTypography.body),
                       const Text('Your Books', style: EyelerTypography.display),
@@ -318,6 +348,115 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
       ),
     );
   }
+}
+
+class _WalletOverview extends StatelessWidget {
+  const _WalletOverview(
+      {required this.currentCount,
+      required this.historyCount,
+      required this.books});
+  final int currentCount;
+  final int historyCount;
+  final List<Book> books;
+
+  @override
+  Widget build(BuildContext context) {
+    final reserveCap = books.fold<double>(
+        0, (total, book) => total + book.defenseCap);
+    final active = books.where((book) => book.status == 'ACTIVE').length;
+    final paused = books
+        .where((book) => book.status == 'SAFE_MODE' || book.status == 'PAUSED')
+        .length;
+    final ink = Theme.of(context).colorScheme.onSurface;
+    final muted = Theme.of(context).textTheme.bodyMedium?.color ??
+        EyelerColors.lightMuted;
+    return Padding(
+        padding: const EdgeInsets.fromLTRB(
+            EyelerSpacing.md, EyelerSpacing.sm, EyelerSpacing.md, 30),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+                child: Text('Good morning, operator',
+                    style: EyelerTypography.body.copyWith(color: muted))),
+            Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                    color: EyelerColors.defend.withValues(alpha: .13),
+                    borderRadius: BorderRadius.circular(EyelerRadii.pill)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                          color: EyelerColors.defend, shape: BoxShape.circle)),
+                  const SizedBox(width: 6),
+                  Text('LIVE',
+                      style: EyelerTypography.label.copyWith(
+                          fontSize: 10, color: EyelerColors.defend))
+                ]))
+          ]),
+          const SizedBox(height: EyelerSpacing.sm),
+          Text('Protected capital',
+              style: EyelerTypography.body.copyWith(color: muted)),
+          const SizedBox(height: 2),
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('$${reserveCap.toStringAsFixed(2)}',
+                style: EyelerTypography.display.copyWith(
+                    fontSize: 40, color: ink)),
+            const SizedBox(width: 10),
+            Padding(
+                padding: const EdgeInsets.only(bottom: 7),
+                child: Text('AUSD cap',
+                    style: EyelerTypography.body.copyWith(color: muted)))
+          ]),
+          const SizedBox(height: EyelerSpacing.md),
+          Row(children: [
+            _OverviewMetric(label: 'ACTIVE', value: '$active', positive: true),
+            const SizedBox(width: EyelerSpacing.sm),
+            _OverviewMetric(
+                label: 'PAUSED', value: '$paused', positive: paused == 0),
+            const SizedBox(width: EyelerSpacing.sm),
+            _OverviewMetric(
+                label: 'HISTORY', value: '$historyCount', positive: true),
+          ]),
+          const SizedBox(height: EyelerSpacing.lg),
+          Row(children: [
+            Text('Portfolio', style: EyelerTypography.title),
+            const Spacer(),
+            Text('$currentCount books',
+                style: EyelerTypography.body.copyWith(color: muted))
+          ])
+        ]));
+  }
+}
+
+class _OverviewMetric extends StatelessWidget {
+  const _OverviewMetric(
+      {required this.label, required this.value, required this.positive});
+  final String label;
+  final String value;
+  final bool positive;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+      child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(EyelerRadii.small),
+              border: Border.all(color: EyelerColors.lightBorder)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label,
+                style: EyelerTypography.label.copyWith(
+                    fontSize: 9,
+                    letterSpacing: .7,
+                    color: Theme.of(context).textTheme.bodyMedium?.color)),
+            const SizedBox(height: 4),
+            Text(value,
+                style: EyelerTypography.metric.copyWith(
+                    color: positive ? EyelerColors.defend : EyelerColors.exit))
+          ])));
 }
 
 class _BookCard extends ConsumerWidget {
