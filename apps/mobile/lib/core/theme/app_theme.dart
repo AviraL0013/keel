@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 abstract final class EyelerColors {
   static const darkBackground = Color(0xFF061012);
@@ -44,29 +45,29 @@ abstract final class EyelerRadii {
 
 abstract final class EyelerTypography {
   static const display = TextStyle(
-      fontSize: 38,
-      height: 1.0,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -1.4);
+      fontSize: 36,
+      height: 1.02,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -1.45);
   static const title = TextStyle(
-      fontSize: 24,
-      height: 1.1,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -.4);
+      fontSize: 21,
+      height: 1.12,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -.55);
   static const section =
-      TextStyle(fontSize: 16, height: 1.2, fontWeight: FontWeight.w800);
+      TextStyle(fontSize: 16, height: 1.22, fontWeight: FontWeight.w600);
   static const body =
-      TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w500);
+      TextStyle(fontSize: 14, height: 1.38, fontWeight: FontWeight.w400);
   static const label = TextStyle(
-      fontSize: 11,
-      height: 1.1,
-      fontWeight: FontWeight.w800,
-      letterSpacing: 1.1);
+      fontSize: 10,
+      height: 1.15,
+      fontWeight: FontWeight.w600,
+      letterSpacing: .85);
   static const metric = TextStyle(
-      fontSize: 20,
+      fontSize: 19,
       height: 1.1,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -.3);
+      fontWeight: FontWeight.w600,
+      letterSpacing: -.45);
 }
 
 class EyelerRiskVisual {
@@ -209,7 +210,7 @@ class EyelerTheme {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           labelStyle: EyelerTypography.body.copyWith(color: text)),
-      textTheme: TextTheme(
+      textTheme: GoogleFonts.interTextTheme(TextTheme(
           displayLarge: EyelerTypography.display.copyWith(color: text),
           displayMedium: EyelerTypography.display.copyWith(color: text),
           headlineSmall: EyelerTypography.title.copyWith(color: text),
@@ -218,7 +219,7 @@ class EyelerTheme {
           bodyLarge: EyelerTypography.body.copyWith(color: text),
           bodyMedium: EyelerTypography.body.copyWith(color: muted),
           labelLarge: EyelerTypography.label.copyWith(color: text),
-          labelSmall: EyelerTypography.label.copyWith(color: muted)),
+          labelSmall: EyelerTypography.label.copyWith(color: muted))),
     );
   }
 }
