@@ -58,6 +58,7 @@ class CapitalSnapshot {
   const CapitalSnapshot(
       {required this.status,
       required this.walletAusd,
+      required this.walletAgoraAusd,
       required this.perplAvailable,
       required this.perplLocked,
       required this.bookReserved,
@@ -71,6 +72,7 @@ class CapitalSnapshot {
   final String status;
   final int? accountId;
   final CapitalAmount walletAusd;
+  final CapitalAmount walletAgoraAusd;
   final CapitalAmount perplAvailable;
   final CapitalAmount perplLocked;
   final CapitalAmount bookReserved;
@@ -102,6 +104,9 @@ class CapitalSnapshot {
           fallbackReason: json['walletAusd'] == null
               ? 'WALLET_BALANCE_NOT_RETURNED'
               : null),
+      walletAgoraAusd: CapitalAmount.fromJson(json['walletAgoraAusd'],
+          asset: 'AUSD', source: 'MONAD_AGORA_AUSD',
+          fallbackReason: 'MONAD_AGORA_AUSD_READ_FAILED'),
       perplAvailable: CapitalAmount.fromJson(json['perplAvailable'],
           asset: 'AUSD', source: 'PERPL_COLLATERAL'),
       perplLocked: CapitalAmount.fromJson(json['perplLocked'],

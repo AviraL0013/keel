@@ -122,6 +122,7 @@ export class DeterministicTestVenue implements RuntimeVenue {
       status: 'VALID' as const,
       accountId: ACCOUNT_ID,
       walletAusd: amount('1000.00', 'TEST_WALLET'),
+      walletAgoraAusd: amount('250.000000', 'MONAD_AGORA_AUSD'),
       perplAvailable: amount('600.00', 'TEST_PERPL'),
       perplLocked: amount('100.00', 'TEST_PERPL'),
       bookReserved: amount(null, 'TEST_LEDGER', 'UNAVAILABLE', 'NO_BOOKS'),
