@@ -59,6 +59,16 @@ class EyelerIconTile extends StatelessWidget {
       child: Icon(icon, color: color, size: size * .48));
 }
 
+class EyelerLogoMark extends StatelessWidget {
+  const EyelerLogoMark({super.key, this.size = 44});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) =>
+      Image.asset('assets/branding/eyeler-eye.png',
+          width: size, height: size, fit: BoxFit.contain);
+}
+
 class EyelerPanel extends StatelessWidget {
   const EyelerPanel(
       {super.key,

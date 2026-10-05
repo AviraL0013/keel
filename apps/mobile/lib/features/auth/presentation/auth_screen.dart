@@ -249,14 +249,14 @@ class _BrandHeader extends StatelessWidget {
   final AsyncValue<BackendStatus> status;
   @override
   Widget build(BuildContext context) => Row(children: [
-        const EyelerIconTile(icon: Icons.sailing, size: 44),
-        const SizedBox(width: 12),
         const Expanded(
-            child: Text('EYELER',
-                style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.5))),
+            child: Align(
+                alignment: Alignment.centerLeft,
+                child: Image(
+                    image: AssetImage('assets/branding/eyeler-lockup.png'),
+                    width: 150,
+                    height: 44,
+                    fit: BoxFit.contain))),
         status.when(
           data: (value) => StatusPill(
               label: value.state == BackendState.live
