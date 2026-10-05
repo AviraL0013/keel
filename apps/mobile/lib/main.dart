@@ -5,6 +5,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/domain/auth_state.dart';
+import 'features/landing/presentation/eyeler_landing_page.dart';
 
 void main() => runApp(const ProviderScope(child: EyelerApp()));
 
@@ -15,6 +16,8 @@ class EyelerApp extends ConsumerStatefulWidget {
 }
 
 class _EyelerAppState extends ConsumerState<EyelerApp> {
+  bool _landingComplete = false;
+
   @override
   void initState() {
     super.initState();
@@ -28,7 +31,13 @@ class _EyelerAppState extends ConsumerState<EyelerApp> {
         theme: EyelerTheme.light,
         darkTheme: EyelerTheme.dark,
         themeMode: ref.watch(themeModeProvider),
-        home: _Gate(state: ref.watch(authProvider)),
+        home: _landingComplete
+            ? _Gate(state: ref.watch(authProvider))
+            : EyelerLandingPage(
+                onFinished: () {
+                  if (mounted) setState(() => _landingComplete = true);
+                },
+              ),
       );
 }
 

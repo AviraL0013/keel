@@ -197,6 +197,7 @@ export type CapitalSnapshot = {
   status: 'VALID' | 'UNAVAILABLE'
   accountId?: number
   walletAusd: CapitalAmount
+  walletAgoraAusd?: CapitalAmount
   perplAvailable: CapitalAmount
   perplLocked: CapitalAmount
   bookReserved: CapitalAmount

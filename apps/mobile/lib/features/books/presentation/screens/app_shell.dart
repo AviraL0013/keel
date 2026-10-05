@@ -62,27 +62,49 @@ class _AppShellState extends ConsumerState<AppShell> {
             heightFactor: 1,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 720),
-              child: NavigationBar(
-                selectedIndex: index,
-                onDestinationSelected: (value) => setState(() => index = value),
-                destinations: const [
-                  NavigationDestination(
-                      icon: Icon(Icons.book_outlined), label: 'Books'),
-                  NavigationDestination(
-                      icon: Icon(Icons.account_balance_wallet_outlined),
-                      label: 'Positions'),
-                  NavigationDestination(
-                      icon: Icon(Icons.account_balance_outlined),
-                      label: 'Capital'),
-                  NavigationDestination(
-                      icon: Icon(Icons.history), label: 'Autopsy'),
-                  NavigationDestination(
-                      icon: Icon(Icons.notifications_none),
-                      label: 'Notifications'),
-                  NavigationDestination(
-                      icon: Icon(Icons.settings_outlined), label: 'Settings'),
-                ],
-              ),
+              child: Stack(clipBehavior: Clip.none, alignment: Alignment.topCenter,
+                  children: [
+                NavigationBar(
+                  selectedIndex: index,
+                  onDestinationSelected: (value) => setState(() => index = value),
+                  destinations: const [
+                    NavigationDestination(
+                        icon: Icon(Icons.book_outlined), label: 'Books'),
+                    NavigationDestination(
+                        icon: Icon(Icons.account_balance_wallet_outlined),
+                        label: 'Positions'),
+                    NavigationDestination(
+                        icon: Icon(Icons.account_balance_outlined),
+                        label: 'Capital'),
+                    NavigationDestination(
+                        icon: Icon(Icons.history), label: 'Autopsy'),
+                    NavigationDestination(
+                        icon: Icon(Icons.notifications_none),
+                        label: 'Notifications'),
+                    NavigationDestination(
+                        icon: Icon(Icons.settings_outlined), label: 'Settings'),
+                  ],
+                ),
+                Positioned(
+                    top: -20,
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Theme.of(context).colorScheme.primary,
+                            boxShadow: const [
+                              BoxShadow(
+                                  color: Color(0x22000000),
+                                  blurRadius: 14,
+                                  offset: Offset(0, 7))
+                            ]),
+                        child: IconButton(
+                            tooltip: 'Create a Book',
+                            onPressed: () => setState(() => index = 1),
+                            icon: Icon(Icons.add,
+                                color: Theme.of(context).colorScheme.onPrimary),
+                            iconSize: 28,
+                            padding: const EdgeInsets.all(11))))
+              ]),
             ),
           ),
         ),

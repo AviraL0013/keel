@@ -14,12 +14,16 @@ it('reads testnet USD for the signed-in wallet and separates user Book allocatio
   vi.stubEnv('MONAD_WALLET_ADDRESS', operator)
   vi.stubEnv('AGORA_METRICS_ENABLED', 'false')
   const { db, store } = await databaseFixture()
-  const walletBalance = vi.spyOn(AusdAdapter.prototype, 'walletBalance').mockResolvedValue({
-    token: '0x0000000000000000000000000000000000000003',
-    chainId: 10143,
-    raw: 123000000n,
-    decimals: 6,
-    symbol: 'AUSD',
+  let walletRead = 0
+  const walletBalance = vi.spyOn(AusdAdapter.prototype, 'walletBalance').mockImplementation(async () => {
+    walletRead += 1
+    return {
+      token: '0x0000000000000000000000000000000000000003',
+      chainId: 10143,
+      raw: walletRead % 2 === 1 ? 123000000n : 123456789n,
+      decimals: 6,
+      symbol: walletRead % 2 === 1 ? 'USD' : 'AUSD',
+    }
   })
   const perplBalance = vi.spyOn(PerplAdapter.prototype, 'getBalance').mockResolvedValue({
     available: '2.000000',
@@ -48,6 +52,12 @@ it('reads testnet USD for the signed-in wallet and separates user Book allocatio
     expect(walletBalance).toHaveBeenCalledWith(signedIn)
     expect(capital.walletAusd.amount).toBe('123')
     expect(capital.walletAusd.asset).toBe('USD')
+    expect(capital.walletAgoraAusd).toMatchObject({
+      amount: '123.456789',
+      asset: 'AUSD',
+      source: 'MONAD_AGORA_AUSD',
+      availability: 'AVAILABLE',
+    })
     expect(capital.perplAvailable.amount).toBe('1.500000')
     expect(capital.perplLocked.amount).toBe('0.500000')
     expect(capital.bookRemaining.amount).toBe('1.600001')

@@ -53,6 +53,10 @@ class CapitalScreen extends ConsumerWidget {
                         icon: Icons.account_balance_wallet_outlined,
                         values: {'AUSD balance': snapshot.walletAusd}),
                     _CapitalSection(
+                        title: 'Agora AUSD wallet',
+                        icon: Icons.currency_exchange,
+                        values: {'AUSD balance': snapshot.walletAgoraAusd}),
+                    _CapitalSection(
                         title: 'Perpl Collateral',
                         icon: Icons.swap_horiz,
                         values: {

@@ -26,7 +26,7 @@ import {
   type NormalizedTelemetry,
   type Position,
 } from '../../../../packages/domain/src/index.js'
-import { ChainAdapter } from '../../../../packages/chain/src/index.js'
+import { ChainAdapter, chainConfigs } from '../../../../packages/chain/src/index.js'
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { readAgoraActivity } from '../agora/activity.js'
@@ -198,6 +198,17 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
     ),
   })
   const ausd = new AusdAdapter(chain)
+  // Agora AUSD is separate from Perpl's USD collateral on testnet.
+  const agoraChain = new ChainAdapter(environment, {
+    rpcUrl: env.MONAD_RPC_URL ?? network.rpcUrl,
+    chainId: Number(env.MONAD_CHAIN_ID ?? network.chainId),
+    ausdToken: getAddress(
+      environment === 'mainnet'
+        ? (env.AUSD_TOKEN_ADDRESS ?? chainConfigs.mainnet.ausdToken)
+        : chainConfigs.testnet.ausdToken,
+    ),
+  })
+  const agoraAusd = new AusdAdapter(agoraChain)
   const agora = new AgoraAdapter(env.AGORA_API_URL, env.AGORA_API_KEY, (requestId, path, status) =>
     logger.info({ requestId, path, status }, 'Agora API response'),
   )
@@ -596,6 +607,14 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
           walletUnavailableReason = 'MONAD_COLLATERAL_READ_FAILED'
         }
       }
+      let walletAgora: Awaited<ReturnType<AusdAdapter['walletBalance']>> | undefined
+      if (walletAddress) {
+        try {
+          walletAgora = await agoraAusd.walletBalance(getAddress(walletAddress))
+        } catch {
+          // Keep Agora AUSD unavailable without affecting Perpl capital cards.
+        }
+      }
       let ledger: ReturnType<typeof reconcileBookCapital> | undefined
       if (userId) {
         try {
@@ -668,6 +687,21 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
               Date.now(),
             )
           : unavailable('MONAD_COLLATERAL', walletUnavailableReason),
+        walletAgoraAusd: walletAgora
+          ? {
+              amount: decodeAmount(walletAgora.raw.toString(), walletAgora.decimals),
+              asset: 'AUSD',
+              decimals: walletAgora.decimals,
+              source: 'MONAD_AGORA_AUSD',
+              availability: 'AVAILABLE' as const,
+              freshness: 'FRESH' as const,
+              ageMs: 0,
+              updatedAt: new Date().toISOString(),
+            }
+          : unavailable(
+              'MONAD_AGORA_AUSD',
+              walletAddress ? 'MONAD_AGORA_AUSD_READ_FAILED' : 'SESSION_WALLET_UNAVAILABLE',
+            ),
         perplAvailable:
           perpl && perplFree
             ? available(perplFree, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt)

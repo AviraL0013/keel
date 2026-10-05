@@ -507,6 +507,7 @@ export function registerRoutes(context: HttpContext) {
       return {
         status: 'UNAVAILABLE' as const,
         walletAusd: unavailable('MONAD_AUSD', 'VENUE_NOT_CONFIGURED'),
+        walletAgoraAusd: unavailable('MONAD_AGORA_AUSD', 'VENUE_NOT_CONFIGURED'),
         perplAvailable: unavailable('PERPL_COLLATERAL', 'VENUE_NOT_CONFIGURED'),
         perplLocked: unavailable('PERPL_COLLATERAL', 'VENUE_NOT_CONFIGURED'),
         bookReserved: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED'),
