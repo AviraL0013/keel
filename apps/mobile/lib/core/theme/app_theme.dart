@@ -210,7 +210,10 @@ class EyelerTheme {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           labelStyle: EyelerTypography.body.copyWith(color: text)),
-      textTheme: GoogleFonts.interTextTheme(TextTheme(
+      // Google Sans is a proprietary Google UI face rather than a public
+      // Google Fonts family. Manrope is the closest available rounded,
+      // high-legibility match and keeps the same friendly terminal feel.
+      textTheme: GoogleFonts.manropeTextTheme(TextTheme(
           displayLarge: EyelerTypography.display.copyWith(color: text),
           displayMedium: EyelerTypography.display.copyWith(color: text),
           headlineSmall: EyelerTypography.title.copyWith(color: text),
