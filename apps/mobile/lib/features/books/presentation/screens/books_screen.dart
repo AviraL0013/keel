@@ -192,7 +192,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     return Scaffold(
       appBar: AppBar(
           title: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.sailing, color: EyelerColors.accent, size: 25),
+            EyelerLogoMark(size: 25),
             SizedBox(width: 9),
             Text('EYELER'),
           ]),
