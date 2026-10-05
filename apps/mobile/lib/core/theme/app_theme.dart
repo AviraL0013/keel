@@ -1,25 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 abstract final class EyelerColors {
-  static const darkBackground = Color(0xFF061012);
-  static const darkCanvas = Color(0xFF081417);
-  static const darkSurface = Color(0xFF102326);
-  static const darkElevated = Color(0xFF173137);
-  static const darkText = Color(0xFFF2F7F7);
-  static const darkMuted = Color(0xFF9FB5B8);
-  static const darkBorder = Color(0xFF245159);
-  static const lightBackground = Color(0xFFEAF7FB);
-  static const lightCanvas = Color(0xFFC8E6F1);
+  static const darkBackground = Color(0xFF0E102C);
+  static const darkCanvas = Color(0xFF131534);
+  static const darkSurface = Color(0xFF1B1E43);
+  static const darkElevated = Color(0xFF282B5B);
+  static const darkText = Color(0xFFF8F8FF);
+  static const darkMuted = Color(0xFFA4A7C5);
+  static const darkBorder = Color(0xFF343866);
+  // The light palette follows the reference wallet's warm paper canvas and
+  // quiet ink typography. Risk accents remain deliberately semantic.
+  static const lightBackground = Color(0xFFF1F3F0);
+  static const lightCanvas = Color(0xFFE6EAE6);
   static const lightSurface = Color(0xFFFFFFFF);
-  static const lightElevated = Color(0xFF87DCFB);
-  static const lightText = Color(0xFF171717);
-  static const lightMuted = Color(0xFF607078);
-  static const lightBorder = Color(0xFFD6E7EC);
-  static const accent = Color(0xFF69E8FF);
+  static const lightElevated = Color(0xFFE9ECE8);
+  static const lightText = Color(0xFF292A28);
+  static const lightMuted = Color(0xFF757A75);
+  static const lightBorder = Color(0xFFE1E4E0);
+  static const accent = Color(0xFF7077F5);
   static const hold = Color(0xFF9AAEB0);
-  static const defend = Color(0xFF35E6B0);
-  static const reduce = Color(0xFFF2B84B);
-  static const exit = Color(0xFFFF6B6B);
+  static const defend = Color(0xFF57D69B);
+  static const reduce = Color(0xFFF4B95F);
+  static const exit = Color(0xFFFF7180);
   static const safeMode = reduce;
   static const info = accent;
 }
@@ -42,29 +45,29 @@ abstract final class EyelerRadii {
 
 abstract final class EyelerTypography {
   static const display = TextStyle(
-      fontSize: 38,
-      height: 1.0,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -1.4);
+      fontSize: 36,
+      height: 1.02,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -1.45);
   static const title = TextStyle(
-      fontSize: 24,
-      height: 1.1,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -.4);
+      fontSize: 21,
+      height: 1.12,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -.55);
   static const section =
-      TextStyle(fontSize: 16, height: 1.2, fontWeight: FontWeight.w800);
+      TextStyle(fontSize: 16, height: 1.22, fontWeight: FontWeight.w600);
   static const body =
-      TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w500);
+      TextStyle(fontSize: 14, height: 1.38, fontWeight: FontWeight.w400);
   static const label = TextStyle(
-      fontSize: 11,
-      height: 1.1,
-      fontWeight: FontWeight.w800,
-      letterSpacing: 1.1);
+      fontSize: 10,
+      height: 1.15,
+      fontWeight: FontWeight.w600,
+      letterSpacing: .85);
   static const metric = TextStyle(
-      fontSize: 20,
+      fontSize: 19,
       height: 1.1,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -.3);
+      fontWeight: FontWeight.w600,
+      letterSpacing: -.45);
 }
 
 class EyelerRiskVisual {
@@ -143,7 +146,7 @@ class EyelerTheme {
             surface: surface,
             error: EyelerColors.exit,
             onSurface: text,
-            onPrimary: Colors.black,
+            onPrimary: Colors.white,
             onSecondary: Colors.black);
     final inputBorder = OutlineInputBorder(
         borderRadius: BorderRadius.circular(EyelerRadii.button),
@@ -180,7 +183,7 @@ class EyelerTheme {
       filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
               backgroundColor: EyelerColors.accent,
-              foregroundColor: Colors.black,
+              foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(EyelerRadii.button)),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -194,9 +197,9 @@ class EyelerTheme {
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               textStyle: EyelerTypography.label.copyWith(color: text))),
       navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: background,
-          indicatorColor: EyelerColors.accent.withValues(alpha: .16),
-          elevation: 8,
+          backgroundColor: surface,
+          indicatorColor: text.withValues(alpha: .08),
+          elevation: 0,
           labelTextStyle: WidgetStatePropertyAll(EyelerTypography.label
               .copyWith(fontSize: 10, letterSpacing: .2, color: text))),
       dividerTheme: DividerThemeData(color: border, space: 1),
@@ -207,7 +210,10 @@ class EyelerTheme {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           labelStyle: EyelerTypography.body.copyWith(color: text)),
-      textTheme: TextTheme(
+      // Google Sans is a proprietary Google UI face rather than a public
+      // Google Fonts family. Manrope is the closest available rounded,
+      // high-legibility match and keeps the same friendly terminal feel.
+      textTheme: GoogleFonts.manropeTextTheme(TextTheme(
           displayLarge: EyelerTypography.display.copyWith(color: text),
           displayMedium: EyelerTypography.display.copyWith(color: text),
           headlineSmall: EyelerTypography.title.copyWith(color: text),
@@ -216,7 +222,7 @@ class EyelerTheme {
           bodyLarge: EyelerTypography.body.copyWith(color: text),
           bodyMedium: EyelerTypography.body.copyWith(color: muted),
           labelLarge: EyelerTypography.label.copyWith(color: text),
-          labelSmall: EyelerTypography.label.copyWith(color: muted)),
+          labelSmall: EyelerTypography.label.copyWith(color: muted))),
     );
   }
 }

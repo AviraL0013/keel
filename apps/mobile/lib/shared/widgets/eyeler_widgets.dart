@@ -112,7 +112,11 @@ class EyelerPanel extends StatelessWidget {
                       spreadRadius: -9)
                 ]
               : null),
-      child: child,
+      // ListTile paints its ink and selected background on the nearest
+      // Material ancestor. EyelerPanel is intentionally a decorated
+      // container, so provide a transparent Material inside it to prevent the
+      // panel's DecoratedBox from hiding those effects in debug mode.
+      child: Material(color: Colors.transparent, child: child),
     );
   }
 }
