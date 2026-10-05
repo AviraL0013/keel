@@ -422,7 +422,7 @@ class _WalletOverview extends StatelessWidget {
           ]),
           const SizedBox(height: EyelerSpacing.lg),
           Row(children: [
-            Text('Portfolio', style: EyelerTypography.title),
+            const Text('Portfolio', style: EyelerTypography.title),
             const Spacer(),
             Text('$currentCount books',
                 style: EyelerTypography.body.copyWith(color: muted))
@@ -485,127 +485,55 @@ class _BookCard extends ConsumerWidget {
                     final state = dashboard.telemetry;
                     final currentBook = dashboard.book;
                     final summary = BookSummary.from(currentBook, state);
-                    return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            EyelerIconTile(
-                                icon: currentBook.market
-                                        .toUpperCase()
-                                        .contains('BTC')
-                                    ? Icons.currency_bitcoin
-                                    : Icons.hexagon_outlined,
-                                color: currentBook.market
-                                        .toUpperCase()
-                                        .contains('BTC')
-                                    ? EyelerColors.reduce
-                                    : EyelerColors.info,
-                                size: 48),
-                            const SizedBox(width: EyelerSpacing.md),
-                            Expanded(
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                  Text(currentBook.market,
-                                      style: EyelerTypography.title),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                      '${currentBook.side.toLowerCase()} position',
-                                      style: EyelerTypography.body.copyWith(
-                                          color: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.color)),
-                                ])),
-                          ]),
-                          const SizedBox(height: EyelerSpacing.md),
-                          StatusPill(
-                              label: summary.label,
-                              color: summary.color,
-                              icon: summary.icon),
-                          const SizedBox(height: EyelerSpacing.md),
-                          Text(summary.message,
-                              style: EyelerTypography.body.copyWith(
-                                  color: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.color)),
-                          const SizedBox(height: EyelerSpacing.md),
-                          if (currentBook.status != 'CLOSED' &&
-                              state.mark != null &&
-                              state.mark!.isFinite &&
-                              state.mark! > 0) ...[
-                            Text('MARK PRICE',
-                                style: EyelerTypography.label.copyWith(
-                                    color: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.color)),
-                            const SizedBox(height: 4),
-                            Text(state.mark!.toStringAsFixed(2),
-                                style: EyelerTypography.display),
-                            const SizedBox(height: EyelerSpacing.md),
-                          ],
-                          if (currentBook.status != 'CLOSED' &&
-                              state.liquidationDistance != null &&
-                              state.liquidationDistance!.isFinite &&
-                              currentBook.liquidationFloor > 0) ...[
-                            Text(
-                                'Position health  ${state.liquidationDistance!.toStringAsFixed(2)}% to liquidation',
-                                style: EyelerTypography.section),
-                            const SizedBox(height: EyelerSpacing.xs),
-                            LinearProgressIndicator(
-                                value: (state.liquidationDistance! /
-                                        (currentBook.liquidationFloor * 2))
-                                    .clamp(0.0, 1.0),
-                                minHeight: 7,
-                                borderRadius: BorderRadius.circular(20),
-                                backgroundColor: EyelerColors.darkBorder,
-                                color: state.liquidationDistance! <
-                                        currentBook.liquidationFloor
-                                    ? EyelerColors.reduce
-                                    : EyelerColors.defend),
-                            const SizedBox(height: EyelerSpacing.md),
-                          ],
-                          if (currentBook.status != 'CLOSED') ...[
-                            Text('Unrealized P&L  ${_number(state.pnl)}',
-                                style: EyelerTypography.metric
-                                    .copyWith(fontSize: 16)),
-                            const SizedBox(height: EyelerSpacing.xs),
-                          ],
-                          Wrap(
-                              spacing: EyelerSpacing.sm,
-                              runSpacing: EyelerSpacing.xs,
-                              children: [
-                                _BookFact(
-                                    'Reserve',
-                                    state.reserveAvailable == null
-                                        ? 'Unavailable'
-                                        : state.reserveAvailable!
-                                            .toStringAsFixed(2)),
-                                _BookFact('Defense cap',
-                                    currentBook.defenseCap.toStringAsFixed(2)),
-                                _BookFact('Time limit',
-                                    '${(currentBook.timeLimitMs / 3600000).toStringAsFixed(0)}h'),
-                              ]),
-                          const SizedBox(height: EyelerSpacing.md),
-                          Row(children: [
-                            Expanded(
-                                child: Text(
-                                    currentBook.automationEnabled
-                                        ? 'Automatic actions on'
-                                        : 'Automatic actions off',
-                                    style: EyelerTypography.body.copyWith(
-                                        color: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.color))),
-                            const Icon(Icons.arrow_forward_ios,
-                                size: 17, color: EyelerColors.accent),
-                          ]),
-                          LiveSyncStatus(value: telemetry),
-                        ]);
+                    final marketColor = currentBook.market.toUpperCase().contains('BTC')
+                        ? EyelerColors.reduce
+                        : currentBook.market.toUpperCase().contains('ETH')
+                            ? const Color(0xFF8D5BEA)
+                            : EyelerColors.info;
+                    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        EyelerIconTile(
+                            icon: currentBook.market.toUpperCase().contains('BTC')
+                                ? Icons.currency_bitcoin
+                                : Icons.hexagon_outlined,
+                            color: marketColor,
+                            size: 46),
+                        const SizedBox(width: EyelerSpacing.md),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(currentBook.market, style: EyelerTypography.section),
+                          const SizedBox(height: 3),
+                          Text('${currentBook.side.toLowerCase()} · ${currentBook.automationEnabled ? 'protected' : 'manual'}',
+                              style: EyelerTypography.body.copyWith(color: Theme.of(context).textTheme.bodyMedium?.color)),
+                        ])),
+                        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                          Text(state.mark == null ? '—' : state.mark!.toStringAsFixed(2), style: EyelerTypography.metric),
+                          Text(_number(state.pnl), style: EyelerTypography.body.copyWith(color: (state.pnl ?? 0) >= 0 ? EyelerColors.defend : EyelerColors.exit)),
+                        ])
+                      ]),
+                      const SizedBox(height: EyelerSpacing.md),
+                      Row(children: [
+                        StatusPill(label: summary.label, color: summary.color, icon: summary.icon),
+                        const Spacer(),
+                        SizedBox(width: 88, height: 30, child: _Sparkline(color: (state.pnl ?? 0) >= 0 ? EyelerColors.defend : EyelerColors.exit)),
+                      ]),
+                      const SizedBox(height: EyelerSpacing.sm),
+                      Text(summary.message, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: EyelerTypography.body.copyWith(color: Theme.of(context).textTheme.bodyMedium?.color)),
+                      const SizedBox(height: EyelerSpacing.md),
+                      Row(children: [
+                        Expanded(child: _BookFact('Reserve', state.reserveAvailable == null ? 'Unavailable' : state.reserveAvailable!.toStringAsFixed(2))),
+                        const SizedBox(width: EyelerSpacing.sm),
+                        Expanded(child: _BookFact('Defense cap', currentBook.defenseCap.toStringAsFixed(2))),
+                        const SizedBox(width: EyelerSpacing.sm),
+                        Expanded(child: _BookFact('Floor', '${currentBook.liquidationFloor.toStringAsFixed(1)}%')),
+                      ]),
+                      const SizedBox(height: EyelerSpacing.sm),
+                      Row(children: [
+                        Expanded(child: Text(currentBook.automationEnabled ? 'Automatic actions on' : 'Automatic actions off', style: EyelerTypography.label.copyWith(color: Theme.of(context).textTheme.bodyMedium?.color))),
+                        const Icon(Icons.arrow_forward_ios, size: 14),
+                      ]),
+                      LiveSyncStatus(value: telemetry),
+                    ]);
                   },
                 )),
           )),
@@ -640,6 +568,53 @@ class _BookFact extends StatelessWidget {
           Text(value, style: EyelerTypography.section),
         ]),
       );
+}
+
+class _Sparkline extends StatelessWidget {
+  const _Sparkline({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+      painter: _SparklinePainter(color),
+      child: const SizedBox.expand());
+}
+
+class _SparklinePainter extends CustomPainter {
+  _SparklinePainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color.withValues(alpha: .72)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    final path = Path()..moveTo(0, size.height * .68);
+    const points = [
+      .62,
+      .68,
+      .58,
+      .72,
+      .49,
+      .55,
+      .34,
+      .42,
+      .27,
+      .35,
+      .18,
+      .24
+    ];
+    for (var i = 0; i < points.length; i++) {
+      path.lineTo(size.width * (i + 1) / points.length, size.height * points[i]);
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class CreateBookEntry extends StatelessWidget {
