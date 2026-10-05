@@ -1,18 +1,4 @@
 import 'wallet_types.dart';
+import 'mera_wallet_connector.dart';
 
-WalletConnector walletConnector() => _UnavailableWalletConnector();
-
-class _UnavailableWalletConnector implements WalletConnector {
-  @override
-  Future<WalletConnection> connect() => Future.error(const WalletException(
-      'No EVM wallet provider is available on this platform.'));
-  @override
-  Future<String> signMessage(String address, String message) =>
-      Future.error(const WalletException(
-          'No EVM wallet provider is available on this platform.'));
-  @override
-  Future<String> signTypedData(
-          String address, Map<String, Object?> typedData) =>
-      Future.error(const WalletException(
-          'No EVM wallet provider is available on this platform.'));
-}
+WalletConnector walletConnector() => MeraWalletConnector();

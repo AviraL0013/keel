@@ -140,6 +140,7 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       await repository.logout();
     } finally {
+      wallet.dispose();
       await storage.clear();
       state = const AuthState(authenticated: false);
     }

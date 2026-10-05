@@ -48,6 +48,9 @@ class Eip1193WalletConnector implements WalletConnector {
   final WalletRequest request;
   final WalletNetworkConfig network;
 
+  @override
+  void dispose() {}
+
   Future<void> ensureNetwork() async {
     final current = await request('eth_chainId');
     final text = current?.toString();
