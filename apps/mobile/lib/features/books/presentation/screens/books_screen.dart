@@ -401,7 +401,7 @@ class _WalletOverview extends StatelessWidget {
               style: EyelerTypography.body.copyWith(color: muted)),
           const SizedBox(height: 2),
           Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('$${reserveCap.toStringAsFixed(2)}',
+            Text('\$${reserveCap.toStringAsFixed(2)}',
                 style: EyelerTypography.display.copyWith(
                     fontSize: 40, color: ink)),
             const SizedBox(width: 10),

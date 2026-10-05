@@ -103,7 +103,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                             icon: Icon(Icons.add,
                                 color: Theme.of(context).colorScheme.surface),
                             iconSize: 28,
-                            padding: const EdgeInsets.all(11)))
+                            padding: const EdgeInsets.all(11))))
               ]),
             ),
           ),
