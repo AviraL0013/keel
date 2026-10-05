@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 abstract final class EyelerColors {
-  static const darkBackground = Color(0xFF061012);
-  static const darkCanvas = Color(0xFF081417);
-  static const darkSurface = Color(0xFF102326);
-  static const darkElevated = Color(0xFF173137);
-  static const darkText = Color(0xFFF2F7F7);
-  static const darkMuted = Color(0xFF9FB5B8);
-  static const darkBorder = Color(0xFF245159);
+  static const darkBackground = Color(0xFF0E102C);
+  static const darkCanvas = Color(0xFF131534);
+  static const darkSurface = Color(0xFF1B1E43);
+  static const darkElevated = Color(0xFF282B5B);
+  static const darkText = Color(0xFFF8F8FF);
+  static const darkMuted = Color(0xFFA4A7C5);
+  static const darkBorder = Color(0xFF343866);
   // The light palette follows the reference wallet's warm paper canvas and
   // quiet ink typography. Risk accents remain deliberately semantic.
   static const lightBackground = Color(0xFFF1F3F0);
@@ -18,11 +18,11 @@ abstract final class EyelerColors {
   static const lightText = Color(0xFF292A28);
   static const lightMuted = Color(0xFF757A75);
   static const lightBorder = Color(0xFFE1E4E0);
-  static const accent = Color(0xFF69E8FF);
+  static const accent = Color(0xFF7077F5);
   static const hold = Color(0xFF9AAEB0);
-  static const defend = Color(0xFF4EA65A);
-  static const reduce = Color(0xFFF0A328);
-  static const exit = Color(0xFFE45A5A);
+  static const defend = Color(0xFF57D69B);
+  static const reduce = Color(0xFFF4B95F);
+  static const exit = Color(0xFFFF7180);
   static const safeMode = reduce;
   static const info = accent;
 }
@@ -146,7 +146,7 @@ class EyelerTheme {
             surface: surface,
             error: EyelerColors.exit,
             onSurface: text,
-            onPrimary: Colors.black,
+            onPrimary: Colors.white,
             onSecondary: Colors.black);
     final inputBorder = OutlineInputBorder(
         borderRadius: BorderRadius.circular(EyelerRadii.button),
@@ -183,7 +183,7 @@ class EyelerTheme {
       filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
               backgroundColor: EyelerColors.accent,
-              foregroundColor: Colors.black,
+              foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(EyelerRadii.button)),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),

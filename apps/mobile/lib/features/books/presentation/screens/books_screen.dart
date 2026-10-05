@@ -198,7 +198,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
                 height: 34,
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                    color: EyelerColors.darkText,
+                    color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(12)),
                 child: Image.asset('assets/branding/eyeler-eye.png')),
             const SizedBox(width: 10),
@@ -445,7 +445,10 @@ class _OverviewMetric extends StatelessWidget {
           decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(EyelerRadii.small),
-              border: Border.all(color: EyelerColors.lightBorder)),
+              border: Border.all(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? EyelerColors.darkBorder
+                      : EyelerColors.lightBorder)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label,
                 style: EyelerTypography.label.copyWith(

@@ -90,7 +90,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     child: DecoratedBox(
                         decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Theme.of(context).colorScheme.onSurface,
+                            color: Theme.of(context).colorScheme.primary,
                             boxShadow: const [
                               BoxShadow(
                                   color: Color(0x22000000),
@@ -101,7 +101,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                             tooltip: 'Create a Book',
                             onPressed: () => setState(() => index = 1),
                             icon: Icon(Icons.add,
-                                color: Theme.of(context).colorScheme.surface),
+                                color: Theme.of(context).colorScheme.onPrimary),
                             iconSize: 28,
                             padding: const EdgeInsets.all(11))))
               ]),
