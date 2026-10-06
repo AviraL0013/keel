@@ -2,6 +2,7 @@ import type { Book } from '../../../../packages/domain/src/index.js'
 import type { RuntimeVenue } from '../../runtime.js'
 import type { PostgresStore } from '../database/postgres-store.js'
 import { credentialContext, type KeyCustody } from './key-custody.js'
+import { logger } from '../../config/index.js'
 
 export type PerplUserCredentials = {
   connectionId: string
@@ -20,7 +21,14 @@ type Connection = {
   sealed_api_token: string
   account_id: string | null
 }
-type Entry = { userId: string; raw: RuntimeVenue; guarded: RuntimeVenue }
+type Entry = {
+  userId: string
+  raw: RuntimeVenue
+  guarded: RuntimeVenue
+  lastUsedAt: number
+  inFlight: number
+  use<T>(operation: () => Promise<T>): Promise<T>
+}
 
 /** Private venues exist only while this process owns the worker lease. */
 export class PerplUserVenues implements RuntimeVenue {
@@ -28,6 +36,10 @@ export class PerplUserVenues implements RuntimeVenue {
   private generation = 0
   private readonly entries = new Map<string, Entry>()
   private readonly pending = new Map<string, Promise<RuntimeVenue | undefined>>()
+  private readonly closing = new Map<string, Promise<void>>()
+  private maintenance?: ReturnType<typeof setInterval>
+  private readonly idleTimeoutMs: number
+  private readonly now: () => number
   constructor(
     private readonly store: PostgresStore,
     private readonly environment: 'testnet' | 'mainnet',
@@ -37,10 +49,35 @@ export class PerplUserVenues implements RuntimeVenue {
     private readonly discover?: (
       credentials: Omit<PerplUserCredentials, 'accountId'>,
     ) => Promise<{ accountId: number }>,
-  ) {}
+    cache: { idleTimeoutMs?: number; now?: () => number } = {},
+  ) {
+    this.idleTimeoutMs = cache.idleTimeoutMs ?? 120_000
+    this.now = cache.now ?? Date.now
+    if (
+      !Number.isSafeInteger(maxConnections) ||
+      maxConnections < 1 ||
+      !Number.isSafeInteger(this.idleTimeoutMs) ||
+      this.idleTimeoutMs < 1
+    )
+      throw new Error('PERPL_CONNECTION_CACHE_INVALID')
+  }
 
   async start() {
     this.active = true
+    if (!this.maintenance) {
+      this.maintenance = setInterval(
+        () => {
+          void this.sweepIdle().catch(() =>
+            logger.warn(
+              { error: 'PERPL_CONNECTION_CLOSE_FAILED' },
+              'Idle venue cleanup failed; capacity remains reserved',
+            ),
+          )
+        },
+        Math.min(this.idleTimeoutMs, 30_000),
+      )
+      this.maintenance.unref?.()
+    }
   }
   ready() {
     return this.active
@@ -48,11 +85,13 @@ export class PerplUserVenues implements RuntimeVenue {
   async close() {
     this.active = false
     this.generation++
-    const entries = [...this.entries.values()]
-    this.entries.clear()
+    if (this.maintenance) clearInterval(this.maintenance)
+    this.maintenance = undefined
     // Revoke live transport authority now; an unrelated slow decrypt must not delay it.
-    const closing = Promise.all(entries.map((entry) => entry.raw.close()))
-    await Promise.all([closing, Promise.allSettled([...this.pending.values()])])
+    const closing = [...this.entries].map(([id, entry]) => this.evict(id, entry))
+    await Promise.allSettled([...closing, ...this.closing.values(), ...this.pending.values()])
+    // A pending initialization can fail to close after shutdown begins. Keep that failure visible.
+    await Promise.all([...this.closing.values()])
   }
 
   private async lookup(userId: string, connectionId?: string): Promise<Connection | undefined> {
@@ -80,11 +119,43 @@ export class PerplUserVenues implements RuntimeVenue {
     return result.rows[0]
   }
 
-  private async evict(id: string) {
-    const entry = this.entries.get(id)
-    if (!entry) return
+  private evict(id: string, entry = this.entries.get(id)): Promise<void> {
+    if (!entry || this.entries.get(id) !== entry) return Promise.resolve()
     this.entries.delete(id)
-    await entry.raw.close()
+    return this.closeTransport(id, entry.raw)
+  }
+
+  private closeTransport(id: string, raw: RuntimeVenue): Promise<void> {
+    const existing = this.closing.get(id)
+    if (existing) return existing
+    let closing: Promise<void>
+    try {
+      closing = Promise.resolve(raw.close())
+    } catch {
+      closing = Promise.reject(new Error('PERPL_CONNECTION_CLOSE_FAILED'))
+    }
+    this.closing.set(id, closing)
+    void closing.then(
+      () => {
+        if (this.closing.get(id) === closing) this.closing.delete(id)
+      },
+      () => {
+        // Retain the slot if transport shutdown cannot be proved. Never open a duplicate socket.
+      },
+    )
+    return closing
+  }
+
+  private async sweepIdle() {
+    if (!this.active) return
+    const idle = [...this.entries].filter(
+      ([, entry]) => entry.inFlight === 0 && this.now() - entry.lastUsedAt >= this.idleTimeoutMs,
+    )
+    await Promise.all(idle.map(([id, entry]) => this.evict(id, entry)))
+  }
+
+  private capacityUsed() {
+    return this.entries.size + this.pending.size + this.closing.size
   }
 
   /** A replacement credential may read old evidence, never submit for an old binding. */
@@ -135,19 +206,21 @@ export class PerplUserVenues implements RuntimeVenue {
       submit: async () => {
         throw new Error('PERPL_CONNECTION_RENEWAL_REQUIRES_REVIEW')
       },
-      reconcile: async (action) => {
-        await authorize()
-        const book = await this.store.getBook(userId, action.bookId)
-        if (!book) throw new Error('BOOK_NOT_FOUND')
-        assertBook(book)
-        await authorize()
-        return entry.raw.reconcile(action)
-      },
-      refresh: async (book) => {
-        assertBook(book)
-        await authorize()
-        return entry.raw.refresh(book)
-      },
+      reconcile: (action) =>
+        entry.use(async () => {
+          await authorize()
+          const book = await this.store.getBook(userId, action.bookId)
+          if (!book) throw new Error('BOOK_NOT_FOUND')
+          assertBook(book)
+          await authorize()
+          return entry.raw.reconcile(action)
+        }),
+      refresh: (book) =>
+        entry.use(async () => {
+          assertBook(book)
+          await authorize()
+          return entry.raw.refresh(book)
+        }),
     }
   }
 
@@ -162,11 +235,28 @@ export class PerplUserVenues implements RuntimeVenue {
       return undefined
     }
     if (!this.active || generation !== this.generation) return undefined
+    if (this.closing.has(row.id)) throw new Error('PERPL_CONNECTION_CLOSING')
     const existing = this.entries.get(row.id)
-    if (existing) return existing.guarded
+    if (existing) {
+      existing.lastUsedAt = this.now()
+      return existing.guarded
+    }
     const pending = this.pending.get(row.id)
     if (pending) return pending
-    if (this.entries.size + this.pending.size >= this.maxConnections) throw new Error('PERPL_CONNECTION_LIMIT')
+    if (this.capacityUsed() >= this.maxConnections) {
+      await this.sweepIdle()
+      // Another request may have acquired this account or the worker may have stopped during cleanup.
+      if (!this.active || generation !== this.generation) return undefined
+      if (this.closing.has(row.id)) throw new Error('PERPL_CONNECTION_CLOSING')
+      const acquired = this.entries.get(row.id)
+      if (acquired) {
+        acquired.lastUsedAt = this.now()
+        return acquired.guarded
+      }
+      const opening = this.pending.get(row.id)
+      if (opening) return opening
+      if (this.capacityUsed() >= this.maxConnections) throw new Error('PERPL_CONNECTION_LIMIT')
+    }
     const opening = this.open(row, generation)
     this.pending.set(row.id, opening)
     try {
@@ -222,21 +312,33 @@ export class PerplUserVenues implements RuntimeVenue {
     })
     try {
       if (!this.active || generation !== this.generation) {
-        await raw.close()
+        await this.closeTransport(row.id, raw)
         return undefined
       }
       if (raw.accountId !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
       await raw.start?.()
       if (!this.active || generation !== this.generation) {
-        await raw.close()
+        await this.closeTransport(row.id, raw)
         return undefined
       }
+      const isCurrent = () => this.active && generation === this.generation && this.entries.get(row.id) === entry
       const authorize = async () => {
-        const current =
-          this.active && generation === this.generation ? await this.lookup(row.user_id, row.id) : undefined
-        if (!this.active || generation !== this.generation || !current || Number(current.account_id) !== accountId) {
-          await this.evict(row.id)
+        const current = isCurrent() ? await this.lookup(row.user_id, row.id) : undefined
+        if (!isCurrent() || !current || Number(current.account_id) !== accountId) {
+          await this.evict(row.id, entry)
           throw new Error('PERPL_CONNECTION_UNAVAILABLE')
+        }
+      }
+      const use = async <T>(operation: () => Promise<T>): Promise<T> => {
+        if (!isCurrent()) throw new Error('PERPL_CONNECTION_UNAVAILABLE')
+        entry.inFlight++
+        entry.lastUsedAt = this.now()
+        try {
+          await authorize()
+          return await operation()
+        } finally {
+          entry.inFlight--
+          entry.lastUsedAt = this.now()
         }
       }
       const assertBook = (book: Book) => {
@@ -247,86 +349,88 @@ export class PerplUserVenues implements RuntimeVenue {
         const book = await this.store.getBook(row.user_id, bookId)
         if (!book) throw new Error('BOOK_NOT_FOUND')
         assertBook(book)
-        if (!this.active || generation !== this.generation) throw new Error('PERPL_CONNECTION_UNAVAILABLE')
+        if (!isCurrent()) throw new Error('PERPL_CONNECTION_UNAVAILABLE')
       }
       const guarded: RuntimeVenue = {
         accountId,
         connectionId: row.id,
-        ready: () => this.active && generation === this.generation && raw.ready(),
-        close: () => this.evict(row.id),
-        submit: async (action) => {
-          await authorize()
-          await actionBook(action.bookId)
-          return raw.submit(action)
-        },
-        reconcile: async (action) => {
-          await authorize()
-          await actionBook(action.bookId)
-          return raw.reconcile(action)
-        },
-        refresh: async (book) => {
-          await authorize()
-          assertBook(book)
-          return raw.refresh(book)
-        },
+        ready: () => isCurrent() && raw.ready(),
+        close: () => this.evict(row.id, entry),
+        submit: (action) =>
+          use(async () => {
+            await actionBook(action.bookId)
+            return raw.submit(action)
+          }),
+        reconcile: (action) =>
+          use(async () => {
+            await actionBook(action.bookId)
+            return raw.reconcile(action)
+          }),
+        refresh: (book) =>
+          use(async () => {
+            assertBook(book)
+            return raw.refresh(book)
+          }),
         ...(raw.validate
           ? {
-              validate: async () => {
-                await authorize()
-                return raw.validate!()
-              },
+              validate: () =>
+                use(async () => {
+                  return raw.validate!()
+                }),
             }
           : {}),
         ...(raw.listPositions
           ? {
-              listPositions: async () => {
-                await authorize()
-                return raw.listPositions!()
-              },
+              listPositions: () =>
+                use(async () => {
+                  return raw.listPositions!()
+                }),
             }
           : {}),
         ...(raw.loadBookSetup
           ? {
-              loadBookSetup: async (marketId: number, requestedAccount: number, positionId: number) => {
-                await authorize()
-                if (requestedAccount !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
-                return raw.loadBookSetup!(marketId, requestedAccount, positionId)
-              },
+              loadBookSetup: (marketId: number, requestedAccount: number, positionId: number) =>
+                use(async () => {
+                  if (requestedAccount !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                  return raw.loadBookSetup!(marketId, requestedAccount, positionId)
+                }),
             }
           : {}),
         ...(raw.capital
           ? {
-              capital: async (wallet?: string, userId?: string) => {
-                await authorize()
-                if (userId !== row.user_id || wallet?.toLowerCase() !== row.wallet_address.toLowerCase())
-                  throw new Error('PERPL_WALLET_MISMATCH')
-                return raw.capital!(wallet, userId)
-              },
+              capital: (wallet?: string, userId?: string) =>
+                use(async () => {
+                  if (userId !== row.user_id || wallet?.toLowerCase() !== row.wallet_address.toLowerCase())
+                    throw new Error('PERPL_WALLET_MISMATCH')
+                  return raw.capital!(wallet, userId)
+                }),
             }
           : {}),
         ...(raw.agoraActivity
           ? {
-              agoraActivity: async (wallet?: string, cursor?: string) => {
-                await authorize()
-                if (wallet?.toLowerCase() !== row.wallet_address.toLowerCase()) throw new Error('PERPL_WALLET_MISMATCH')
-                return raw.agoraActivity!(wallet, cursor)
-              },
+              agoraActivity: (wallet?: string, cursor?: string) =>
+                use(async () => {
+                  if (wallet?.toLowerCase() !== row.wallet_address.toLowerCase())
+                    throw new Error('PERPL_WALLET_MISMATCH')
+                  return raw.agoraActivity!(wallet, cursor)
+                }),
             }
           : {}),
         ...(raw.syncClosedBooks
           ? {
-              syncClosedBooks: async (books: Book[]) => {
-                await authorize()
-                books.forEach(assertBook)
-                return raw.syncClosedBooks!(books)
-              },
+              syncClosedBooks: (books: Book[]) =>
+                use(async () => {
+                  books.forEach(assertBook)
+                  return raw.syncClosedBooks!(books)
+                }),
             }
           : {}),
       }
-      this.entries.set(row.id, { userId: row.user_id, raw, guarded })
+      const entry: Entry = { userId: row.user_id, raw, guarded, use, lastUsedAt: this.now(), inFlight: 0 }
+      this.entries.set(row.id, entry)
       return guarded
     } catch (error) {
-      await raw.close()
+      await this.closeTransport(row.id, raw)
       throw error
     }
   }

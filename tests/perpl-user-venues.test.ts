@@ -7,7 +7,7 @@ import { PerplUserVenues } from '../server/src/infrastructure/perpl/user-venues.
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import type { Action } from '../packages/domain/src/index.js'
 
-async function fixture() {
+async function fixture(maxConnections = 64, cache = {}) {
   const { db, store } = await databaseFixture()
   const custody = new DevelopmentKeyCustody('12'.repeat(32))
   const a = await store.ensureUser('0x0000000000000000000000000000000000000001')
@@ -43,11 +43,214 @@ async function fixture() {
     created.push(venue)
     return venue
   })
-  const registry = new PerplUserVenues(store, 'testnet', custody, factory)
+  const registry = new PerplUserVenues(store, 'testnet', custody, factory, maxConnections, undefined, cache)
   return { db, store, a, b, add, factory, created, registry }
 }
 
 describe('per-user Perpl runtime ownership', () => {
+  it('reclaims idle capacity and prevents an evicted handle from using or closing its replacement', async () => {
+    let now = 1000
+    const f = await fixture(1, { idleTimeoutMs: 1000, now: () => now })
+    try {
+      await f.add(f.a, 642)
+      await f.add(f.b, 777)
+      await f.registry.start()
+      const old = await f.registry.forUser(f.a)
+      await expect(f.registry.forUser(f.b)).rejects.toThrow('PERPL_CONNECTION_LIMIT')
+      now += 1000
+      expect((await f.registry.forUser(f.b))?.accountId).toBe(777)
+      expect(f.created[0].close).toHaveBeenCalledOnce()
+      expect(old!.ready()).toBe(false)
+      await expect(old!.listPositions!()).rejects.toThrow('PERPL_CONNECTION_UNAVAILABLE')
+      expect(f.created[0].listPositions).not.toHaveBeenCalled()
+      now += 1000
+      const replacement = await f.registry.forUser(f.a)
+      await old!.close()
+      expect(replacement!.ready()).toBe(true)
+      expect(f.created[2].close).not.toHaveBeenCalled()
+    } finally {
+      await f.registry.close()
+      await f.db.close()
+    }
+  }, 20000)
+
+  it('does not evict an in-flight request and starts idle time after that request finishes', async () => {
+    let now = 1000
+    const f = await fixture(1, { idleTimeoutMs: 1000, now: () => now })
+    let finish!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    try {
+      await f.add(f.a, 642)
+      await f.add(f.b, 777)
+      await f.registry.start()
+      const venue = await f.registry.forUser(f.a)
+      vi.mocked(f.created[0].listPositions!).mockImplementationOnce(async () => {
+        await waiting
+        return []
+      })
+      const read = venue!.listPositions!()
+      await vi.waitFor(() => expect(f.created[0].listPositions).toHaveBeenCalledOnce())
+      now += 1000
+      await expect(f.registry.forUser(f.b)).rejects.toThrow('PERPL_CONNECTION_LIMIT')
+      expect(f.created[0].close).not.toHaveBeenCalled()
+      finish()
+      await read
+      await expect(f.registry.forUser(f.b)).rejects.toThrow('PERPL_CONNECTION_LIMIT')
+      now += 1000
+      expect((await f.registry.forUser(f.b))?.accountId).toBe(777)
+    } finally {
+      finish?.()
+      await f.registry.close()
+      await f.db.close()
+    }
+  }, 20000)
+
+  it('keeps closing sockets inside the limit and never overlaps a connection replacement', async () => {
+    const f = await fixture(1)
+    let finish!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    try {
+      await f.add(f.a, 642)
+      await f.add(f.b, 777)
+      await f.registry.start()
+      const venue = await f.registry.forUser(f.a)
+      vi.mocked(f.created[0].close).mockReturnValueOnce(waiting)
+      const closing = venue!.close()
+      expect(venue!.ready()).toBe(false)
+      await expect(f.registry.forUser(f.a)).rejects.toThrow('PERPL_CONNECTION_CLOSING')
+      await expect(f.registry.forUser(f.b)).rejects.toThrow('PERPL_CONNECTION_LIMIT')
+      expect(f.factory).toHaveBeenCalledOnce()
+      finish()
+      await closing
+      expect((await f.registry.forUser(f.a))?.accountId).toBe(642)
+      expect(f.factory).toHaveBeenCalledTimes(2)
+    } finally {
+      finish?.()
+      await f.registry.close()
+      await f.db.close()
+    }
+  }, 20000)
+
+  it('closes idle sockets even when no new request arrives and stops maintenance on shutdown', async () => {
+    let now = 1000
+    const f = await fixture(1, { idleTimeoutMs: 1000, now: () => now })
+    try {
+      await f.add(f.a, 642)
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      await f.registry.start()
+      const venue = await f.registry.forUser(f.a)
+      now += 1000
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(f.created[0].close).toHaveBeenCalledOnce()
+      expect(venue!.ready()).toBe(false)
+      await f.registry.close()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      await f.registry.close()
+      vi.useRealTimers()
+      await f.db.close()
+    }
+  }, 20000)
+
+  it('retains a failed-close slot rather than allowing another socket to overlap it', async () => {
+    const f = await fixture(1)
+    try {
+      await f.add(f.a, 642)
+      await f.add(f.b, 777)
+      await f.registry.start()
+      const venue = await f.registry.forUser(f.a)
+      vi.mocked(f.created[0].close).mockRejectedValueOnce(new Error('synthetic-close-failure'))
+      await expect(venue!.close()).rejects.toThrow('synthetic-close-failure')
+      await expect(f.registry.forUser(f.a)).rejects.toThrow('PERPL_CONNECTION_CLOSING')
+      await expect(f.registry.forUser(f.b)).rejects.toThrow('PERPL_CONNECTION_LIMIT')
+      await expect(f.registry.close()).rejects.toThrow('synthetic-close-failure')
+      expect(f.factory).toHaveBeenCalledOnce()
+      expect(f.created[0].close).toHaveBeenCalledOnce()
+      expect(f.registry.ready()).toBe(false)
+    } finally {
+      await f.registry.close().catch(() => {})
+      await f.db.close()
+    }
+  }, 20000)
+
+  it('also retains capacity when initialization fails and its socket cannot be closed', async () => {
+    const f = await fixture(1)
+    const create = f.factory.getMockImplementation()!
+    f.factory.mockImplementation(async (credentials) => {
+      const venue = await create(credentials)
+      vi.mocked(venue.start!).mockRejectedValueOnce(new Error('synthetic-start-failure'))
+      vi.mocked(venue.close).mockRejectedValueOnce(new Error('synthetic-close-failure'))
+      return venue
+    })
+    try {
+      await f.add(f.a, 642)
+      await f.registry.start()
+      await expect(f.registry.forUser(f.a)).rejects.toThrow('synthetic-close-failure')
+      await expect(f.registry.forUser(f.a)).rejects.toThrow('PERPL_CONNECTION_CLOSING')
+      await expect(f.registry.close()).rejects.toThrow('synthetic-close-failure')
+      expect(f.factory).toHaveBeenCalledOnce()
+      expect(f.created[0].close).toHaveBeenCalledOnce()
+    } finally {
+      await f.registry.close().catch(() => {})
+      await f.db.close()
+    }
+  }, 20000)
+
+  it('bounds a 70-account burst at 64 sockets, admits rejected users after idle cleanup and makes no network calls', async () => {
+    let now = 1000
+    const f = await fixture(64, { idleTimeoutMs: 1000, now: () => now })
+    const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('NETWORK_FORBIDDEN_IN_TEST'))
+    let live = 0,
+      peak = 0
+    const create = f.factory.getMockImplementation()!
+    f.factory.mockImplementation(async (credentials) => {
+      const venue = await create(credentials)
+      live++
+      peak = Math.max(peak, live)
+      vi.mocked(venue.close).mockImplementation(async () => {
+        live--
+      })
+      return venue
+    })
+    try {
+      const users: string[] = []
+      for (let accountId = 1000; accountId < 1070; accountId++) {
+        const userId = await f.store.ensureUser(`0x${accountId.toString(16).padStart(40, '0')}`)
+        await f.add(userId, accountId)
+        users.push(userId)
+      }
+      await f.registry.start()
+      const start = performance.now()
+      const results = await Promise.allSettled(users.map((userId) => f.registry.forUser(userId)))
+      const retry = users.filter((_, index) => results[index].status === 'rejected')
+      expect(retry).toHaveLength(6)
+      for (const result of results)
+        if (result.status === 'rejected') expect(result.reason.message).toBe('PERPL_CONNECTION_LIMIT')
+      expect(live).toBe(64)
+      expect(peak).toBe(64)
+      now += 1000
+      for (const userId of retry) expect(await f.registry.forUser(userId)).toBeDefined()
+      expect(live).toBe(6)
+      expect(peak).toBe(64)
+      expect(f.factory).toHaveBeenCalledTimes(70)
+      expect(f.created.every((venue) => vi.mocked(venue.submit).mock.calls.length === 0)).toBe(true)
+      expect(network).not.toHaveBeenCalled()
+      console.info(
+        `Local fake-venue load: 70 accounts, 64 socket peak, 6 deferred then admitted, ${Math.round(performance.now() - start)}ms including cleanup`,
+      )
+      await f.registry.close()
+      expect(live).toBe(0)
+    } finally {
+      await f.registry.close()
+      network.mockRestore()
+      await f.db.close()
+    }
+  }, 30000)
+
   it('closes established sockets before waiting for another users pending credential initialization', async () => {
     const f = await fixture()
     let finishFactory!: (value: RuntimeVenue) => void
