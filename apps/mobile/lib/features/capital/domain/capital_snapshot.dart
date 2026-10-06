@@ -105,7 +105,8 @@ class CapitalSnapshot {
               ? 'WALLET_BALANCE_NOT_RETURNED'
               : null),
       walletAgoraAusd: CapitalAmount.fromJson(json['walletAgoraAusd'],
-          asset: 'AUSD', source: 'MONAD_AGORA_AUSD',
+          asset: 'AUSD',
+          source: 'MONAD_AGORA_AUSD',
           fallbackReason: 'MONAD_AGORA_AUSD_READ_FAILED'),
       perplAvailable: CapitalAmount.fromJson(json['perplAvailable'],
           asset: 'AUSD', source: 'PERPL_COLLATERAL'),
@@ -117,8 +118,7 @@ class CapitalSnapshot {
           asset: 'AUSD', source: 'EYELER_LEDGER'),
       bookRemaining: CapitalAmount.fromJson(json['bookRemaining'],
           asset: 'AUSD', source: 'EYELER_LEDGER'),
-      unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'],
-          asset: 'AUSD', source: 'EYELER_LEDGER'));
+      unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'], asset: 'AUSD', source: 'EYELER_LEDGER'));
 }
 
 class AusdMetrics {

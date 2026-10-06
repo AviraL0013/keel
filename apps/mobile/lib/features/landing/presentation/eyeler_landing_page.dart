@@ -68,14 +68,17 @@ class _EyelerLandingPageState extends State<EyelerLandingPage>
                               padding: const EdgeInsets.all(18),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: EyelerColors.darkSurface.withValues(alpha: .82),
+                                color: EyelerColors.darkSurface
+                                    .withValues(alpha: .82),
                                 border: Border.all(
-                                  color: EyelerColors.accent.withValues(alpha: .7),
+                                  color:
+                                      EyelerColors.accent.withValues(alpha: .7),
                                   width: 1.4,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: EyelerColors.accent.withValues(alpha: .4),
+                                    color: EyelerColors.accent
+                                        .withValues(alpha: .4),
                                     blurRadius: 42,
                                     spreadRadius: 4,
                                   ),
@@ -129,7 +132,8 @@ class _LandingBackdropPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     for (var i = 0; i < 5; i++) {
-      rings.color = EyelerColors.accent.withValues(alpha: (.18 - i * .025) * pulse);
+      rings.color =
+          EyelerColors.accent.withValues(alpha: (.18 - i * .025) * pulse);
       canvas.drawCircle(center, maxRadius * (.22 + i * .14) * pulse, rings);
     }
     final glow = Paint()
