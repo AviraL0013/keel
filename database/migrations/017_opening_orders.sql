@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS opening_orders (
 CREATE UNIQUE INDEX IF NOT EXISTS opening_orders_one_unresolved_account
   ON opening_orders(environment,account_id)
   WHERE status IN ('QUEUED','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN');
+-- IOC PARTIAL is settled for openings, unlike Book-action PARTIAL. Never auto-resubmit its remainder.
+-- Rebuild the index on re-run too: early 017 fixtures used account_id without environment.
+DROP INDEX IF EXISTS opening_orders_request_id_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS opening_orders_request_id_unique
-  ON opening_orders(account_id,request_id) WHERE request_id IS NOT NULL;
+  ON opening_orders(environment,account_id,request_id) WHERE request_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS opening_orders_user_time_idx ON opening_orders(user_id,created_at DESC);

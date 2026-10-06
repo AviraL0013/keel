@@ -33,7 +33,28 @@ it('migration 017 preserves existing data, re-runs safely and enforces per-user 
     await insert(key)
     await expect(insert(key, 13)).rejects.toThrow()
     await expect(insert(randomUUID())).rejects.toThrow()
-    expect((await db.query('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count).toBe(1)
+    await db.query("UPDATE opening_orders SET status='PARTIAL',request_id=55 WHERE user_id=$1", [user])
+    const mainnetConnection = randomUUID(),
+      mainnetPreview = randomUUID()
+    await db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status)
+       VALUES($1,$2,'mainnet','trade','fixture','ACTIVE')`,
+      [mainnetConnection, user],
+    )
+    await db.query(
+      `INSERT INTO opening_previews(id,user_id,connection_id,environment,account_id,market_id,parameters,parameter_hash,quote,expires_at)
+       VALUES($1,$2,$3,'mainnet',12,7,'{}','hash','{}',now()+interval '15 seconds')`,
+      [mainnetPreview, user, mainnetConnection],
+    )
+    await db.query(
+      `INSERT INTO opening_orders
+       (user_id,connection_id,environment,account_id,market_id,side,size,price_limit,leverage,collateral,fees,preview_id,idempotency_key,status,request_id)
+       VALUES($1,$2,'mainnet',12,7,'LONG',0.001,100000,5,20,0.05,$3,$4,'SUBMITTED',55)`,
+      [user, mainnetConnection, mainnetPreview, randomUUID()],
+    )
+    await db.exec(sql)
+    await db.exec(sql)
+    expect((await db.query('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count).toBe(2)
     expect((await db.query('SELECT count(*)::int AS count FROM users WHERE id=$1', [user])).rows[0].count).toBe(1)
   } finally {
     await db.close()

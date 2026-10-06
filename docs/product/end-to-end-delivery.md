@@ -66,7 +66,7 @@ Acceptance: user B cannot read, trade, receive alerts for, or bind user A's reso
 - [ ] PE-08: Handle expired, revoked, ambiguous-enrollment and disconnect states. Disconnect blocks new execution; unresolved prior actions retain an explicit reconciliation path.
 - [ ] PE-09: Verify origin approval on each deployed enrollment origin. Mainnet approval does not automatically prove testnet approval or another origin.
 
-PE-09 check on 2026-10-07: an unsigned testnet enrollment-payload request with origin `https://app.eyeler.xyz` returned HTTP 400 `Bad Request`. No signature or enrollment was attempted. Builder ID, fees, scope, and expiry were not returned, so testnet origin approval remains unverified. Testnet-only versioned Railway-secret envelope custody has fake-key tests; mainnet remains KMS-only.
+PE-09 check on 2026-10-07: unsigned testnet enrollment-payload requests with origin `https://app.eyeler.xyz` returned HTTP 400 `Bad Request` both with builder ID 25 and zero fee ceiling and without either builder field. Equivalent mainnet request with builder ID 25 returned HTTP 200. No signature or enrollment was attempted. Testnet builder terms and origin approval remain unverified; the generic 400 does not identify which testnet rule failed. Testnet-only versioned Railway-secret envelope custody has fake-key tests; mainnet remains KMS-only.
 
 ## 4. Runtime isolation and execution
 
