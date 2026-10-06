@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import Decimal from 'decimal.js'
 import { previewOpeningTrade, type OpeningInput } from '../../../packages/perpl/src/opening-preview.js'
+import { PerplPreSubmissionError } from '../../../packages/perpl/src/trading.js'
+import { requestId } from '../../../packages/perpl/src/request-id.js'
 import { assertOpeningReserveCoverage } from './opening-reserves.js'
 import type { PostgresStore } from '../infrastructure/database/postgres-store.js'
 import type { RuntimeVenue } from '../runtime.js'
@@ -148,7 +150,7 @@ export class OpeningTrades {
       'SELECT * FROM opening_orders WHERE user_id=$1 AND idempotency_key=$2',
       [userId, idempotencyKey],
     )
-    if (existing.rows[0]) return existing.rows[0]
+    if (existing.rows[0]) return { ...existing.rows[0], createdNow: false }
     const now = this.now()
     if (
       new Date(row.expires_at).getTime() <= now ||
@@ -232,15 +234,213 @@ export class OpeningTrades {
           idempotencyKey,
         ],
       )
-      return inserted.rows[0]
+      return { ...inserted.rows[0], createdNow: true }
     } catch (error) {
       if ((error as { code?: string }).code !== '23505') throw error
       const duplicate = await this.store.pool.query(
         'SELECT * FROM opening_orders WHERE user_id=$1 AND idempotency_key=$2',
         [userId, idempotencyKey],
       )
-      if (duplicate.rows[0]) return duplicate.rows[0]
+      if (duplicate.rows[0]) return { ...duplicate.rows[0], createdNow: false }
       throw new ConflictError('OPENING_ALREADY_UNRESOLVED')
+    }
+  }
+
+  async confirm(userId: string, previewId: string, idempotencyKey: string) {
+    const intent = await this.prepareConfirmation(userId, previewId, idempotencyKey)
+    // Persisted intent owns the idempotency key. A repeat never reaches the socket.
+    if (!intent.createdNow) return intent
+    const current = async () => {
+      const result = await this.store.pool.query('SELECT * FROM opening_orders WHERE id=$1 AND user_id=$2', [
+        intent.id,
+        userId,
+      ])
+      return result.rows[0]
+    }
+    let referencePersisted = false
+    try {
+      const venue = await this.venue(userId, intent.connection_id)
+      if (!venue.submitOpening) throw new InfrastructureError('PERPL_OPENING_UNAVAILABLE')
+      const preview = await this.store.pool.query<{
+        quote: ReturnType<typeof previewOpeningTrade>
+        parameters: { marketTerms?: Record<string, unknown> }
+      }>('SELECT quote,parameters FROM opening_previews WHERE id=$1 AND user_id=$2', [previewId, userId])
+      const quote = preview.rows[0]?.quote
+      if (!quote || quote.accountId !== venue.accountId) throw new NotFoundError('OPENING_PREVIEW_NOT_FOUND')
+      const order = {
+        mkt: quote.marketId,
+        acc: quote.accountId,
+        t: quote.side === 'LONG' ? 1 : 2,
+        s: quote.sizeRaw,
+        p: quote.limitPriceRaw,
+        lv: quote.leverageHundredths,
+        orderTtlBlocks: quote.orderTtlBlocks,
+      }
+      const result = await venue.submitOpening(
+        intent.id,
+        order,
+        async (reference, lb) => {
+          const [account, rq] = reference.split(':')
+          if (
+            Number(account) !== venue.accountId ||
+            !rq ||
+            requestId(rq) === 0n ||
+            !Number.isSafeInteger(lb) ||
+            lb <= 0
+          )
+            throw new Error('PERPL_OPENING_REFERENCE_INVALID')
+          const updated = await this.store.pool.query(
+            `UPDATE opening_orders SET status='SUBMITTING',request_id=$2,lb=$3,submitted_at=now(),updated_at=now()
+             WHERE id=$1 AND user_id=$4 AND status='QUEUED' AND request_id IS NULL RETURNING id`,
+            [intent.id, rq, lb, userId],
+          )
+          if (updated.rows.length !== 1) throw new Error('PERPL_OPENING_REFERENCE_PERSIST_FAILED')
+          referencePersisted = true
+        },
+        async () => {
+          const authorized = await this.venue(userId, intent.connection_id)
+          if (!authorized.openingMarketSnapshot || authorized.accountId !== venue.accountId)
+            throw new Error('PERPL_CONNECTION_UNAVAILABLE')
+          const snapshot = await authorized.openingMarketSnapshot(quote.marketId)
+          const originalTerms = preview.rows[0]?.parameters.marketTerms
+          if (
+            snapshot.environment !== this.environment ||
+            snapshot.accountId !== quote.accountId ||
+            !originalTerms ||
+            Object.entries(originalTerms).some(([key, value]) => snapshot[key as keyof typeof snapshot] !== value) ||
+            snapshot.collateralDecimals !== 6 ||
+            (quote.side === 'LONG' && snapshot.askRaw > quote.limitPriceRaw) ||
+            (quote.side === 'SHORT' && snapshot.bidRaw < quote.limitPriceRaw)
+          )
+            throw new Error('PREVIEW_STALE')
+          const pending = await current()
+          if (
+            !pending ||
+            pending.status !== 'SUBMITTING' ||
+            snapshot.headBlock >= Number(pending.lb) ||
+            Number(pending.lb) > snapshot.headBlock + snapshot.orderTtlBlocks
+          )
+            throw new Error('PREVIEW_STALE')
+          const updated = previewOpeningTrade(
+            { side: quote.side, size: quote.size, leverage: quote.leverage, slippageBps: quote.slippageBps },
+            snapshot,
+            this.now(),
+          )
+          if (
+            updated.sizeRaw !== quote.sizeRaw ||
+            new Decimal(updated.estimatedRequiredBalance).gt(quote.estimatedRequiredBalance)
+          )
+            throw new Error('PREVIEW_STALE')
+          const reserves = await this.store.pool.query<{ available: string }>(
+            `SELECT r.available::text AS available FROM reserves r JOIN books b ON b.id=r.book_id
+             WHERE b.user_id=$1 AND b.venue_account_id=$2 AND b.status<>'CLOSED'`,
+            [userId, venue.accountId],
+          )
+          assertOpeningReserveCoverage(
+            snapshot.freeBalance,
+            quote.estimatedRequiredBalance,
+            reserves.rows.map((item) => item.available),
+          )
+        },
+      )
+      await this.store.pool.query(
+        `UPDATE opening_orders SET status=$2,venue_progress=$3,error=$4,updated_at=now(),
+         resolved_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END WHERE id=$1 AND status='SUBMITTING'`,
+        [
+          intent.id,
+          result.status === 'FAILED' ? 'FAILED' : 'VERIFYING',
+          result.venueProgress ? JSON.stringify(result.venueProgress) : null,
+          result.reason ?? null,
+        ],
+      )
+      return current()
+    } catch (error) {
+      const status = error instanceof PerplPreSubmissionError ? 'FAILED' : referencePersisted ? 'VERIFYING' : 'UNKNOWN'
+      await this.store.pool.query(
+        `UPDATE opening_orders SET status=$2,error=$3,updated_at=now(),
+         resolved_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END WHERE id=$1 AND status IN ('QUEUED','SUBMITTING')`,
+        [intent.id, status, error instanceof Error ? error.message : 'OPENING_SUBMISSION_UNAVAILABLE'],
+      )
+      return current()
+    }
+  }
+
+  /** Reconcile persisted request only. Never resubmit after restart or timeout. */
+  async reconcile(userId: string, openingId: string) {
+    const found = await this.store.pool.query('SELECT * FROM opening_orders WHERE id=$1 AND user_id=$2', [
+      openingId,
+      userId,
+    ])
+    const row = found.rows[0]
+    if (!row) throw new NotFoundError('OPENING_ORDER_NOT_FOUND')
+    if (['CONFIRMED', 'PARTIAL', 'FAILED'].includes(row.status)) return row
+    if (!row.request_id || !row.lb || !row.submitted_at) {
+      // No reference means no socket write was allowed by the beforeSend hook.
+      // A fresh QUEUED row may belong to an in-flight confirmation; do not race it.
+      if (this.now() - new Date(row.created_at).getTime() < 180_000) return row
+      await this.store.pool.query(
+        `UPDATE opening_orders SET status='FAILED',error='MISSING_DURABLE_VENUE_REFERENCE',
+         resolved_at=now(),updated_at=now()
+         WHERE id=$1 AND status IN ('QUEUED','UNKNOWN') AND request_id IS NULL`,
+        [openingId],
+      )
+      return (await this.store.pool.query('SELECT * FROM opening_orders WHERE id=$1', [openingId])).rows[0]
+    }
+    const venue =
+      (await this.venues?.forUser?.(userId, row.connection_id)) ??
+      (await this.venues?.recoveryForUser?.(userId, row.connection_id))
+    if (!venue?.reconcileOpening || venue.accountId !== Number(row.account_id))
+      throw new InfrastructureError('PERPL_RECONCILIATION_UNAVAILABLE')
+    const preview = await this.store.pool.query<{ quote: ReturnType<typeof previewOpeningTrade> }>(
+      'SELECT quote FROM opening_previews WHERE id=$1 AND user_id=$2',
+      [row.preview_id, userId],
+    )
+    const quote = preview.rows[0]?.quote
+    if (!quote || quote.accountId !== venue.accountId || quote.marketId !== row.market_id)
+      throw new InfrastructureError('PERPL_OPENING_EVIDENCE_UNAVAILABLE')
+    const outcome = await venue.reconcileOpening({
+      accountId: venue.accountId,
+      marketId: row.market_id,
+      requestId: String(row.request_id),
+      lastExecutionBlock: Number(row.lb),
+      side: row.side,
+      sizeRaw: quote.sizeRaw,
+      priceLimitRaw: quote.limitPriceRaw,
+      leverageHundredths: quote.leverageHundredths,
+      sizeDecimals: quote.size.split('.')[1]?.length ?? 0,
+      priceDecimals: quote.limitPrice.split('.')[1]?.length ?? 0,
+      submittedAt: new Date(row.submitted_at).getTime(),
+    })
+    await this.store.pool.query(
+      `UPDATE opening_orders SET status=$2,error=$3,evidence=$4,filled_size=$5,average_price=$6,
+       position_id=$7,tx_hash=$8,updated_at=now(),
+       resolved_at=CASE WHEN $2 IN ('CONFIRMED','PARTIAL','FAILED') THEN now() ELSE NULL END
+       WHERE id=$1 AND status IN ('SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN')`,
+      [
+        openingId,
+        outcome.status,
+        outcome.error ?? null,
+        outcome.evidence ? JSON.stringify(outcome.evidence) : null,
+        outcome.filledSize ?? null,
+        outcome.averagePrice ?? null,
+        outcome.positionId ?? null,
+        outcome.txHash ?? null,
+      ],
+    )
+    return (await this.store.pool.query('SELECT * FROM opening_orders WHERE id=$1', [openingId])).rows[0]
+  }
+
+  async reconcilePending() {
+    const rows = await this.store.pool.query<{ id: string; user_id: string }>(
+      `SELECT id,user_id FROM opening_orders WHERE status IN ('QUEUED','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN')
+       ORDER BY created_at LIMIT 20`,
+    )
+    for (const row of rows.rows) {
+      try {
+        await this.reconcile(row.user_id, row.id)
+      } catch {
+        /* Evidence may be unavailable; keep persisted request for the next pass. */
+      }
     }
   }
 }

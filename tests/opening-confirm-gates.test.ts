@@ -4,6 +4,7 @@ import { databaseFixture } from './helpers/database.js'
 import { OpeningTrades } from '../server/src/application/opening-trades.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import type { OpeningMarketSnapshot } from '../packages/perpl/src/opening-preview.js'
+import { PerplPreSubmissionError } from '../packages/perpl/src/trading.js'
 
 async function fixture() {
   const { db, store } = await databaseFixture()
@@ -46,12 +47,52 @@ async function fixture() {
   const send = vi.fn(async () => {
     throw new Error('NO_ORDER_IN_TEST')
   })
+  let beforeVerify = () => {}
+  const fakeWireWrite = vi.fn()
+  const sendOpening = vi.fn(
+    async (
+      _id: string,
+      _order: unknown,
+      beforeSend: (reference: string, lb: number) => Promise<void>,
+      verifyBeforeSend?: () => Promise<void>,
+    ) => {
+      await beforeSend('12:45', 111)
+      beforeVerify()
+      try {
+        await verifyBeforeSend?.()
+      } catch (error) {
+        throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PRE_SEND_FAILED')
+      }
+      fakeWireWrite()
+      return {
+        venueReference: '12:45',
+        status: 'SUBMITTED' as const,
+        venueProgress: {
+          requestId: '45',
+          clientSequence: 1,
+          admitted: true,
+          requestedLastExecBlock: 111,
+          response: 'ADMITTED' as const,
+        },
+      }
+    },
+  )
+  const reconcileOpening = vi.fn(async () => ({
+    status: 'CONFIRMED' as const,
+    filledSize: '0.00100',
+    averagePrice: '100000.0',
+    positionId: 98,
+    txHash: `0x${'a'.repeat(64)}`,
+    evidence: { receipt: true },
+  }))
   const scoped: RuntimeVenue = {
     accountId: 12,
     connectionId,
     ready: () => true,
     openingMarketSnapshot: async () => current,
     submit: send,
+    submitOpening: sendOpening,
+    reconcileOpening,
     reconcile: async (action) => action,
     refresh: async () => {},
     close: async () => {},
@@ -72,6 +113,12 @@ async function fixture() {
     now,
     service,
     send,
+    sendOpening,
+    reconcileOpening,
+    fakeWireWrite,
+    setBeforeVerify: (work: () => void) => {
+      beforeVerify = work
+    },
     input,
     setSnapshot: (change: Partial<OpeningMarketSnapshot>) => {
       current = { ...current, ...change }
@@ -81,6 +128,88 @@ async function fixture() {
     },
   }
 }
+
+it('recovers a durable opening after restart and never sends it again', async () => {
+  const f = await fixture()
+  try {
+    const preview = await f.service.preview(f.userId, f.input)
+    const first = await f.service.confirm(f.userId, preview.id, randomUUID())
+    expect(first.status).toBe('VERIFYING')
+    const recovered = await f.service.reconcile(f.userId, first.id)
+    expect(recovered).toMatchObject({
+      status: 'CONFIRMED',
+      position_id: 98,
+      filled_size: '0.001000000000000000',
+      tx_hash: `0x${'a'.repeat(64)}`,
+    })
+    expect(f.sendOpening).toHaveBeenCalledOnce()
+    expect(f.reconcileOpening).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('rejects a changed market precision immediately before fake socket write', async () => {
+  const f = await fixture()
+  try {
+    const preview = await f.service.preview(f.userId, f.input)
+    f.setBeforeVerify(() => f.setSnapshot({ priceDecimals: 2 }))
+    const result = await f.service.confirm(f.userId, preview.id, randomUUID())
+    expect(result).toMatchObject({ status: 'FAILED', error: 'PREVIEW_STALE' })
+    expect(f.fakeWireWrite).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('does not fail an in-flight queued confirmation before its send callback', async () => {
+  const f = await fixture()
+  try {
+    const preview = await f.service.preview(f.userId, f.input)
+    const queued = await f.service.prepareConfirmation(f.userId, preview.id, randomUUID())
+    expect((await f.service.reconcile(f.userId, queued.id)).status).toBe('QUEUED')
+    f.setTime(f.now + 181_000)
+    expect((await f.service.reconcile(f.userId, queued.id)).status).toBe('FAILED')
+    expect(f.fakeWireWrite).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('settles an old unknown opening only when no durable venue reference exists', async () => {
+  const f = await fixture()
+  try {
+    const preview = await f.service.preview(f.userId, f.input)
+    const queued = await f.service.prepareConfirmation(f.userId, preview.id, randomUUID())
+    await f.db.query("UPDATE opening_orders SET status='UNKNOWN' WHERE id=$1", [queued.id])
+    expect((await f.service.reconcile(f.userId, queued.id)).status).toBe('UNKNOWN')
+    f.setTime(f.now + 181_000)
+    expect(await f.service.reconcile(f.userId, queued.id)).toMatchObject({
+      status: 'FAILED',
+      error: 'MISSING_DURABLE_VENUE_REFERENCE',
+    })
+    expect(f.fakeWireWrite).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('confirms once, persists request ID and lb before fake submission, and never resends duplicate key', async () => {
+  const f = await fixture()
+  try {
+    const preview = await f.service.preview(f.userId, f.input)
+    const key = randomUUID()
+    const first = await f.service.confirm(f.userId, preview.id, key)
+    expect(first).toMatchObject({ status: 'VERIFYING', request_id: '45', lb: 111 })
+    const again = await f.service.confirm(f.userId, preview.id, key)
+    expect(again.id).toBe(first.id)
+    expect(f.sendOpening).toHaveBeenCalledOnce()
+    expect(f.sendOpening.mock.calls[0][1]).toMatchObject({ mkt: 7, acc: 12, t: 1, s: 100, lv: 500 })
+    expect(f.send).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
 
 it('binds confirmation to the owner and UUID key, returns duplicate intent, and never sends in preparation', async () => {
   const f = await fixture()

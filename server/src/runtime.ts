@@ -13,6 +13,9 @@ import type {
 import { evaluate, evaluateManualAction, telemetryFreshnessFailures } from '../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
 import type { OpeningMarketDetail } from '../../packages/perpl/src/opening-market.js'
+import type { PerplOrder, PerplSubmitResult } from '../../packages/perpl/src/trading.js'
+import type { OpeningReconciliation } from '../../packages/perpl/src/opening-reconciliation.js'
+import { OpeningTrades } from './application/opening-trades.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
 import { ExecutionWorker } from './workers/execution-worker.js'
@@ -44,6 +47,25 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   >
   listOpeningMarkets?(): Promise<Array<{ id: number; symbol: string; status: 'OPEN' | 'CLOSED' }>>
   openingMarketSnapshot?(marketId: number): Promise<OpeningMarketDetail>
+  submitOpening?(
+    openingId: string,
+    order: PerplOrder,
+    beforeSend: (reference: string, lb: number) => Promise<void>,
+    verifyBeforeSend?: () => Promise<void>,
+  ): Promise<PerplSubmitResult>
+  reconcileOpening?(intent: {
+    accountId: number
+    marketId: number
+    requestId: string
+    lastExecutionBlock: number
+    side: 'LONG' | 'SHORT'
+    sizeRaw: number
+    priceLimitRaw: number
+    leverageHundredths: number
+    sizeDecimals: number
+    priceDecimals: number
+    submittedAt: number
+  }): Promise<OpeningReconciliation>
   capital?(walletAddress?: string, userId?: string): Promise<CapitalSnapshot>
   agoraActivity?(walletAddress?: string, cursor?: string): Promise<AgoraActivity>
   start?(): Promise<void>
@@ -105,11 +127,13 @@ export class EyelerRuntime {
   private waitingForLock = false
   private venueStarted = false
   private stopping = false
+  private nextOpeningReconcileAt = 0
   constructor(
     private readonly store: PostgresStore,
     private readonly venue?: RuntimeVenue,
     private readonly now: () => number = Date.now,
     private readonly safeModeResumeTicks = 5,
+    private readonly openingEnvironment?: 'testnet' | 'mainnet',
   ) {
     this.repository = new PostgresExecutionRepository(store)
     this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000, () => undefined, now)
@@ -236,6 +260,16 @@ export class EyelerRuntime {
   private async tick() {
     if (!this.lease) return
     await this.lease.query('SELECT 1')
+    if (this.openingEnvironment && this.now() >= this.nextOpeningReconcileAt) {
+      this.nextOpeningReconcileAt = this.now() + 5_000
+      await new OpeningTrades(
+        this.store,
+        this.venue,
+        this.openingEnvironment,
+        { enabled: false, executionDisabled: true },
+        this.now,
+      ).reconcilePending()
+    }
     const rows = await this.store.pool.query(
       "SELECT b.id,b.user_id FROM books b WHERE (b.automation_enabled AND b.status!='CLOSED') OR (b.status='SAFE_MODE' AND b.safety_action_id IS NOT NULL) OR EXISTS (SELECT 1 FROM actions a WHERE a.book_id=b.id AND a.status IN ('QUEUED','VALIDATING','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN','PARTIAL')) ORDER BY b.created_at",
     )

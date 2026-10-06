@@ -6,6 +6,7 @@ import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../data/positions_repository.dart';
 import '../domain/position.dart';
 import '../../books/presentation/screens/create_book_screen.dart';
+import '../../openings/presentation/opening_screen.dart';
 
 class PositionsScreen extends ConsumerWidget {
   const PositionsScreen({super.key});
@@ -42,6 +43,13 @@ class PositionsScreen extends ConsumerWidget {
                 Text('Positions connected through Perpl.',
                     style: EyelerTypography.body.copyWith(
                         color: Theme.of(context).textTheme.bodyMedium?.color)),
+                const SizedBox(height: EyelerSpacing.md),
+                OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const OpeningScreen())),
+                    icon: const Icon(Icons.add_chart),
+                    label: const Text('Open position')),
                 const SizedBox(height: EyelerSpacing.md),
                 // Successful position retrieval is authoritative proof that the
                 // configured server-side Perpl stream is usable. The validate

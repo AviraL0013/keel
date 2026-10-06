@@ -199,7 +199,7 @@ export class PerplHistory {
       (item) =>
         item.acc === accountId &&
         String(item.rq) === requestedId &&
-        [4, 10].includes(item.st) &&
+        [3, 4, 10].includes(item.st) &&
         /^[0-9a-f]{64}$/i.test(item.at.txid ?? ''),
       minBlock,
     )
@@ -210,6 +210,10 @@ export class PerplHistory {
       positionId?: number
       sizeRaw?: string
       amountRaw?: string
+      priceRaw?: string
+      leverageHundredths?: number
+      immediateOrCancel?: boolean
+      lastExecutionBlock?: number
       block: number
       txHash: string
     }> = []
@@ -252,6 +256,10 @@ export class PerplHistory {
             positionId: Number(item.triggerPositionId),
             sizeRaw: item.orderDesc.lotLNS.toString(),
             amountRaw: item.orderDesc.amountCNS.toString(),
+            priceRaw: item.orderDesc.pricePNS.toString(),
+            leverageHundredths: Number(item.orderDesc.leverageHdths),
+            immediateOrCancel: item.orderDesc.immediateOrCancel,
+            lastExecutionBlock: Number(item.orderDesc.lastExecutionBlock),
             block,
             txHash,
           })
@@ -318,5 +326,31 @@ export class PerplHistory {
       fills: fills.filter((fill) => orders.some((order) => order.oid === fill.oid)),
       collateralSuccess,
     }
+  }
+  /** An opening has no position ID until a verified fill creates one. */
+  async openingEvidence(accountId: number, requestId: string, marketId: number, minBlock?: number) {
+    const orders = await this.read<WireOrder>(
+      'order-history',
+      (item) => item.acc === accountId && String(item.rq) === requestId && item.mkt === marketId,
+      minBlock,
+    )
+    const orderIds = new Set(orders.map((item) => item.oid))
+    const [fills, positions] = await Promise.all([
+      this.read<WireFill>(
+        'fills',
+        (item) => item.acc === accountId && item.mkt === marketId && orderIds.has(item.oid),
+        minBlock,
+      ),
+      this.read<WirePosition>(
+        'position-history',
+        (item) =>
+          item.acc === accountId &&
+          item.mkt === marketId &&
+          String(item.rq) === requestId &&
+          orderIds.has(item.oid ?? -1),
+        minBlock,
+      ),
+    ])
+    return { orders, fills, positions }
   }
 }

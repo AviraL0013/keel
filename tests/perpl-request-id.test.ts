@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { databaseFixture } from './helpers/database.js'
 import { PerplRequestIdAllocator } from '../server/src/infrastructure/perpl/request-id-allocator.js'
 import {
@@ -144,6 +145,32 @@ describe('Perpl request ID allocator', () => {
       await expect(new PerplRequestIdAllocator(store.pool).allocate(642, '')).rejects.toThrow(
         'PERPL_REQUEST_ID_INVALID',
       )
+    } finally {
+      await db.close()
+    }
+  }, 20000)
+
+  it('allocates after persisted opening IDs even if counter is reset, then gives distinct IDs to concurrent callers', async () => {
+    const { db, store } = await databaseFixture()
+    try {
+      const user = await store.ensureUser('0x0000000000000000000000000000000000000001')
+      const connection = randomUUID(),
+        preview = randomUUID()
+      await db.query(
+        "INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status) VALUES($1,$2,'testnet','trade','fixture','ACTIVE')",
+        [connection, user],
+      )
+      await db.query(
+        "INSERT INTO opening_previews(id,user_id,connection_id,environment,account_id,market_id,parameters,parameter_hash,quote,expires_at) VALUES($1,$2,$3,'testnet',642,16,'{}','hash','{}',now()+interval '15 seconds')",
+        [preview, user, connection],
+      )
+      await db.query(
+        "INSERT INTO opening_orders(user_id,connection_id,environment,account_id,market_id,side,size,price_limit,leverage,collateral,fees,preview_id,idempotency_key,status,request_id) VALUES($1,$2,'testnet',642,16,'LONG',1,100,5,20,1,$3,$4,'UNKNOWN',100)",
+        [user, connection, preview, randomUUID()],
+      )
+      const allocator = new PerplRequestIdAllocator(store.pool)
+      const allocated = await Promise.all([allocator.allocate(642, '44'), allocator.allocate(642, '44')])
+      expect(allocated.sort()).toEqual(['101', '102'])
     } finally {
       await db.close()
     }

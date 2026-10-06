@@ -8,6 +8,7 @@ import {
   AuthenticationError,
   AuthorizationError,
   InfrastructureError,
+  NotFoundError,
   ValidationError,
 } from '../../application/errors.js'
 import { evaluateBookSnapshot } from '../../application/book-risk.js'
@@ -113,6 +114,33 @@ export function registerRoutes(context: HttpContext) {
       executionDisabled: isExecutionDisabled(process.env),
       previewTtlMs,
     }).preview(current.userId, request.body)
+  })
+  app.post<{ Body: { previewId: string; idempotencyKey: string } }>('/openings/confirm', async (request) => {
+    const current = await requireSession(request)
+    if (!config.openingEnabled || config.perplAccountMode !== 'per-user' || isExecutionDisabled(process.env))
+      throw new AuthorizationError('OPENING_DISABLED')
+    if (!(persistence instanceof PostgresStore)) throw new InfrastructureError('DATABASE_NOT_CONFIGURED')
+    const service = new OpeningTrades(
+      persistence,
+      context.venue,
+      config.environment === 'mainnet' ? 'mainnet' : 'testnet',
+      {
+        enabled: true,
+        executionDisabled: isExecutionDisabled(process.env),
+        previewTtlMs: Number(process.env.EYELER_OPENING_PREVIEW_TTL_MS ?? 15_000),
+      },
+    )
+    return service.confirm(current.userId, request.body?.previewId, request.body?.idempotencyKey)
+  })
+  app.get<{ Params: { id: string } }>('/openings/:id', async (request) => {
+    const current = await requireSession(request)
+    if (!(persistence instanceof PostgresStore)) throw new InfrastructureError('DATABASE_NOT_CONFIGURED')
+    const found = await persistence.pool.query('SELECT * FROM opening_orders WHERE id=$1 AND user_id=$2', [
+      request.params.id,
+      current.userId,
+    ])
+    if (!found.rows[0]) throw new NotFoundError('OPENING_ORDER_NOT_FOUND')
+    return found.rows[0]
   })
   app.get('/', async () => ({
     name: 'EYELER API',

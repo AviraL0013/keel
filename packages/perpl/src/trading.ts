@@ -45,7 +45,7 @@ export class PerplPreSubmissionError extends Error {
 type Pending = {
   rq: string
   accountId: number
-  action: Action
+  action: { id: string }
   resolve: (value: PerplSubmitResult) => void
   timer: ReturnType<typeof setTimeout>
   admitted: boolean
@@ -166,8 +166,39 @@ export class PerplTradingClient {
   async submit(
     action: Action,
     order: PerplOrder,
-    beforeSend: (reference: string) => Promise<void> = async () => undefined,
+    beforeSend: (reference: string, lb: number) => Promise<void> = async () => undefined,
     verifyBeforeSend: () => Promise<void> = async () => undefined,
+  ): Promise<PerplSubmitResult> {
+    return this.submitIntent(action, order, beforeSend, verifyBeforeSend, false)
+  }
+  async submitOpening(
+    openingId: string,
+    order: PerplOrder,
+    beforeSend: (reference: string, lb: number) => Promise<void>,
+    verifyBeforeSend: () => Promise<void> = async () => undefined,
+  ): Promise<PerplSubmitResult> {
+    if (
+      !openingId ||
+      ![1, 2].includes(order.t) ||
+      !Number.isSafeInteger(order.s) ||
+      order.s <= 0 ||
+      !Number.isSafeInteger(order.p) ||
+      order.p! <= 0 ||
+      !Number.isSafeInteger(order.lv) ||
+      order.lv < 100 ||
+      order.a !== undefined ||
+      order.lp !== undefined ||
+      order.ms !== undefined
+    )
+      throw new PerplPreSubmissionError('PERPL_OPEN_ORDER_INVALID')
+    return this.submitIntent({ id: openingId }, order, beforeSend, verifyBeforeSend, true)
+  }
+  private async submitIntent(
+    action: { id: string },
+    order: PerplOrder,
+    beforeSend: (reference: string, lb: number) => Promise<void>,
+    verifyBeforeSend: () => Promise<void>,
+    opening: boolean,
   ): Promise<PerplSubmitResult> {
     if (!this.socket || this.socket.readyState !== WS.OPEN)
       throw new PerplPreSubmissionError('PERPL_TRADING_NOT_CONNECTED')
@@ -219,9 +250,11 @@ export class PerplTradingClient {
     this.diagnostic(
       `PERPL_RQ_ALLOCATED account=${order.acc} rq=${rq} serialDelta=${forwardedRequestDelta(rq, lfr.toString())}`,
     )
+    const fixedExpiry = this.orderExpiry(order)
+    if (!fixedExpiry) throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
     const sn = ++this.sequence,
       reference = `${order.acc}:${rq}`
-    await beforeSend(reference)
+    await beforeSend(reference, fixedExpiry.lastExecBlock)
     // REST/history reads and durable persistence may outlast WS authority.
     if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
     const latestAccount = this.state.snapshot().accounts.find((item) => item.id === order.acc)
@@ -241,8 +274,13 @@ export class PerplTradingClient {
       throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
     if (!validForwardedRequestId(rq, String(sendAccount.lfr)))
       throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
-    const expiry = this.orderExpiry(order)
+    const expiry = opening ? fixedExpiry : this.orderExpiry(order)
     if (!expiry) throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
+    if (opening) {
+      const current = this.heartbeat()
+      if (!current || current.epoch !== expiry.epoch || current.head >= expiry.lastExecBlock)
+        throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
+    }
     const { orderTtlBlocks: _ttl, ...wireOrder } = order
     wireOrder.lb = expiry.lastExecBlock
     return await new Promise((resolve) => {

@@ -11,6 +11,7 @@ import {
 } from '../../../../packages/perpl/src/index.js'
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
+import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
 import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
@@ -507,6 +508,15 @@ export function createPerplRuntime(
         account.ft,
       )
     },
+    async reconcileOpening(intent) {
+      if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
+      const [historyRows, operations, account] = await Promise.all([
+        history.openingEvidence(intent.accountId, intent.requestId, intent.marketId),
+        history.verifiedRequestOperations(intent.accountId, intent.requestId),
+        trading.accountRequestState(intent.accountId).catch(() => undefined),
+      ])
+      return reconcileOpening(intent, { ...historyRows, operations, account })
+    },
     async validate() {
       try {
         const context = await adapter.getProtocolContext()
@@ -654,6 +664,9 @@ export function createPerplRuntime(
     },
     async submit(action) {
       return live.submit(action)
+    },
+    async submitOpening(openingId, order, beforeSend, verifyBeforeSend) {
+      return trading.submitOpening(openingId, order, beforeSend, verifyBeforeSend)
     },
     async reconcile(action) {
       return live.reconcile(action)

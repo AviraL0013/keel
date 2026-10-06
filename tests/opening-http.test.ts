@@ -78,3 +78,24 @@ it('refuses opening endpoints when the flag is off and never touches the venue',
     await app.close()
   }
 })
+
+it('keeps confirmation disabled without the opening flag and requires a session', async () => {
+  const { app } = await fixture(false)
+  try {
+    const body = {
+      previewId: '00000000-0000-4000-8000-000000000001',
+      idempotencyKey: '00000000-0000-4000-8000-000000000002',
+    }
+    expect((await app.inject({ method: 'POST', url: '/openings/confirm', payload: body })).statusCode).toBe(401)
+    const response = await app.inject({
+      method: 'POST',
+      url: '/openings/confirm',
+      payload: body,
+      headers: { authorization: 'Bearer fixture-session' },
+    })
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toMatchObject({ error: 'OPENING_DISABLED' })
+  } finally {
+    await app.close()
+  }
+})

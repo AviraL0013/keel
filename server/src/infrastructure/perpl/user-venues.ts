@@ -35,6 +35,7 @@ export class PerplUserVenues implements RuntimeVenue {
   private active = false
   private generation = 0
   private readonly entries = new Map<string, Entry>()
+  private readonly submissionTails = new Map<number, Promise<void>>()
   private readonly pending = new Map<string, Promise<RuntimeVenue | undefined>>()
   private readonly closing = new Map<string, Promise<void>>()
   private maintenance?: ReturnType<typeof setInterval>
@@ -81,6 +82,22 @@ export class PerplUserVenues implements RuntimeVenue {
   }
   ready() {
     return this.active
+  }
+  private async serializeSubmission<T>(accountId: number, work: () => Promise<T>): Promise<T> {
+    const prior = this.submissionTails.get(accountId) ?? Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const tail = prior.then(() => current)
+    this.submissionTails.set(accountId, tail)
+    await prior
+    try {
+      return await work()
+    } finally {
+      release()
+      if (this.submissionTails.get(accountId) === tail) this.submissionTails.delete(accountId)
+    }
   }
   async close() {
     this.active = false
@@ -215,6 +232,16 @@ export class PerplUserVenues implements RuntimeVenue {
           await authorize()
           return entry.raw.reconcile(action)
         }),
+      ...(entry.raw.reconcileOpening
+        ? {
+            reconcileOpening: (intent: Parameters<NonNullable<RuntimeVenue['reconcileOpening']>>[0]) =>
+              entry.use(async () => {
+                await authorize()
+                if (intent.accountId !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                return entry.raw.reconcileOpening!(intent)
+              }),
+          }
+        : {}),
       refresh: (book) =>
         entry.use(async () => {
           assertBook(book)
@@ -361,15 +388,56 @@ export class PerplUserVenues implements RuntimeVenue {
           ? { openingMarketSnapshot: (marketId: number) => use(async () => raw.openingMarketSnapshot!(marketId)) }
           : {}),
         submit: (action) =>
-          use(async () => {
-            await actionBook(action.bookId)
-            return raw.submit(action)
-          }),
+          use(() =>
+            this.serializeSubmission(accountId, async () => {
+              await authorize()
+              await actionBook(action.bookId)
+              return raw.submit(action)
+            }),
+          ),
+        ...(raw.submitOpening
+          ? {
+              submitOpening: (
+                openingId: string,
+                order: Parameters<NonNullable<RuntimeVenue['submitOpening']>>[1],
+                beforeSend: Parameters<NonNullable<RuntimeVenue['submitOpening']>>[2],
+                verifyBeforeSend: () => Promise<void> = async () => undefined,
+              ) =>
+                use(() =>
+                  this.serializeSubmission(accountId, async () => {
+                    await authorize()
+                    if (order.acc !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                    return raw.submitOpening!(
+                      openingId,
+                      order,
+                      async (reference, lb) => {
+                        await authorize()
+                        await beforeSend(reference, lb)
+                      },
+                      async () => {
+                        await authorize()
+                        await verifyBeforeSend()
+                      },
+                    )
+                  }),
+                ),
+            }
+          : {}),
         reconcile: (action) =>
           use(async () => {
             await actionBook(action.bookId)
             return raw.reconcile(action)
           }),
+        ...(raw.reconcileOpening
+          ? {
+              reconcileOpening: (intent: Parameters<NonNullable<RuntimeVenue['reconcileOpening']>>[0]) =>
+                use(async () => {
+                  await authorize()
+                  if (intent.accountId !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                  return raw.reconcileOpening!(intent)
+                }),
+            }
+          : {}),
         refresh: (book) =>
           use(async () => {
             assertBook(book)
