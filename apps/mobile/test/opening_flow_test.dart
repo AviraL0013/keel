@@ -11,6 +11,7 @@ import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
 import 'package:eyeler_mobile/core/config/environment.dart';
 import 'package:eyeler_mobile/core/networking/api_client.dart';
 import 'package:eyeler_mobile/core/storage/session_storage.dart';
+import 'package:eyeler_mobile/core/errors/eyeler_exception.dart';
 import 'package:http/http.dart' as http;
 
 class FakeOpeningRepository extends OpeningRepository {
@@ -73,6 +74,20 @@ class FakeOpeningRepository extends OpeningRepository {
           side: 'LONG');
 }
 
+class DisabledOpeningRepository extends FakeOpeningRepository {
+  DisabledOpeningRepository() : super(const []);
+  @override
+  Future<List<OpeningMarket>> listMarkets() async =>
+      throw const EyelerException('OPENING_DISABLED', statusCode: 403);
+}
+
+class DelayedOpeningRepository extends FakeOpeningRepository {
+  DelayedOpeningRepository() : super(const []);
+  final result = Completer<List<OpeningMarket>>();
+  @override
+  Future<List<OpeningMarket>> listMarkets() => result.future;
+}
+
 class StaticPositionsRepository extends PositionsRepository {
   StaticPositionsRepository(this.position)
       : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
@@ -98,6 +113,42 @@ void main() {
     expect(order.positionId, 98);
   });
   for (final width in [320.0, 360.0]) {
+    testWidgets('loading and error opening states fit $width dp',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = DelayedOpeningRepository();
+      await tester.pumpWidget(ProviderScope(overrides: [
+        openingRepositoryProvider.overrideWithValue(repository),
+      ], child: const MaterialApp(home: OpeningScreen())));
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      repository.result.completeError(
+          const EyelerException('PERPL_MARKET_UNAVAILABLE', statusCode: 503));
+      await tester.pumpAndSettle();
+      expect(
+          find.text('EYELER server unavailable. Check the backend and retry.'),
+          findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+    testWidgets('disabled opening state fits $width dp', (tester) async {
+      tester.view.physicalSize = Size(width, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(ProviderScope(overrides: [
+        openingRepositoryProvider
+            .overrideWithValue(DisabledOpeningRepository()),
+      ], child: const MaterialApp(home: OpeningScreen())));
+      await tester.pumpAndSettle();
+      expect(find.text('Opening trades are not enabled for this account.'),
+          findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
     testWidgets('opening market empty state fits $width dp', (tester) async {
       tester.view.physicalSize = Size(width, 700);
       tester.view.devicePixelRatio = 1;
