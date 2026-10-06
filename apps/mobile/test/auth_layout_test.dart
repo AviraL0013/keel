@@ -23,7 +23,8 @@ void main() {
       ));
       await tester.pump();
       expect(tester.takeException(), isNull);
-      expect(find.text('CONNECT WALLET'), findsOneWidget);
+      expect(find.text('SIGN IN WITH PASSKEY'), findsOneWidget);
+      expect(find.text('CREATE NEW MERA WALLET'), findsOneWidget);
     });
   }
 }

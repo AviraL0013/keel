@@ -1,3 +1,4 @@
+import '../../auth/data/auth_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
 import '../domain/capital_snapshot.dart';
@@ -17,8 +18,11 @@ class CapitalRepository {
           AgoraActivity.fromJson(Map<String, dynamic>.from(value as Map)));
 }
 
-final capitalRepositoryProvider = Provider<CapitalRepository>(
-    (ref) => CapitalRepository(ref.watch(apiClientProvider)));
+final capitalRepositoryProvider = Provider<CapitalRepository>((ref) {
+  ref.watch(
+      authProvider.select((state) => (state.authenticated, state.address)));
+  return CapitalRepository(ref.watch(apiClientProvider));
+});
 final capitalProvider = FutureProvider.autoDispose<CapitalSnapshot>(
     (ref) => ref.watch(capitalRepositoryProvider).get());
 final agoraActivityProvider = FutureProvider.autoDispose<AgoraActivity>(

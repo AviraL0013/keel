@@ -41,6 +41,12 @@ class AuthController extends StateNotifier<AuthState> {
   final AuthRepository repository;
   final SessionStorage storage;
   final WalletConnector wallet;
+  void sessionExpired() {
+    wallet.dispose();
+    state = const AuthState(
+        authenticated: false, error: 'Session expired. Sign in again.');
+  }
+
   Future<void> restore() async {
     state =
         const AuthState(authenticated: false, loading: true, restoring: true);
@@ -92,13 +98,14 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> connectAndAuthenticate() async {
+  Future<void> connectAndAuthenticate({bool createAccount = false}) async {
     try {
       state = const AuthState(
           authenticated: false,
           loading: true,
           walletStatus: WalletStatus.connecting);
-      final connection = await wallet.connect();
+      final connection =
+          await (createAccount ? wallet.createAccount() : wallet.connect());
       state = AuthState(
           authenticated: false,
           loading: true,
@@ -127,6 +134,7 @@ class AuthController extends StateNotifier<AuthState> {
           address: connection.address,
           chainId: connection.chainId);
     } catch (error) {
+      wallet.dispose();
       state = AuthState(
           authenticated: false,
           walletStatus: WalletStatus.error,
@@ -147,8 +155,14 @@ class AuthController extends StateNotifier<AuthState> {
   }
 }
 
-final walletConnectorProvider =
-    Provider<WalletConnector>((_) => createWalletConnector());
-final authProvider = StateNotifierProvider<AuthController, AuthState>((ref) =>
-    AuthController(ref.watch(authRepositoryProvider),
-        ref.watch(sessionStorageProvider), ref.watch(walletConnectorProvider)));
+final walletConnectorProvider = Provider<WalletConnector>((ref) {
+  final wallet = createWalletConnector();
+  ref.onDispose(wallet.dispose);
+  return wallet;
+});
+final authProvider = StateNotifierProvider<AuthController, AuthState>((ref) {
+  final controller = AuthController(ref.watch(authRepositoryProvider),
+      ref.watch(sessionStorageProvider), ref.watch(walletConnectorProvider));
+  ref.listen(sessionExpiryProvider, (_, __) => controller.sessionExpired());
+  return controller;
+});

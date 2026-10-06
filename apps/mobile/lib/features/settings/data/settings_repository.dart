@@ -1,3 +1,4 @@
+import '../../auth/data/auth_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
 
@@ -10,5 +11,8 @@ class SettingsRepository {
       body: {'scenario': value}, decode: (_) => true);
 }
 
-final settingsRepositoryProvider = Provider<SettingsRepository>(
-    (ref) => SettingsRepository(ref.watch(apiClientProvider)));
+final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
+  ref.watch(
+      authProvider.select((state) => (state.authenticated, state.address)));
+  return SettingsRepository(ref.watch(apiClientProvider));
+});

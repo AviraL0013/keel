@@ -1,3 +1,4 @@
+import '../../auth/data/auth_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
 import '../domain/autopsy_event.dart';
@@ -15,8 +16,11 @@ class AutopsyRepository {
   }
 }
 
-final autopsyRepositoryProvider = Provider<AutopsyRepository>(
-    (ref) => AutopsyRepository(ref.watch(apiClientProvider)));
+final autopsyRepositoryProvider = Provider<AutopsyRepository>((ref) {
+  ref.watch(
+      authProvider.select((state) => (state.authenticated, state.address)));
+  return AutopsyRepository(ref.watch(apiClientProvider));
+});
 final autopsyProvider = FutureProvider.family
     .autoDispose<List<AutopsyEvent>, String>(
         (ref, id) => ref.watch(autopsyRepositoryProvider).list(id));

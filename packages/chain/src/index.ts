@@ -33,23 +33,39 @@ export class ChainAdapter {
   constructor(environment: ChainEnvironment, overrides: Partial<ChainConfig> = {}) {
     this.config = { ...chainConfigs[environment], ...overrides }
     const chain = environment === 'mainnet' ? monad : monadTestnet
-    this.client = createPublicClient({ chain, transport: http(this.config.rpcUrl) })
+    this.client = createPublicClient({ chain, transport: http(this.config.rpcUrl, { timeout: 8000, retryCount: 0 }) })
   }
   async getNativeBalance(address: Address) {
     return this.client.getBalance({ address })
   }
   async getAusdBalance(address: Address) {
+    if ((await this.client.getChainId()) !== this.config.chainId) throw new Error('MONAD_CHAIN_MISMATCH')
+    const blockNumber = await this.client.getBlockNumber({ cacheTime: 0 })
     const [balance, decimals, symbol] = await Promise.all([
       this.client.readContract({
         address: this.config.ausdToken,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [address],
+        blockNumber,
       }),
-      this.client.readContract({ address: this.config.ausdToken, abi: erc20Abi, functionName: 'decimals' }),
-      this.client.readContract({ address: this.config.ausdToken, abi: erc20Abi, functionName: 'symbol' }),
+      this.client.readContract({
+        address: this.config.ausdToken,
+        abi: erc20Abi,
+        functionName: 'decimals',
+        blockNumber,
+      }),
+      this.client.readContract({ address: this.config.ausdToken, abi: erc20Abi, functionName: 'symbol', blockNumber }),
     ])
-    return { balance, decimals, symbol, address: this.config.ausdToken, chainId: this.config.chainId }
+    return {
+      balance,
+      decimals,
+      symbol,
+      address: this.config.ausdToken,
+      chainId: this.config.chainId,
+      blockNumber,
+      observedAt: Date.now(),
+    }
   }
   async getBlockNumber() {
     return this.client.getBlockNumber()

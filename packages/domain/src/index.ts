@@ -29,6 +29,7 @@ export type Book = {
   marketId?: number
   venueAccountId?: number
   venuePositionId?: number
+  perplConnectionId?: string
   side: PositionSide
   stance: BookStance
   liquidationFloor: number
@@ -172,6 +173,7 @@ export type CapitalAmount = {
   ageMs?: number
   updatedAt?: string
   reason?: string
+  onChain?: { wallet: string; token: string; chainId: number; blockNumber?: string; explorerUrl: string }
 }
 export type AgoraActivity = {
   status: 'AVAILABLE' | 'UNAVAILABLE'

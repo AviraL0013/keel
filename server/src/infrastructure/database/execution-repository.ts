@@ -103,6 +103,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
       marketId: Number(row.market_id),
       venueAccountId: Number(row.venue_account_id),
       venuePositionId: Number(row.venue_position_id),
+      perplConnectionId: row.perpl_connection_id == null ? undefined : String(row.perpl_connection_id),
       side: row.side,
       stance: row.stance,
       liquidationFloor: Number(row.liquidation_floor),

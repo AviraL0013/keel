@@ -42,7 +42,7 @@ class WalletNetworkConfig {
   String get hexChainId => '0x${chainId.toRadixString(16)}';
 }
 
-class Eip1193WalletConnector implements WalletConnector {
+class Eip1193WalletConnector extends WalletConnector {
   Eip1193WalletConnector(this.request,
       {this.network = const WalletNetworkConfig()});
   final WalletRequest request;

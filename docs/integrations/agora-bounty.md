@@ -10,7 +10,7 @@ Perpl USD collateral, Perpl free and locked balances, Eyeler Book allocations, a
 
 Mera passkey mode derives a new EVM address from WebAuthn PRF output. It cannot reproduce an existing MetaMask or Perpl address.
 
-A same-address demo uses Mera Vault mode: the user enters the existing recovery phrase locally, Mera encrypts it behind a passkey, and the app derives the existing address only in memory. The phrase never enters Eyeler API requests, logs, analytics, or this repository.
+The operator selected a new Mera wallet only. Existing-wallet import, recovery-phrase entry, and Mera Vault mode are not part of this release. The already-funded external Perpl wallet is a separate account; its balance and credentials must never be assigned to the Mera wallet.
 
 A new Mera address remains read-only until Perpl approves its origin and Eyeler has a per-user Perpl connection for that address. The server-wide Perpl account must never be used for an unrelated Mera address.
 
@@ -28,7 +28,8 @@ A new Mera address remains read-only until Perpl approves its origin and Eyeler 
 - Agora confirmation that installed Flutter Android/iOS builds satisfy bounty wording and whether Monad testnet trade is accepted for judging.
 - Android release package ID and signing certificate SHA-256 for Digital Asset Links, or iOS bundle ID and Apple Team ID for associated domain.
 - Physical Android/iOS device or configured emulator with passkey support.
-- User performs local passkey creation, seed entry, AUSD faucet/deposit, and wallet confirmation. No seed, key, token, or signature is sent to Eyeler support.
+- User performs local passkey creation, AUSD faucet/deposit to the new address, and wallet confirmation. No seed, key, token, or signature is sent to Eyeler support.
+- Operator configures [AWS KMS custody](../deployment/aws-kms.md), role authentication and audit retention before any deployed per-user trading.
 
 ## Test gates
 

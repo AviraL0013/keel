@@ -8,6 +8,8 @@ import '../../../shared/widgets/eyeler_widgets.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../capital/data/capital_repository.dart';
 import '../data/settings_repository.dart';
+import 'telegram_panel.dart';
+import '../../positions/presentation/perpl_connection_panel.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -33,6 +35,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             const Text('Your EYELER settings', style: EyelerTypography.display),
             const SizedBox(height: EyelerSpacing.lg),
+            const TelegramPanel(),
+            const PerplConnectionPanel(),
+            const SizedBox(height: EyelerSpacing.md),
             EyelerPanel(
                 child: Padding(
                     padding: EdgeInsets.zero,
@@ -168,7 +173,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   String _environmentLabel(String? environment) => switch (environment) {
         'test' => 'DEV / TEST VENUE',
-        'mainnet' => 'LIVE TESTNET',
+        'mainnet' => 'LIVE MAINNET',
         'development' => 'LOCAL DEV',
         _ => environment?.toUpperCase() ?? 'UNKNOWN',
       };

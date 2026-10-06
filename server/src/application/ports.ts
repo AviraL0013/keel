@@ -49,6 +49,11 @@ export type ExecutionPort = {
 }
 
 export type VenuePort = {
+  connectionId?: string
+  forUser?(
+    userId: string,
+    connectionId?: string,
+  ): Promise<(VenuePort & { loadBookSetup?: import('./books.js').BookSetupLoader }) | undefined>
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
   listPositions?(): Promise<
     Array<{

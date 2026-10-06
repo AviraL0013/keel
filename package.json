@@ -24,6 +24,7 @@
         "mobile:build": "cd apps/mobile && flutter build apk --debug"
     },
     "dependencies": {
+        "@aws-sdk/client-kms": "3.1146.0",
         "@fastify/cookie": "^11.1.2",
         "@fastify/cors": "^11.3.0",
         "@fastify/rate-limit": "^11.2.0",

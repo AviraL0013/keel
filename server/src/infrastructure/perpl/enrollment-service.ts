@@ -5,12 +5,15 @@ import { hashTypedData, verifyTypedData, type Address, type Hex } from 'viem'
 import { brandEnv, type Config } from '../../config/index.js'
 import { AuthorizationError, ConflictError, InfrastructureError, NotFoundError } from '../../application/errors.js'
 import type { PostgresStore } from '../database/postgres-store.js'
-import { DevelopmentKeyCustody, type KeyCustody } from './key-custody.js'
+import { credentialContext, type KeyCustody } from './key-custody.js'
+import { configuredKeyCustody } from './configured-key-custody.js'
+import { loadKeyCustodyConfig } from '../../../../packages/shared/src/key-custody-config.js'
 import { PerplEnrollmentClient, type EnrollmentPayloadRequest, type EnrolledKey } from './enrollment-client.js'
+import { validateEnrollmentPayload } from './enrollment-payload.js'
 
 export type EnrollmentConfig = {
   chainId: number
-  environment: 'testnet'
+  environment: 'testnet' | 'mainnet'
   origin: string
   ttlDays: number
   ipCidrs?: string[]
@@ -23,11 +26,10 @@ type TypedData = {
   primaryType: string
   message: Record<string, unknown>
 }
-const keyPage = 'https://testnet.perpl.xyz/apikeys'
-const credentialContext = (id: string, field: 'private_key' | 'mac' | 'api_token') => `${id}:${field}`
+const keyPage = (environment: string) => `https://${environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz/apikeys`
 
 export function loadEnrollmentConfig(env: Record<string, string | undefined>, config: Config): EnrollmentConfig {
-  if (config.environment === 'mainnet') throw new Error('PERPL_CONNECTIONS_MAINNET_UNSUPPORTED')
+  if (config.environment === 'mainnet') loadKeyCustodyConfig(env, config.environment)
   const origin = env.PERPL_ENROLLMENT_ORIGIN
   try {
     if (!origin || new URL(origin).origin !== origin || !origin.startsWith('https://')) throw new Error()
@@ -67,7 +69,7 @@ export function loadEnrollmentConfig(env: Record<string, string | undefined>, co
     throw new Error('INVALID_EYELER_BUILDER_TERMS')
   return {
     chainId: config.perplChainId,
-    environment: 'testnet',
+    environment: config.environment === 'mainnet' ? 'mainnet' : 'testnet',
     origin,
     ttlDays,
     ...(ipCidrs.length ? { ipCidrs } : {}),
@@ -92,6 +94,21 @@ export class PerplEnrollmentService {
     private readonly client: PerplEnrollmentClient,
     private readonly now: () => number = Date.now,
   ) {}
+
+  capabilities() {
+    return {
+      status: 'AVAILABLE',
+      environment: this.config.environment,
+      chainId: this.config.chainId,
+      origin: this.config.origin,
+      scope: 'read,trade',
+      withdrawals: false,
+      ttlDays: this.config.ttlDays,
+      builderId: this.config.builderId ?? 0,
+      maxBuilderFeePer100K: this.config.builderFeeCeiling ?? 0,
+      perplKeyPageUrl: keyPage(this.config.environment),
+    }
+  }
 
   startCleanup() {
     if (!this.cleanupTimer) {
@@ -147,7 +164,7 @@ export class PerplEnrollmentService {
           : { builder_id: this.config.builderId, max_builder_fee_per_100k: this.config.builderFeeCeiling }),
       }
       const payload = await this.client.payload(payloadRequest)
-      const typed = typedData(payload.typed_data)
+      const typed = validateEnrollmentPayload(payload.typed_data, payloadRequest, this.config.origin, this.now())
       const connectionId = randomUUID()
       try {
         await this.store.pool.query(
@@ -160,8 +177,8 @@ export class PerplEnrollmentService {
             `enrollment:${connectionId}`,
             wallet,
             publicKey,
-            this.custody.seal(secret.toString('hex'), credentialContext(connectionId, 'private_key')),
-            this.custody.seal(payload.mac, credentialContext(connectionId, 'mac')),
+            await this.custody.seal(secret.toString('hex'), credentialContext(userId, connectionId, 'private_key')),
+            await this.custody.seal(payload.mac, credentialContext(userId, connectionId, 'mac')),
             JSON.stringify(typed),
             this.config.origin,
             JSON.stringify(this.config.ipCidrs ?? []),
@@ -215,7 +232,25 @@ export class PerplEnrollmentService {
         [userId, row.wallet_address, row.environment],
       )
       if (active.rows.length) throw new ConflictError('PERPL_CONNECTION_ALREADY_ACTIVE')
-      const typed = typedData(row.typed_data)
+      if (row.environment !== this.config.environment || row.origin !== this.config.origin)
+        throw new ConflictError('PERPL_ENROLLMENT_CONFIGURATION_CHANGED')
+      const typed = validateEnrollmentPayload(
+        row.typed_data,
+        {
+          chain_id: this.config.chainId,
+          address: String(row.wallet_address),
+          public_key: String(row.public_key),
+          scope_mask: 3,
+          label: 'EYELER',
+          expires_at: new Date(row.expires_at as string).getTime(),
+          ip_cidrs: row.ip_cidrs as string[],
+          ...(row.builder_id == null
+            ? {}
+            : { builder_id: Number(row.builder_id), max_builder_fee_per_100k: Number(row.builder_fee_ceiling) }),
+        },
+        this.config.origin,
+        this.now(),
+      )
       let valid = false
       try {
         valid = await verifyTypedData({
@@ -244,7 +279,7 @@ export class PerplEnrollmentService {
     let enrolled: EnrolledKey
     try {
       const privateKey = Buffer.from(
-        this.custody.open(String(row.sealed_private_key), credentialContext(id, 'private_key')),
+        await this.custody.open(String(row.sealed_private_key), credentialContext(userId, id, 'private_key')),
         'hex',
       )
       let popSignature: string
@@ -258,7 +293,7 @@ export class PerplEnrollmentService {
         chain_id: this.config.chainId,
         address: walletAddress.toLowerCase(),
         typed_data: typed,
-        mac: this.custody.open(String(row.sealed_mac), credentialContext(id, 'mac')),
+        mac: await this.custody.open(String(row.sealed_mac), credentialContext(userId, id, 'mac')),
         signature,
         pop_signature: popSignature,
       })
@@ -286,7 +321,7 @@ export class PerplEnrollmentService {
     try {
       const saved = await this.store.pool.query(
         "UPDATE perpl_connections SET status='ACTIVE',sealed_api_token=$2,sealed_mac=NULL,typed_data=NULL,pending_expires_at=NULL,last_error=NULL WHERE id=$1 AND user_id=$3 AND status='ENROLLING' RETURNING id",
-        [id, this.custody.seal(key.api_key, credentialContext(id, 'api_token')), userId],
+        [id, await this.custody.seal(key.api_key, credentialContext(userId, id, 'api_token')), userId],
       )
       if (!saved.rows.length) throw new Error('ENROLLMENT_FINAL_STATE_CHANGED')
     } catch {
@@ -317,7 +352,7 @@ export class PerplEnrollmentService {
       if (current.rows[0]?.status === 'ENROLLING') throw new ConflictError('PERPL_ENROLLMENT_IN_PROGRESS')
       throw new NotFoundError('PERPL_CONNECTION_NOT_FOUND')
     }
-    return { connectionId: id, status: 'REVOKED', perplKeyPageUrl: keyPage }
+    return { connectionId: id, status: 'REVOKED', perplKeyPageUrl: keyPage(this.config.environment) }
   }
 }
 
@@ -326,11 +361,10 @@ export function createPerplEnrollmentService(
   config: Config,
   env: Record<string, string | undefined>,
   fetcher: typeof fetch = fetch,
+  custody: KeyCustody | undefined = configuredKeyCustody(env, config.environment),
 ): PerplEnrollmentService | undefined {
-  const key = brandEnv(env, 'KEY_ENCRYPTION_KEY')
-  if (!key) return undefined
+  if (!custody) return undefined
   const settings = loadEnrollmentConfig(env, config)
-  const custody = new DevelopmentKeyCustody(key)
   return new PerplEnrollmentService(
     store,
     settings,

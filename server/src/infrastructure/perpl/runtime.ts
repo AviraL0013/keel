@@ -22,7 +22,6 @@ import {
   type Action,
   type Book,
   type BookCreationReadiness,
-  type CapitalAmount,
   type NormalizedTelemetry,
   type Position,
 } from '../../../../packages/domain/src/index.js'
@@ -30,9 +29,7 @@ import { ChainAdapter, chainConfigs } from '../../../../packages/chain/src/index
 import { AusdAdapter } from '../../../../packages/ausd/src/index.js'
 import { AgoraAdapter } from '../../../../packages/chain/src/agora.js'
 import { readAgoraActivity } from '../agora/activity.js'
-import { publicAusdSupply } from '../agora/metrics.js'
-import { reconcileBookCapital, type BookCapitalRow } from '../capital/reconciliation.js'
-import { formatMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
+import { readCapital } from '../capital/snapshot.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
 import { brandEnv, logger } from '../../config/index.js'
@@ -170,8 +167,10 @@ export function verifiedCloseSnapshotValues(
   }
 }
 
-export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefined {
-  const env = process.env
+export function createPerplRuntime(
+  store: PostgresStore,
+  env: Record<string, string | undefined> = process.env,
+): RuntimeVenue | undefined {
   if (!env.PERPL_API_KEY || !env.PERPL_API_KEY_SECRET || !env.PERPL_ACCOUNT_ID) return undefined
   const environment = brandEnv(env, 'ENV') === 'mainnet' ? 'mainnet' : 'testnet'
   const network = {
@@ -410,7 +409,7 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       collateralDecimals: token?.decimals ?? 6,
     }
   }
-  const verificationTimeoutMs = Number(process.env.EYELER_ORDER_VERIFY_TIMEOUT_MS ?? 180_000)
+  const verificationTimeoutMs = Number(env.EYELER_ORDER_VERIFY_TIMEOUT_MS ?? 180_000)
   if (!Number.isSafeInteger(verificationTimeoutMs) || verificationTimeoutMs < 15_000)
     throw new Error('INVALID_EYELER_ORDER_VERIFY_TIMEOUT_MS')
   const live = new PerplLiveAdapter(
@@ -585,151 +584,23 @@ export function createPerplRuntime(store: PostgresStore): RuntimeVenue | undefin
       }
       return result
     },
-    async capital(walletAddress?: string, userId?: string) {
-      const accountId = Number(env.PERPL_ACCOUNT_ID)
-      const asset = environment === 'testnet' ? 'USD' : 'AUSD'
-      let perpl: Awaited<ReturnType<PerplAdapter['getBalance']>> | undefined
-      let perplFree: string | undefined
-      try {
-        perpl = await adapter.getBalance(accountId)
-        const free = moneyMicros(perpl.available) - moneyMicros(perpl.locked)
-        if (free < 0n) throw new Error('PERPL_BALANCE_INVALID')
-        perplFree = formatMoney(free)
-      } catch {
-        perpl = undefined
-      }
-      let wallet: Awaited<ReturnType<AusdAdapter['walletBalance']>> | undefined
-      let walletUnavailableReason = walletAddress ? 'MONAD_COLLATERAL_READ_FAILED' : 'SESSION_WALLET_UNAVAILABLE'
-      if (walletAddress) {
-        try {
-          wallet = await ausd.walletBalance(getAddress(walletAddress))
-        } catch {
-          walletUnavailableReason = 'MONAD_COLLATERAL_READ_FAILED'
-        }
-      }
-      let walletAgora: Awaited<ReturnType<AusdAdapter['walletBalance']>> | undefined
-      if (walletAddress) {
-        try {
-          walletAgora = await agoraAusd.walletBalance(getAddress(walletAddress))
-        } catch {
-          // Keep Agora AUSD unavailable without affecting Perpl capital cards.
-        }
-      }
-      let ledger: ReturnType<typeof reconcileBookCapital> | undefined
-      if (userId) {
-        try {
-          const result = await store.pool.query(
-            `SELECT b.id AS book_id,b.market,r.available::text AS available,r.reserved::text AS reserved,
-              r.deployed::text AS deployed,r.updated_at AS updated_at
-             FROM books b JOIN reserves r ON r.book_id=b.id
-             WHERE b.user_id=$1 AND b.status<>'CLOSED' ORDER BY b.created_at,b.id`,
-            [userId],
-          )
-          const rows: BookCapitalRow[] = result.rows.map((row) => ({
-            bookId: String(row.book_id),
-            market: String(row.market),
-            available: String(row.available),
-            reserved: String(row.reserved),
-            deployed: String(row.deployed),
-            updatedAt: new Date(row.updated_at).toISOString(),
-          }))
-          ledger = reconcileBookCapital(rows, perplFree)
-        } catch {
-          // A failed ledger read never becomes a displayed zero.
-        }
-      }
-      let ausdMetrics: ReturnType<typeof publicAusdSupply> | { status: 'UNAVAILABLE'; reason: string } | undefined
-      if (env.AGORA_METRICS_ENABLED === 'true') {
-        try {
-          ausdMetrics = publicAusdSupply(await agora.metrics())
-        } catch {
-          ausdMetrics = { status: 'UNAVAILABLE', reason: 'AGORA_METRICS_READ_FAILED' }
-        }
-      }
-      const unavailable = (source: string, reason: string, decimals = 6): CapitalAmount => ({
-        amount: null,
-        asset,
-        decimals,
-        source,
-        availability: 'UNAVAILABLE',
-        freshness: 'UNKNOWN',
-        reason,
-      })
-      const available = (amount: string, source: string, decimals: number, updatedAt?: number): CapitalAmount => {
-        if (updatedAt === undefined)
-          return { amount, asset, decimals, source, availability: 'AVAILABLE', freshness: 'UNKNOWN' }
-        const ageMs = Math.max(0, Date.now() - updatedAt)
-        return {
-          amount,
-          asset,
-          decimals,
-          source,
-          availability: 'AVAILABLE',
-          freshness: ageMs <= freshnessThresholds.marketMs ? 'FRESH' : 'STALE',
-          ageMs,
-          updatedAt: new Date(updatedAt).toISOString(),
-        }
-      }
-      const ledgerReason = userId ? 'BOOK_LEDGER_READ_FAILED' : 'SESSION_USER_UNAVAILABLE'
-      const ledgerUpdatedAt = ledger?.updatedAt ? Date.parse(ledger.updatedAt) : Date.now()
-      const ledgerAmount = (amount: string | undefined, reason = ledgerReason) =>
-        amount === undefined
-          ? unavailable('EYELER_LEDGER', reason)
-          : available(amount, 'EYELER_LEDGER', 6, ledgerUpdatedAt)
-      return {
-        status: 'VALID' as const,
-        accountId,
-        walletAusd: wallet
-          ? available(
-              decodeAmount(wallet.raw.toString(), wallet.decimals),
-              'MONAD_COLLATERAL',
-              wallet.decimals,
-              Date.now(),
-            )
-          : unavailable('MONAD_COLLATERAL', walletUnavailableReason),
-        walletAgoraAusd: walletAgora
-          ? {
-              amount: decodeAmount(walletAgora.raw.toString(), walletAgora.decimals),
-              asset: 'AUSD',
-              decimals: walletAgora.decimals,
-              source: 'MONAD_AGORA_AUSD',
-              availability: 'AVAILABLE' as const,
-              freshness: 'FRESH' as const,
-              ageMs: 0,
-              updatedAt: new Date().toISOString(),
-            }
-          : unavailable(
-              'MONAD_AGORA_AUSD',
-              walletAddress ? 'MONAD_AGORA_AUSD_READ_FAILED' : 'SESSION_WALLET_UNAVAILABLE',
-            ),
-        perplAvailable:
-          perpl && perplFree
-            ? available(perplFree, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt)
-            : unavailable('PERPL_COLLATERAL', 'PERPL_BALANCE_READ_FAILED'),
-        perplLocked: perpl
-          ? available(perpl.locked, 'PERPL_COLLATERAL', perpl.decimals, perpl.updatedAt)
-          : unavailable('PERPL_COLLATERAL', 'PERPL_BALANCE_READ_FAILED'),
-        bookReserved: ledgerAmount(ledger?.reserved),
-        bookDeployed: ledgerAmount(ledger?.deployed),
-        bookRemaining: ledgerAmount(ledger?.available),
-        unreservedCapital: ledgerAmount(
-          ledger?.unreserved ?? undefined,
-          perplFree ? ledgerReason : 'PERPL_BALANCE_READ_FAILED',
-        ),
-        bookAllocations: ledger?.allocations,
-        reserveCoverage: ledger?.coverage,
-        ausd: wallet
-          ? {
-              raw: wallet.raw.toString(),
-              decimals: wallet.decimals,
-              symbol: asset,
-              token: wallet.token,
-              chainId: wallet.chainId,
-            }
-          : undefined,
-        ausdMetrics,
-      }
-    },
+    capital: (walletAddress, userId) =>
+      readCapital(
+        {
+          environment,
+          store,
+          accountId: Number(env.PERPL_ACCOUNT_ID),
+          connectionId: env.EYELER_PERPL_CONNECTION_ID,
+          readPerplBalance: () => adapter.getBalance(Number(env.PERPL_ACCOUNT_ID)),
+          ausd,
+          agoraAusd,
+          agora,
+          metricsEnabled: env.AGORA_METRICS_ENABLED === 'true',
+          freshnessThresholds,
+        },
+        walletAddress,
+        userId,
+      ),
     async agoraActivity(walletAddress?: string, cursor?: string) {
       if (!env.AGORA_API_KEY) return { status: 'UNAVAILABLE' as const, reason: 'AGORA_NOT_CONNECTED', rows: [] }
       return readAgoraActivity(agora, walletAddress, agoraEvidence, cursor)
