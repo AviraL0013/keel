@@ -17,6 +17,9 @@ enum _BookListTab { current, history }
 
 enum _BookFilter { all, active, safetyPaused, paused }
 
+const _deployment =
+    String.fromEnvironment('EYELER_DEPLOYMENT', defaultValue: 'testnet');
+
 class BooksScreen extends ConsumerStatefulWidget {
   const BooksScreen({super.key});
   @override
@@ -363,8 +366,9 @@ class _WalletOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reserveCap =
-        books.fold<double>(0, (total, book) => total + book.defenseCap);
+    final reserveCap = books
+        .where((book) => book.status != 'CLOSED')
+        .fold<double>(0, (total, book) => total + book.defenseCap);
     final active = books.where((book) => book.status == 'ACTIVE').length;
     final paused = books
         .where((book) => book.status == 'SAFE_MODE' || book.status == 'PAUSED')
@@ -393,13 +397,13 @@ class _WalletOverview extends StatelessWidget {
                       decoration: const BoxDecoration(
                           color: EyelerColors.defend, shape: BoxShape.circle)),
                   const SizedBox(width: 6),
-                  Text('LIVE',
+                  Text(_deployment.toUpperCase(),
                       style: EyelerTypography.label
                           .copyWith(fontSize: 10, color: EyelerColors.defend))
                 ]))
           ]),
           const SizedBox(height: EyelerSpacing.sm),
-          Text('Protected capital',
+          Text('Current Book defense caps',
               style: EyelerTypography.body.copyWith(color: muted)),
           const SizedBox(height: 2),
           Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -410,7 +414,8 @@ class _WalletOverview extends StatelessWidget {
             Flexible(
                 child: Padding(
                     padding: const EdgeInsets.only(bottom: 7),
-                    child: Text('AUSD cap',
+                    child: Text(
+                        '${_deployment == 'sandbox' ? 'Sandbox' : 'Testnet'} USD - not wallet balance',
                         overflow: TextOverflow.ellipsis,
                         style: EyelerTypography.body.copyWith(color: muted))))
           ]),

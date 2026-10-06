@@ -51,7 +51,10 @@ class CapitalScreen extends ConsumerWidget {
                     _CapitalSection(
                         title: 'Wallet / ${snapshot.walletAusd.asset}',
                         icon: Icons.account_balance_wallet_outlined,
-                        values: {'AUSD balance': snapshot.walletAusd}),
+                        values: {
+                          '${snapshot.walletAusd.asset} balance':
+                              snapshot.walletAusd
+                        }),
                     _CapitalSection(
                         title: 'Agora AUSD wallet',
                         icon: Icons.currency_exchange,
