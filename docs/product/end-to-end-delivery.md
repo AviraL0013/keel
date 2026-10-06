@@ -66,6 +66,8 @@ Acceptance: user B cannot read, trade, receive alerts for, or bind user A's reso
 - [ ] PE-08: Handle expired, revoked, ambiguous-enrollment and disconnect states. Disconnect blocks new execution; unresolved prior actions retain an explicit reconciliation path.
 - [ ] PE-09: Verify origin approval on each deployed enrollment origin. Mainnet approval does not automatically prove testnet approval or another origin.
 
+PE-09 check on 2026-10-07: an unsigned testnet enrollment-payload request with origin `https://app.eyeler.xyz` returned HTTP 400 `Bad Request`. No signature or enrollment was attempted. Builder ID, fees, scope, and expiry were not returned, so testnet origin approval remains unverified. Testnet-only versioned Railway-secret envelope custody has fake-key tests; mainnet remains KMS-only.
+
 ## 4. Runtime isolation and execution
 
 - [ ] RT-01: Resolve a venue per user and persisted Book binding, with no shared-account fallback.
@@ -86,6 +88,8 @@ Acceptance: user B cannot read, trade, receive alerts for, or bind user A's reso
 - [ ] TR-05: Persist idempotency and request ID before send. Double taps, retries, timeouts and reconnects cannot create duplicate trades.
 - [ ] TR-06: Track opening order through submission, verification, confirmed/failed/partial/unknown states using authoritative venue evidence.
 - [ ] TR-07: Show the verified new position, then create a Book through existing policy gates. A trade is not a Book reserve credit.
+
+Opening-trade branch evidence: `opening-market.test.ts`, `opening-http.test.ts`, `opening-preview.test.ts`, `opening-previews.test.ts`, `opening-confirm-gates.test.ts`, `opening-reserves.test.ts`, and `opening-migration.test.ts` exercise market metadata, freshness, exact preview math, owner/expiry binding, reserve boundaries, and migration 017 with fake venues and local fixtures. These establish preparation only. There is no opening-confirm HTTP route, venue send/reconciliation path, or Flutter opening flow; TR-01–TR-07 remain unchecked until their full behavior is proven.
 - [ ] TR-08: Exercise DEFEND/REDUCE/EXIT for each scoped account, including late history, insufficient funds, external/manual position changes and stale snapshots.
 - [ ] TR-09: Keep automation opt-in, limits explicit, pause/kill effective, and unresolved actions blocking. No opening-position automation in this release.
 

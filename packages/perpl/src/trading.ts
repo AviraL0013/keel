@@ -302,6 +302,9 @@ export class PerplTradingClient {
     const value = this.state.heartbeat()
     return value && this.streamEpoch ? { ...value, epoch: this.streamEpoch } : undefined
   }
+  heartbeatObservedAt() {
+    return this.state.heartbeatObservedAt()
+  }
   boundedVerification(value?: VenueProgress) {
     return !!(
       value &&

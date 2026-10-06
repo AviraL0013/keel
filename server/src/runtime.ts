@@ -12,6 +12,7 @@ import type {
 } from '../../packages/domain/src/index.js'
 import { evaluate, evaluateManualAction, telemetryFreshnessFailures } from '../../packages/risk-engine/src/index.js'
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
+import type { OpeningMarketDetail } from '../../packages/perpl/src/opening-market.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
 import { ExecutionWorker } from './workers/execution-worker.js'
@@ -41,6 +42,8 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
       bookCreation: BookCreationReadiness
     }>
   >
+  listOpeningMarkets?(): Promise<Array<{ id: number; symbol: string; status: 'OPEN' | 'CLOSED' }>>
+  openingMarketSnapshot?(marketId: number): Promise<OpeningMarketDetail>
   capital?(walletAddress?: string, userId?: string): Promise<CapitalSnapshot>
   agoraActivity?(walletAddress?: string, cursor?: string): Promise<AgoraActivity>
   start?(): Promise<void>

@@ -356,6 +356,10 @@ export class PerplUserVenues implements RuntimeVenue {
         connectionId: row.id,
         ready: () => isCurrent() && raw.ready(),
         close: () => this.evict(row.id, entry),
+        ...(raw.listOpeningMarkets ? { listOpeningMarkets: () => use(async () => raw.listOpeningMarkets!()) } : {}),
+        ...(raw.openingMarketSnapshot
+          ? { openingMarketSnapshot: (marketId: number) => use(async () => raw.openingMarketSnapshot!(marketId)) }
+          : {}),
         submit: (action) =>
           use(async () => {
             await actionBook(action.bookId)

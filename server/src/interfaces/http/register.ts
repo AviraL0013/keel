@@ -4,7 +4,12 @@ import type { Config } from '../../config/index.js'
 import { executionDisabled as isExecutionDisabled, logger } from '../../config/index.js'
 import type { Book, CapitalSnapshot } from '../../../../packages/domain/src/index.js'
 import { buildTelemetryFreshness } from '../../../../packages/domain/src/index.js'
-import { AuthenticationError, InfrastructureError, ValidationError } from '../../application/errors.js'
+import {
+  AuthenticationError,
+  AuthorizationError,
+  InfrastructureError,
+  ValidationError,
+} from '../../application/errors.js'
 import { evaluateBookSnapshot } from '../../application/book-risk.js'
 import { PostgresExecutionRepository } from '../../infrastructure/database/execution-repository.js'
 import { BooksApplication, type CreateBookCommand } from '../../application/books.js'
@@ -19,6 +24,7 @@ import type { DeterministicTestRuntime } from '../../infrastructure/replay/test-
 import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollment-service.js'
 import type { TelegramLinks } from '../../infrastructure/telegram/links.js'
 import { toBookDto } from './dto.js'
+import { OpeningTrades, type OpeningPreviewInput } from '../../application/opening-trades.js'
 import {
   toActionDto,
   toAutopsyDto,
@@ -75,6 +81,39 @@ export function registerRoutes(context: HttpContext) {
     if (!current) throw new AuthenticationError()
     return current
   }
+  const openingVenue = async (request: FastifyRequest) => {
+    const current = await requireSession(request)
+    if (!config.openingEnabled || config.perplAccountMode !== 'per-user' || isExecutionDisabled(process.env))
+      throw new AuthorizationError('OPENING_DISABLED')
+    const venue = await context.venue?.forUser?.(current.userId)
+    if (!venue?.ready() || !venue.connectionId || !venue.accountId)
+      throw new InfrastructureError('PERPL_CONNECTION_UNAVAILABLE')
+    return venue
+  }
+  app.get('/openings/markets', async (request) => {
+    const venue = await openingVenue(request)
+    if (!venue.listOpeningMarkets) throw new InfrastructureError('PERPL_MARKET_UNAVAILABLE')
+    return venue.listOpeningMarkets()
+  })
+  app.get<{ Params: { id: string } }>('/openings/markets/:id/snapshot', async (request) => {
+    const venue = await openingVenue(request)
+    const marketId = Number(request.params.id)
+    if (!Number.isSafeInteger(marketId) || marketId <= 0) throw new ValidationError('PERPL_MARKET_INVALID')
+    if (!venue.openingMarketSnapshot) throw new InfrastructureError('PERPL_MARKET_UNAVAILABLE')
+    return venue.openingMarketSnapshot(marketId)
+  })
+  app.post<{ Body: OpeningPreviewInput }>('/openings/previews', async (request) => {
+    const current = await requireSession(request)
+    if (!config.openingEnabled || config.perplAccountMode !== 'per-user' || isExecutionDisabled(process.env))
+      throw new AuthorizationError('OPENING_DISABLED')
+    if (!(persistence instanceof PostgresStore)) throw new InfrastructureError('DATABASE_NOT_CONFIGURED')
+    const previewTtlMs = Number(process.env.EYELER_OPENING_PREVIEW_TTL_MS ?? 15_000)
+    return new OpeningTrades(persistence, context.venue, config.environment === 'mainnet' ? 'mainnet' : 'testnet', {
+      enabled: true,
+      executionDisabled: isExecutionDisabled(process.env),
+      previewTtlMs,
+    }).preview(current.userId, request.body)
+  })
   app.get('/', async () => ({
     name: 'EYELER API',
     environment: config.environment,

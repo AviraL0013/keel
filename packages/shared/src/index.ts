@@ -14,6 +14,7 @@ export type Config = {
   allowedWallets: string[]
   perplAccountMode: 'operator' | 'per-user'
   accessMode: 'allowlist' | 'public'
+  openingEnabled: boolean
   safeModeResumeTicks: number
   tickStaleMs: number
 }
@@ -47,6 +48,10 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   if (accessMode !== 'allowlist' && accessMode !== 'public') throw new Error('INVALID_EYELER_ACCESS_MODE')
   if (accessMode === 'public' && perplAccountMode !== 'per-user')
     throw new Error('PUBLIC_ACCESS_REQUIRES_PER_USER_ACCOUNTS')
+  const openingFlag = (brandEnv(env, 'OPENING_ENABLED') ?? 'false').trim().toLowerCase()
+  if (!['true', 'false'].includes(openingFlag)) throw new Error('INVALID_EYELER_OPENING_ENABLED')
+  const openingEnabled = openingFlag === 'true'
+  if (openingEnabled && perplAccountMode !== 'per-user') throw new Error('OPENING_REQUIRES_PER_USER_ACCOUNTS')
   const explicit = (brandEnv(env, 'ALLOWED_WALLETS') ?? '').trim()
   const source = explicit ? explicit : (env.MONAD_WALLET_ADDRESS ?? '')
   const allowedWallets = [
@@ -71,6 +76,7 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
     environment,
     perplAccountMode,
     accessMode,
+    openingEnabled,
     port: Number(env.PORT ?? 8787),
     databaseUrl: env.DATABASE_URL,
     sessionSecret: env.SESSION_SECRET ?? 'development-only-change-me',

@@ -15,6 +15,14 @@ const base = {
 }
 
 describe('explicit per-user deployment configuration', () => {
+  it('keeps opening trades off by default and impossible in operator mode', () => {
+    expect(loadConfig(base).openingEnabled).toBe(false)
+    expect(loadConfig({ ...base, EYELER_OPENING_ENABLED: 'true' }).openingEnabled).toBe(true)
+    expect(() =>
+      loadConfig({ ...base, EYELER_PERPL_ACCOUNT_MODE: 'operator', EYELER_OPENING_ENABLED: 'true' }),
+    ).toThrow('OPENING_REQUIRES_PER_USER_ACCOUNTS')
+    expect(() => loadConfig({ ...base, EYELER_OPENING_ENABLED: 'maybe' })).toThrow('INVALID_EYELER_OPENING_ENABLED')
+  })
   it('starts per-user testnet with a Railway-held wrapping key but rejects that key on mainnet', () => {
     const railway = {
       ...base,

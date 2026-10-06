@@ -63,4 +63,12 @@ Test venue (authenticated; only when the deterministic test runtime is enabled):
 
 `POST /books/:id/close` enters the server execution worker. It never reports a position closed before venue reconciliation. `POST /connections/perpl` is not registered. Enrollment is a backend foundation only; Books and the trading runtime still use the existing server-wide Perpl key.
 
+Opening-trade preparation (authenticated, per-user mode and `EYELER_OPENING_ENABLED=true` only):
+
+- `GET /openings/markets` lists Perpl market IDs, symbols, and open/closed status.
+- `GET /openings/markets/:id/snapshot` returns a fresh market and wallet snapshot, including observed times, precision, order window, fee tier, and free balance. Missing or stale values fail closed.
+- `POST /openings/previews` accepts `marketId`, `side` (`LONG` or `SHORT`), exact decimal `size`, explicit decimal `leverage`, and optional `slippageBps` (default 50, maximum 200). It returns a user-bound, 15-second preview ID and quote. It does not submit a trade.
+
+There is no opening-confirm endpoint yet. The feature flag defaults off; the server rejects enabling it in operator mode. Opening execution and order-status APIs remain unfinished.
+
 Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.
