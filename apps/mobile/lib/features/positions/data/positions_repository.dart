@@ -1,3 +1,4 @@
+import '../../auth/data/auth_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
 import '../domain/position.dart';
@@ -43,8 +44,11 @@ extension PositionsConnection on PositionsRepository {
               Map<String, dynamic>.from(value as Map)));
 }
 
-final positionsRepositoryProvider = Provider<PositionsRepository>(
-    (ref) => PositionsRepository(ref.watch(apiClientProvider)));
+final positionsRepositoryProvider = Provider<PositionsRepository>((ref) {
+  ref.watch(
+      authProvider.select((state) => (state.authenticated, state.address)));
+  return PositionsRepository(ref.watch(apiClientProvider));
+});
 final positionsProvider = FutureProvider.autoDispose<List<Position>>(
     (ref) => ref.watch(positionsRepositoryProvider).list());
 final perplConnectionProvider =

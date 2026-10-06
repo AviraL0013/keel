@@ -21,6 +21,9 @@ import { executionDisabled as isExecutionDisabled, logger } from './config/index
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
+  connectionId?: string
+  forUser?(userId: string, connectionId?: string): Promise<RuntimeVenue | undefined>
+  recoveryForUser?(userId: string, connectionId: string): Promise<RuntimeVenue | undefined>
   validate?(): Promise<'VALID' | 'INVALID' | 'UNAVAILABLE'>
   loadBookSetup?(
     marketId: number,
@@ -45,6 +48,19 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   refresh(book: Book): Promise<void>
   close(): Promise<void>
   ready(): boolean
+}
+
+export async function resolveRuntimeVenue(venue: RuntimeVenue | undefined, userId: string, book?: Book) {
+  if (!venue?.forUser) return venue
+  if (book && (book.userId !== userId || !book.perplConnectionId)) return undefined
+  return venue.forUser(userId, book?.perplConnectionId)
+}
+
+export async function resolveReconciliationVenue(venue: RuntimeVenue | undefined, userId: string, book: Book) {
+  if (book.userId !== userId) return undefined
+  const bound = await resolveRuntimeVenue(venue, userId, book)
+  if (bound || !book.perplConnectionId) return bound
+  return venue?.recoveryForUser?.(userId, book.perplConnectionId)
 }
 
 export function classifySafeModeCause(code: string): Exclude<SafeModeReason, 'UNRESOLVED_ACTION'> {
@@ -82,6 +98,7 @@ export class EyelerRuntime {
   private lease?: PoolClient
   private lockRetryTimer?: ReturnType<typeof setInterval>
   private lockAttempt?: Promise<void>
+  private lockLoss?: Promise<void>
   private waitingForLock = false
   private venueStarted = false
   private stopping = false
@@ -120,6 +137,7 @@ export class EyelerRuntime {
     }
     this.waitingForLock = false
     await this.lockAttempt
+    if (this.lockLoss) await this.lockLoss
     try {
       await this.scheduler.stop()
     } finally {
@@ -178,16 +196,19 @@ export class EyelerRuntime {
         clearInterval(this.lockRetryTimer)
         this.lockRetryTimer = undefined
       }
-      this.lease.on('error', () => {
-        const lease = this.lease
+      const ownedLease = this.lease
+      ownedLease.on('error', () => {
+        if (this.lease !== ownedLease) return
         this.lease = undefined
         this.waitingForLock = true
         this.venueStarted = false
-        lease?.release()
-        void this.scheduler.stop().finally(() => {
-          void this.venue?.close()
-          this.scheduleLockRetry()
-        })
+        ownedLease.release()
+        // Unlike graceful shutdown, a lost lock cannot retain venue authority while draining a tick.
+        const closing = this.venue?.close()
+        this.lockLoss = Promise.all([this.scheduler.stop(), closing]).then(
+          () => this.scheduleLockRetry(),
+          () => logger.error({ error: 'WORKER_LOCK_LOSS_SHUTDOWN_FAILED' }, 'Automatic worker restart is blocked'),
+        )
       })
       await this.venue?.start?.()
       this.venueStarted = Boolean(this.venue)
@@ -224,8 +245,9 @@ export class EyelerRuntime {
           // Recovery never re-submits an existing action, including after restart.
           if (!active.venueReference) continue // Manual submission may still be persisting its reference.
           if (Date.now() < (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) continue
-          if (!this.venue) throw new Error('VENUE_NOT_CONFIGURED')
-          const result = await this.venue.reconcile(active)
+          const venue = await resolveReconciliationVenue(this.venue, book.userId, book)
+          if (!venue) throw new Error('VENUE_NOT_CONFIGURED')
+          const result = await venue.reconcile(active)
           if (result.status === 'PARTIAL' || result.status === 'VERIFYING') {
             await this.repository.saveAction(result)
             this.reconciliationSchedule.set(book.id, { nextAt: Date.now() + 30_000, rateLimitFailures: 0 })
@@ -247,7 +269,7 @@ export class EyelerRuntime {
           }
           if (result.status === 'CONFIRMED' && active.kind === 'DEFEND') {
             try {
-              await this.venue.refresh(book)
+              await venue.refresh(book)
             } catch (error) {
               logger.warn(
                 { bookId: book.id, error: error instanceof Error ? error.message : 'REFRESH_FAILED' },
@@ -259,6 +281,7 @@ export class EyelerRuntime {
           this.reconciliationSchedule.delete(book.id)
           continue
         }
+        const venue = await resolveRuntimeVenue(this.venue, book.userId, book)
         const safetyActionId = await this.store.safetyActionForBook(book.id)
         if (book.status === 'SAFE_MODE' && safetyActionId) {
           if (Date.now() >= (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) {
@@ -296,8 +319,8 @@ export class EyelerRuntime {
           this.freshRecoveryTicks.delete(book.id)
           continue
         }
-        if (!this.venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
-        await this.venue.refresh(book)
+        if (!venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
+        await venue.refresh(book)
         const context = await this.repository.getBookContext(book.id)
         const decision = {
           ...evaluate(
@@ -323,8 +346,8 @@ export class EyelerRuntime {
         if (isNew && !['HOLD', 'SAFE_MODE'].includes(decision.action)) {
           const result = await new ExecutionWorker(
             this.repository,
-            this.venue,
-            (current) => this.venue!.refresh(current),
+            venue,
+            (current) => venue.refresh(current),
             this.now,
           ).execute(decision)
           if (
@@ -621,11 +644,12 @@ export class EyelerRuntime {
       throw new ConflictError('BOOK_RECOVERY_NOT_ALLOWED')
     if (!book.marketId || !book.venueAccountId || !book.venuePositionId)
       throw new ConflictError('BOOK_VENUE_BINDING_REQUIRED')
-    if (!this.venue?.ready()) throw new ConflictError('VENUE_UNAVAILABLE')
+    const venue = await resolveRuntimeVenue(this.venue, userId, book)
+    if (!venue?.ready()) throw new ConflictError('VENUE_UNAVAILABLE')
     if ((await this.repository.getActiveAction(bookId)) || (await this.repository.getConflictingPositionAction(bookId)))
       throw new ConflictError('POSITION_EXECUTION_UNRESOLVED')
     try {
-      await this.venue.refresh(book)
+      await venue.refresh(book)
     } catch {
       throw new ConflictError('VENUE_STATE_UNAVAILABLE')
     }
@@ -669,10 +693,11 @@ export class EyelerRuntime {
   async closeBook(userId: string, bookId: string): Promise<{ actionId: string; status: string }> {
     const book = await this.store.getBook(userId, bookId)
     if (!book) throw new Error('BOOK_NOT_FOUND')
-    if (!this.venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
+    const venue = await resolveRuntimeVenue(this.venue, userId, book)
+    if (!venue?.ready()) throw new Error('VENUE_NOT_CONNECTED')
     const active = await this.repository.getActiveAction(bookId)
     if (active) return { actionId: active.id, status: active.status }
-    await this.venue.refresh(book)
+    await venue.refresh(book)
     const context = await this.repository.getBookContext(bookId)
     const decision = {
       ...evaluate(
@@ -695,9 +720,10 @@ export class EyelerRuntime {
       humanReadableReasons: ['User requested a reduce-only position close.'],
     }
     await this.repository.saveDecision(closeDecision)
-    const result = await new ExecutionWorker(this.repository, this.venue, (current) =>
-      this.venue!.refresh(current),
-    ).execute(closeDecision, true)
+    const result = await new ExecutionWorker(this.repository, venue, (current) => venue.refresh(current)).execute(
+      closeDecision,
+      true,
+    )
     if (!result || !('status' in result)) throw new Error('CLOSE_ACTION_NOT_CREATED')
     return { actionId: result.id, status: result.status }
   }
@@ -708,7 +734,8 @@ export class EyelerRuntime {
   ): Promise<{ actionId: string; status: string }> {
     const book = await this.store.getBook(userId, bookId)
     if (!book) throw new Error('BOOK_NOT_FOUND')
-    if (!this.venue?.ready())
+    const venue = await resolveRuntimeVenue(this.venue, userId, book)
+    if (!venue?.ready())
       throw new PolicyRejectedError(
         kind,
         this.manualAuthorityRejected(
@@ -728,7 +755,7 @@ export class EyelerRuntime {
         ),
       )
     try {
-      await this.venue.refresh(book)
+      await venue.refresh(book)
     } catch {
       throw new PolicyRejectedError(
         kind,
@@ -772,9 +799,11 @@ export class EyelerRuntime {
     await this.recordDecision(decision, true)
     let result
     try {
-      result = await new ExecutionWorker(this.repository, this.venue, (current) =>
-        this.venue!.refresh(current),
-      ).execute(decision, false, true)
+      result = await new ExecutionWorker(this.repository, venue, (current) => venue.refresh(current)).execute(
+        decision,
+        false,
+        true,
+      )
     } catch (error) {
       const code = error instanceof Error ? error.message : 'MANUAL_POLICY_REEVALUATION_FAILED'
       const codes = code.split(',').filter(Boolean)

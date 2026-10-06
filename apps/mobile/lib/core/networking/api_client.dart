@@ -6,10 +6,12 @@ import '../errors/eyeler_exception.dart';
 import '../storage/session_storage.dart';
 
 class EyelerApiClient {
-  EyelerApiClient(this._config, this._storage, this._http);
+  EyelerApiClient(this._config, this._storage, this._http,
+      {this.onSessionExpired});
   final EyelerConfig _config;
   final SessionStorage _storage;
   final http.Client _http;
+  final void Function()? onSessionExpired;
   Future<T> get<T>(String path, T Function(dynamic) decode) =>
       _request('GET', path, decode);
   Future<T> post<T>(String path,
@@ -36,7 +38,12 @@ class EyelerApiClient {
           headers: headers, body: body == null ? null : jsonEncode(body)),
       _ => throw const EyelerException('UNSUPPORTED_HTTP_METHOD'),
     };
-    if (response.statusCode == 401) await _storage.clear();
+    if (response.statusCode == 401 &&
+        token != null &&
+        token == await _storage.readToken()) {
+      await _storage.clear();
+      onSessionExpired?.call();
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final parsed = response.body.isEmpty ? null : jsonDecode(response.body);
       final message = parsed is Map && parsed['error'] is String
@@ -57,9 +64,11 @@ class EyelerApiClient {
 
 final sessionStorageProvider =
     Provider<SessionStorage>((_) => const SessionStorage());
+final sessionExpiryProvider = StateProvider<int>((ref) => 0);
 final apiClientProvider = Provider<EyelerApiClient>((ref) {
   final client = http.Client();
   ref.onDispose(client.close);
   return EyelerApiClient(
-      ref.watch(configProvider), ref.watch(sessionStorageProvider), client);
+      ref.watch(configProvider), ref.watch(sessionStorageProvider), client,
+      onSessionExpired: () => ref.read(sessionExpiryProvider.notifier).state++);
 });

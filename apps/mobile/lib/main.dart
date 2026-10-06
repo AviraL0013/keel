@@ -15,13 +15,30 @@ class EyelerApp extends ConsumerStatefulWidget {
   ConsumerState<EyelerApp> createState() => _EyelerAppState();
 }
 
-class _EyelerAppState extends ConsumerState<EyelerApp> {
+class _EyelerAppState extends ConsumerState<EyelerApp>
+    with WidgetsBindingObserver {
   bool _landingComplete = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     Future.microtask(() => ref.read(authProvider.notifier).restore());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      ref.read(walletConnectorProvider).dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override

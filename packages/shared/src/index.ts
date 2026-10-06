@@ -1,4 +1,6 @@
 ﻿export type Environment = 'development' | 'test' | 'testnet' | 'mainnet'
+import { loadKeyCustodyConfig } from './key-custody-config.js'
+
 export type Config = {
   environment: Environment
   port: number
@@ -10,11 +12,14 @@ export type Config = {
   ausdTokenAddress?: string
   corsOrigin: string
   allowedWallets: string[]
+  perplAccountMode: 'operator' | 'per-user'
+  accessMode: 'allowlist' | 'public'
   safeModeResumeTicks: number
   tickStaleMs: number
 }
 export type WalletAccess = 'ALLOWED' | 'WALLET_NOT_ALLOWED' | 'WALLET_ALLOWLIST_NOT_CONFIGURED'
 export function walletAccess(config: Config, address: string): WalletAccess {
+  if (config.accessMode === 'public' && config.perplAccountMode === 'per-user') return 'ALLOWED'
   if (config.allowedWallets.length === 0)
     return config.environment === 'test' ? 'ALLOWED' : 'WALLET_ALLOWLIST_NOT_CONFIGURED'
   return config.allowedWallets.includes(address.toLowerCase()) ? 'ALLOWED' : 'WALLET_NOT_ALLOWED'
@@ -34,6 +39,14 @@ export function executionDisabled(env: Record<string, string | undefined> = proc
 export function loadConfig(env: Record<string, string | undefined> = {}): Config {
   executionDisabled(env)
   const environment = (brandEnv(env, 'ENV') ?? 'development') as Environment
+  if (!['development', 'test', 'testnet', 'mainnet'].includes(environment)) throw new Error('INVALID_EYELER_ENV')
+  const perplAccountMode = brandEnv(env, 'PERPL_ACCOUNT_MODE') ?? 'operator'
+  if (perplAccountMode !== 'operator' && perplAccountMode !== 'per-user')
+    throw new Error('INVALID_EYELER_PERPL_ACCOUNT_MODE')
+  const accessMode = brandEnv(env, 'ACCESS_MODE') ?? 'allowlist'
+  if (accessMode !== 'allowlist' && accessMode !== 'public') throw new Error('INVALID_EYELER_ACCESS_MODE')
+  if (accessMode === 'public' && perplAccountMode !== 'per-user')
+    throw new Error('PUBLIC_ACCESS_REQUIRES_PER_USER_ACCOUNTS')
   const explicit = (brandEnv(env, 'ALLOWED_WALLETS') ?? '').trim()
   const source = explicit ? explicit : (env.MONAD_WALLET_ADDRESS ?? '')
   const allowedWallets = [
@@ -56,12 +69,18 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   if (!Number.isSafeInteger(tickStaleMs) || tickStaleMs < 1) throw new Error('INVALID_EYELER_TICK_STALE_MS')
   return {
     environment,
+    perplAccountMode,
+    accessMode,
     port: Number(env.PORT ?? 8787),
     databaseUrl: env.DATABASE_URL,
     sessionSecret: env.SESSION_SECRET ?? 'development-only-change-me',
-    perplRestUrl: env.PERPL_REST_URL ?? '',
-    perplWsUrl: env.PERPL_WS_URL ?? '',
-    perplChainId: Number(env.PERPL_CHAIN_ID ?? 10143),
+    perplRestUrl:
+      env.PERPL_REST_URL ??
+      (perplAccountMode === 'per-user' ? `https://${environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz/api` : ''),
+    perplWsUrl:
+      env.PERPL_WS_URL ??
+      (perplAccountMode === 'per-user' ? `wss://${environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz` : ''),
+    perplChainId: Number(env.PERPL_CHAIN_ID ?? (environment === 'mainnet' ? 143 : 10143)),
     ausdTokenAddress: env.AUSD_TOKEN_ADDRESS,
     corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173',
     allowedWallets,
@@ -70,6 +89,29 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   }
 }
 export function assertProductionConfig(config: Config, env: Record<string, string | undefined> = process.env) {
+  const custody = loadKeyCustodyConfig(env, config.environment)
+  if (config.perplAccountMode === 'per-user') {
+    if (['PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'].some((key) => Boolean(env[key]?.trim())))
+      throw new Error('PER_USER_SHARED_CREDENTIALS_FORBIDDEN')
+    if (['mainnet', 'testnet'].includes(config.environment) && custody?.provider !== 'aws-kms')
+      throw new Error('KMS_CUSTODY_REQUIRED')
+    if (
+      !config.databaseUrl ||
+      config.sessionSecret.includes('change-me') ||
+      !env.SESSION_SECRET?.trim() ||
+      !env.CORS_ORIGIN?.trim()
+    )
+      throw new Error('INCOMPLETE_PER_USER_CONFIGURATION')
+    if (config.accessMode === 'allowlist' && !config.allowedWallets.length) throw new Error('WALLET_ALLOWLIST_MISSING')
+    if (!custody || !env.PERPL_ENROLLMENT_ORIGIN) throw new Error('PER_USER_ENROLLMENT_NOT_CONFIGURED')
+    if (
+      config.perplRestUrl !== `https://${config.environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz/api` ||
+      config.perplWsUrl !== `wss://${config.environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz` ||
+      config.perplChainId !== (config.environment === 'mainnet' ? 143 : 10143)
+    )
+      throw new Error('PERPL_ENVIRONMENT_MISMATCH')
+    return
+  }
   const liveCredentials = ['PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'].every((key) =>
     Boolean(env[key]?.trim()),
   )

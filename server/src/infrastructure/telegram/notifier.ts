@@ -1,7 +1,7 @@
 import type pg from 'pg'
 import { brandEnv, logger } from '../../config/index.js'
 
-export type TelegramConfig = { botToken: string; chatId: string; appUrl: string }
+export type TelegramConfig = { botToken: string; chatId?: string; appUrl: string; mode?: 'operator' | 'per-user' }
 type Alert = {
   id: string
   kind: string
@@ -10,6 +10,8 @@ type Alert = {
   market: string
   side: string
   attempts: number
+  recipient_link_id?: string
+  recipient_chat_id?: string
 }
 
 export class TelegramNotifier {
@@ -59,9 +61,12 @@ export class TelegramNotifier {
         [new Date(this.now() - 60_000).toISOString()],
       )
       const result = await client.query(
-        `SELECT n.id,n.kind,n.title,n.book_id,b.market,b.side,d.attempts FROM notifications n
+        `SELECT n.id,n.kind,n.title,n.book_id,b.market,b.side,d.attempts${this.config.mode === 'per-user' ? ',l.id AS recipient_link_id,l.chat_id AS recipient_chat_id' : ''} FROM notifications n
         JOIN books b ON b.id=n.book_id LEFT JOIN telegram_deliveries d ON d.notification_id=n.id
+        ${this.config.mode === 'per-user' ? 'JOIN telegram_links l ON l.user_id=n.user_id AND l.revoked_at IS NULL AND n.created_at>=l.linked_at' : ''}
         WHERE n.book_id IS NOT NULL AND (n.kind IN ('SAFE_MODE','SAFE_MODE_EXITED','DEFEND','REDUCE','EXIT','AUTOMATION_RETRY_EXHAUSTED') OR n.kind LIKE 'ACTION_%')
+        AND b.user_id=n.user_id
+        ${this.config.mode === 'per-user' ? 'AND (d.notification_id IS NULL OR (d.recipient_link_id=l.id AND d.recipient_chat_id=l.chat_id))' : 'AND d.recipient_link_id IS NULL'}
         AND (d.notification_id IS NULL OR (d.status='PENDING' AND d.next_attempt_at<=$1))
         ORDER BY n.created_at,n.id LIMIT 1 FOR UPDATE OF n SKIP LOCKED`,
         [new Date(this.now()).toISOString()],
@@ -72,9 +77,14 @@ export class TelegramNotifier {
         return null
       }
       await client.query(
-        `INSERT INTO telegram_deliveries(notification_id,status,attempts,started_at) VALUES($1,'SENDING',1,$2)
+        `INSERT INTO telegram_deliveries(notification_id,status,attempts,started_at,recipient_link_id,recipient_chat_id) VALUES($1,'SENDING',1,$2,$3,$4)
         ON CONFLICT(notification_id) DO UPDATE SET status='SENDING',attempts=telegram_deliveries.attempts+1,started_at=$2,last_error=NULL`,
-        [row.id, new Date(this.now()).toISOString()],
+        [
+          row.id,
+          new Date(this.now()).toISOString(),
+          row.recipient_link_id ?? null,
+          row.recipient_chat_id ?? this.config.chatId ?? null,
+        ],
       )
       await client.query('COMMIT')
       return { ...row, attempts: Number(row.attempts ?? 0) + 1 }
@@ -118,14 +128,28 @@ export class TelegramNotifier {
       if (waitMs > 0) await this.delay(waitMs)
     }
     this.lastSendAt = this.now()
+    if (this.config.mode === 'per-user') {
+      const active = await this.pool.query(
+        'SELECT id FROM telegram_links WHERE id=$1 AND chat_id=$2 AND revoked_at IS NULL',
+        [alert.recipient_link_id, alert.recipient_chat_id],
+      )
+      if (!active.rows.length) {
+        await this.pool.query(
+          "UPDATE telegram_deliveries SET status='CANCELED',last_error='TELEGRAM_UNLINKED' WHERE notification_id=$1 AND status='SENDING'",
+          [alert.id],
+        )
+        return true
+      }
+    }
     let definiteFailure = false
+    let terminalFailure = false
     let failureCode = 'TELEGRAM_REJECTED'
     try {
       const response = await this.fetcher(`https://api.telegram.org/bot${this.config.botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          chat_id: this.config.chatId,
+          chat_id: this.config.mode === 'per-user' ? alert.recipient_chat_id : this.config.chatId,
           text: this.message(alert),
           disable_web_page_preview: true,
         }),
@@ -134,6 +158,7 @@ export class TelegramNotifier {
       if (!response.ok) {
         definiteFailure = true
         failureCode = `TELEGRAM_HTTP_${response.status}`
+        terminalFailure = response.status >= 400 && response.status < 500 && response.status !== 429
       } else {
         const body = (await response.json()) as { ok?: boolean }
         if (body.ok === true) {
@@ -149,6 +174,13 @@ export class TelegramNotifier {
       /* Transport outcome is ambiguous; never resend automatically. */
     }
     if (definiteFailure) {
+      if (terminalFailure || alert.attempts >= 5) {
+        await this.pool.query(
+          "UPDATE telegram_deliveries SET status='FAILED',last_error=$2 WHERE notification_id=$1 AND status='SENDING'",
+          [alert.id, failureCode],
+        )
+        return true
+      }
       const delay = Math.min(300_000, 30_000 * 2 ** Math.min(alert.attempts - 1, 4))
       await this.pool.query(
         "UPDATE telegram_deliveries SET status='PENDING',next_attempt_at=$2,last_error=$3 WHERE notification_id=$1 AND status='SENDING'",
@@ -170,7 +202,9 @@ export function createTelegramNotifier(
 ): TelegramNotifier | undefined {
   const botToken = env.TELEGRAM_BOT_TOKEN?.trim()
   const chatId = env.TELEGRAM_CHAT_ID?.trim()
-  if (!botToken || !chatId) return undefined
+  const mode = brandEnv(env, 'PERPL_ACCOUNT_MODE') === 'per-user' ? 'per-user' : 'operator'
+  if (!botToken || (mode === 'operator' && !chatId)) return undefined
+  if (mode === 'per-user' && (!env.TELEGRAM_BOT_USERNAME || !env.TELEGRAM_WEBHOOK_SECRET)) return undefined
   const appUrl = brandEnv(env, 'APP_URL')?.trim().replace(/\/$/, '')
   try {
     if (!appUrl) throw new Error()
@@ -183,5 +217,9 @@ export function createTelegramNotifier(
   } catch {
     throw new Error('INVALID_EYELER_APP_URL')
   }
-  return new TelegramNotifier(pool, { botToken, chatId, appUrl }, fetcher)
+  return new TelegramNotifier(
+    pool,
+    { botToken, chatId: mode === 'operator' ? chatId : undefined, appUrl, mode },
+    fetcher,
+  )
 }

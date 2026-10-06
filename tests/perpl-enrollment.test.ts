@@ -4,9 +4,15 @@ import cookie from '@fastify/cookie'
 import { verifyAsync } from '@noble/ed25519'
 import { hashTypedData } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { perplEnrollmentPayload } from './helpers/perpl-enrollment.js'
+import type { EnrollmentPayloadRequest } from '../server/src/infrastructure/perpl/enrollment-client.js'
 import { databaseFixture } from './helpers/database.js'
 import { loadConfig } from '../packages/shared/src/index.js'
-import { DevelopmentKeyCustody } from '../server/src/infrastructure/perpl/key-custody.js'
+import {
+  DevelopmentKeyCustody,
+  credentialContext,
+  type KeyCustody,
+} from '../server/src/infrastructure/perpl/key-custody.js'
 import { loadEnrollmentConfig, PerplEnrollmentService } from '../server/src/infrastructure/perpl/enrollment-service.js'
 import { PerplEnrollmentClient } from '../server/src/infrastructure/perpl/enrollment-client.js'
 import { AuthService } from '../server/src/auth.js'
@@ -16,7 +22,7 @@ const wallet = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const other = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 const origin = 'https://eyeler.example'
 
-async function fixture(enrollStatus = 200, domainOrder = false, now: () => number = Date.now) {
+async function fixture(enrollStatus = 200, domainOrder = false, now: () => number = Date.now, asyncCustody = false) {
   const { db, store } = await databaseFixture()
   const userId = await store.ensureUser(wallet.address)
   const custody = new DevelopmentKeyCustody('33'.repeat(32))
@@ -30,41 +36,11 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
     if (path.endsWith('/payload')) {
       return Response.json({
         mac: 'private-mac',
-        typed_data: {
-          domain: {
-            name: 'Perpl',
-            version: '1',
-            chainId: 10143,
-            verifyingContract: '0x0000000000000000000000000000000000000001',
-          },
-          types: {
-            ...(domainOrder
-              ? {
-                  EIP712Domain: [
-                    { name: 'verifyingContract', type: 'address' },
-                    { name: 'chainId', type: 'uint256' },
-                    { name: 'version', type: 'string' },
-                    { name: 'name', type: 'string' },
-                  ],
-                }
-              : {}),
-            ApiKeyEnrollment: [
-              { name: 'address', type: 'address' },
-              { name: 'publicKey', type: 'bytes32' },
-              { name: 'scopeMask', type: 'uint8' },
-              { name: 'expiresAt', type: 'uint64' },
-              { name: 'label', type: 'string' },
-            ],
-          },
-          primaryType: 'ApiKeyEnrollment',
-          message: {
-            address: body.address,
-            publicKey: body.public_key,
-            scopeMask: body.scope_mask,
-            expiresAt: body.expires_at,
-            label: body.label,
-          },
-        },
+        typed_data: (() => {
+          const typed = perplEnrollmentPayload(body as EnrollmentPayloadRequest, origin, now())
+          if (domainOrder) typed.types.EIP712Domain.reverse()
+          return typed
+        })(),
       })
     }
     await onEnroll?.()
@@ -100,7 +76,12 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
     })
   }) as typeof fetch
   const client = new PerplEnrollmentClient('https://perpl.invalid/api', origin, fetcher)
-  const service = new PerplEnrollmentService(store, config, custody, client, now)
+  const asyncProvider: KeyCustody = {
+    seal: vi.fn(async (value, context) => custody.seal(value, context)),
+    open: vi.fn(async (value, context) => custody.open(value, context)),
+    shred: () => null,
+  }
+  const service = new PerplEnrollmentService(store, config, asyncCustody ? asyncProvider : custody, client, now)
   const sign = async (typedData: unknown) =>
     wallet.signTypedData(typedData as Parameters<typeof wallet.signTypedData>[0])
   return {
@@ -108,6 +89,7 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
     store,
     userId,
     custody,
+    asyncProvider,
     config,
     client,
     service,
@@ -122,6 +104,108 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
 }
 
 describe('development Perpl enrollment foundation', () => {
+  it('awaits asynchronous custody and binds all sealed fields to the authenticated owner and credential', async () => {
+    const f = await fixture(200, false, Date.now, true)
+    try {
+      const pending = await f.service.start(f.userId, wallet.address)
+      await f.service.complete(f.userId, wallet.address, pending.connectionId, await f.sign(pending.typedData))
+      for (const field of ['private_key', 'mac', 'api_token'] as const)
+        expect(f.asyncProvider.seal).toHaveBeenCalledWith(
+          expect.any(String),
+          credentialContext(f.userId, pending.connectionId, field),
+        )
+      expect(f.asyncProvider.open).toHaveBeenCalledWith(
+        expect.any(String),
+        credentialContext(f.userId, pending.connectionId, 'private_key'),
+      )
+      const row = (
+        await f.db.query('SELECT sealed_api_token FROM perpl_connections WHERE id=$1', [pending.connectionId])
+      ).rows[0]
+      expect(f.custody.open(row.sealed_api_token, credentialContext(f.userId, pending.connectionId, 'api_token'))).toBe(
+        'private-token',
+      )
+      expect(() =>
+        f.custody.open(row.sealed_api_token, credentialContext('different-user', pending.connectionId, 'api_token')),
+      ).toThrow('INVALID_SEALED_CREDENTIAL')
+    } finally {
+      await f.close()
+    }
+  }, 20000)
+  it('revalidates saved signing terms before enrollment even if a tampered payload has a valid wallet signature', async () => {
+    const f = await fixture()
+    try {
+      const pending = await f.service.start(f.userId, wallet.address)
+      pending.typedData.message.scope = '7'
+      await f.store.pool.query('UPDATE perpl_connections SET typed_data=$2 WHERE id=$1', [
+        pending.connectionId,
+        JSON.stringify(pending.typedData),
+      ])
+      const signature = await f.sign(pending.typedData)
+      await expect(f.service.complete(f.userId, wallet.address, pending.connectionId, signature)).rejects.toThrow(
+        'PERPL_ENROLLMENT_PAYLOAD_MISMATCH',
+      )
+      expect(f.requests.filter((r) => r.path.endsWith('/enroll'))).toHaveLength(0)
+    } finally {
+      await f.close()
+    }
+  }, 20000)
+  it('rejects substituted enrollment terms before persisting a signing request', async () => {
+    const value = await fixture()
+    try {
+      const original = value.client.payload.bind(value.client)
+      for (const mutate of [
+        (t: any) => {
+          t.message.signer = other.address
+        },
+        (t: any) => {
+          t.message.scope = '7'
+        },
+        (t: any) => {
+          t.message.publicKey = `0x${'ff'.repeat(32)}`
+        },
+        (t: any) => {
+          t.message.expiresAt = '9999999999999'
+        },
+        (t: any) => {
+          t.message.origin = 'https://evil.invalid'
+        },
+        (t: any) => {
+          t.message.builderId = '26'
+        },
+        (t: any) => {
+          t.message.maxBuilderFeePer100K = '100'
+        },
+        (t: any) => {
+          t.domain.chainId = '0x8f'
+        },
+        (t: any) => {
+          t.domain.verifyingContract = other.address
+        },
+        (t: any) => {
+          t.primaryType = 'Permit'
+        },
+        (t: any) => {
+          t.types.PerplRegisterApiKey[0].type = 'string'
+        },
+        (t: any) => {
+          t.message.time = '0x1'
+        },
+      ]) {
+        vi.spyOn(value.client, 'payload').mockImplementation(async (request) => {
+          const payload = await original(request)
+          mutate(payload.typed_data)
+          return payload
+        })
+        await expect(value.service.start(value.userId, wallet.address)).rejects.toThrow(
+          'PERPL_ENROLLMENT_PAYLOAD_MISMATCH',
+        )
+        expect((await value.db.query('SELECT id FROM perpl_connections')).rows).toHaveLength(0)
+      }
+    } finally {
+      await value.close()
+    }
+  }, 20_000)
+
   it('binds sealed credentials to their row and field and rejects truncated tags', () => {
     const custody = new DevelopmentKeyCustody('33'.repeat(32))
     const sealed = custody.seal('row-secret', 'connection-a:private_key')
@@ -156,7 +240,9 @@ describe('development Perpl enrollment foundation', () => {
       const active = (await value.db.query('SELECT * FROM perpl_connections WHERE id=$1', [pending.connectionId]))
         .rows[0]
       expect(active.status).toBe('ACTIVE')
-      expect(value.custody.open(active.sealed_api_token, `${pending.connectionId}:api_token`)).toBe('private-token')
+      expect(
+        value.custody.open(active.sealed_api_token, credentialContext(value.userId, pending.connectionId, 'api_token')),
+      ).toBe('private-token')
       expect(active.sealed_mac).toBeNull()
       expect(active.typed_data).toBeNull()
       expect(value.requests[1].headers.get('origin')).toBe(origin)
@@ -210,7 +296,13 @@ describe('development Perpl enrollment foundation', () => {
     try {
       const pending = await value.service.start(value.userId, wallet.address)
       const domainFields = (pending.typedData.types as Record<string, Array<{ name: string }>>).EIP712Domain
-      expect(domainFields.map((field) => field.name)).toEqual(['verifyingContract', 'chainId', 'version', 'name'])
+      expect(domainFields.map((field) => field.name)).toEqual([
+        'salt',
+        'verifyingContract',
+        'chainId',
+        'version',
+        'name',
+      ])
       expect(
         await value.service.complete(
           value.userId,
@@ -700,6 +792,12 @@ describe('development Perpl enrollment foundation', () => {
       const listed = await app.inject({ method: 'GET', url: '/connections', headers })
       expect(listed.statusCode).toBe(200)
       expect(listed.json()[0].status).toBe('ACTIVE')
+      await value.db.query(
+        "UPDATE perpl_connections SET environment='mainnet',last_error='ENROLLED_NOT_SAVED' WHERE id=$1",
+        [pending.connectionId],
+      )
+      const mainnetRecovery = await app.inject({ method: 'GET', url: '/connections', headers })
+      expect(mainnetRecovery.json()[0].perplKeyPageUrl).toBe('https://app.perpl.xyz/apikeys')
       const disconnected = await app.inject({
         method: 'POST',
         url: `/connections/perpl/${pending.connectionId}/disconnect`,
@@ -731,7 +829,7 @@ describe('development Perpl enrollment foundation', () => {
     }
   }, 20_000)
 
-  it('validates custody and enrollment settings and disables mainnet', () => {
+  it('validates custody and enrollment settings and blocks mainnet without KMS', () => {
     expect(() => new DevelopmentKeyCustody('bad')).toThrow('INVALID_EYELER_KEY_ENCRYPTION_KEY')
     const config = loadConfig({ EYELER_ENV: 'testnet' })
     const base = { PERPL_ENROLLMENT_ORIGIN: origin }
@@ -756,9 +854,7 @@ describe('development Perpl enrollment foundation', () => {
     expect(() => loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: 'http://insecure.example' }, config)).toThrow(
       'INVALID_PERPL_ENROLLMENT_ORIGIN',
     )
-    expect(() => loadEnrollmentConfig(base, loadConfig({ EYELER_ENV: 'mainnet' }))).toThrow(
-      'PERPL_CONNECTIONS_MAINNET_UNSUPPORTED',
-    )
+    expect(() => loadEnrollmentConfig(base, loadConfig({ EYELER_ENV: 'mainnet' }))).toThrow('KMS_CUSTODY_REQUIRED')
     const custody = new DevelopmentKeyCustody('33'.repeat(32))
     const sealed = custody.seal('example-secret', 'connection-a:private_key')
     expect(custody.open(sealed, 'connection-a:private_key')).toBe('example-secret')

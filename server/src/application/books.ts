@@ -46,12 +46,19 @@ export class BooksApplication {
   }
   async create(userId: string, command: CreateBookCommand) {
     validateCreateBook(command)
-    if (this.venue?.loadBookSetup && command.marketId && command.venueAccountId && command.venuePositionId) {
-      const setup = await this.venue.loadBookSetup(command.marketId, command.venueAccountId, command.venuePositionId)
+    const venue = this.venue?.forUser ? await this.venue.forUser(userId) : this.venue
+    if (
+      this.venue?.forUser &&
+      (!venue?.loadBookSetup || !command.marketId || !command.venueAccountId || !command.venuePositionId)
+    )
+      throw new ValidationError('PERPL_CONNECTION_REQUIRED')
+    if (venue?.loadBookSetup && command.marketId && command.venueAccountId && command.venuePositionId) {
+      const setup = await venue.loadBookSetup(command.marketId, command.venueAccountId, command.venuePositionId)
       const reserveAvailable = command.reserveAvailable ?? setup.reserveAvailable
       if (reserveAvailable > setup.reserveAvailable) throw new ValidationError('Reserve exceeds available capital.')
       return this.books.createBook(userId, {
         ...command,
+        perplConnectionId: venue.connectionId,
         market: setup.market,
         side: setup.position.side,
         initialPosition: setup.position,
@@ -62,6 +69,7 @@ export class BooksApplication {
     }
     return this.books.createBook(userId, {
       ...command,
+      perplConnectionId: undefined,
       automationEnabled: false,
       reserveAvailable: command.reserveAvailable ?? 0,
       status: 'PAUSED',

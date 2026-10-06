@@ -10,11 +10,18 @@ import { MemoryStore } from './memoryStore.js'
 import { NotificationStore } from './infrastructure/database/notification-store.js'
 import { PostgresStore, UnconfiguredStore, type Store } from './infrastructure/database/postgres-store.js'
 import { createPerplRuntime } from './infrastructure/perpl/runtime.js'
+import { PerplUserVenues } from './infrastructure/perpl/user-venues.js'
+import { configuredKeyCustody } from './infrastructure/perpl/configured-key-custody.js'
+import { discoverPerplAccount } from './infrastructure/perpl/account-discovery.js'
+import { PerplHistory } from '../../packages/perpl/src/history.js'
+import { Ed25519PerplSigner } from '../../packages/perpl/src/signer.js'
 import { createPerplEnrollmentService, type PerplEnrollmentService } from './infrastructure/perpl/enrollment-service.js'
 import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.js'
 import { registerRoutes } from './interfaces/http/register.js'
 import { installShutdownHandlers } from './shutdown.js'
 import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
+import { TelegramLinks } from './infrastructure/telegram/links.js'
+import { createPublicCapital } from './infrastructure/capital/snapshot.js'
 import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
 
 export type ServerServices = {
@@ -31,6 +38,7 @@ export type ServerServices = {
 export function createServer(store?: Store, services: ServerServices = {}) {
   const config = loadConfig(process.env)
   assertProductionConfig(config)
+  const custody = configuredKeyCustody(process.env, config.environment)
   // Venue authentication can wait for its 15-second snapshot deadline. Keep
   // HTTP startup alive so health remains available while trading fails closed.
   const app = Fastify({ logger: false, pluginTimeout: 30_000 })
@@ -41,11 +49,23 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       : config.environment === 'test'
         ? new MemoryStore()
         : new UnconfiguredStore())
-  const auth = new AuthService(persistence, config.sessionSecret, (address) => walletAccess(config, address))
+  const auth = new AuthService(persistence, config.sessionSecret, (address) => walletAccess(config, address), {
+    origin: new URL(brandEnv(process.env, 'APP_URL') ?? config.corsOrigin.split(',')[0].trim()).origin,
+    chainId: config.perplChainId,
+    environment: config.environment,
+  })
   const notificationStore = persistence instanceof PostgresStore ? new NotificationStore(persistence.pool) : null
   const telegram =
     persistence instanceof PostgresStore && ['testnet', 'mainnet'].includes(config.environment)
       ? createTelegramNotifier(persistence.pool, process.env)
+      : undefined
+  const telegramLinks =
+    persistence instanceof PostgresStore &&
+    config.perplAccountMode === 'per-user' &&
+    process.env.TELEGRAM_BOT_TOKEN &&
+    process.env.TELEGRAM_BOT_USERNAME &&
+    process.env.TELEGRAM_WEBHOOK_SECRET
+      ? new TelegramLinks(persistence.pool, process.env.TELEGRAM_BOT_USERNAME, process.env.TELEGRAM_WEBHOOK_SECRET)
       : undefined
   const snapshotRetention =
     persistence instanceof PostgresStore
@@ -75,7 +95,32 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   let venue = services.venue ?? testRuntime?.venue
   if (!venue && persistence instanceof PostgresStore) {
     try {
-      venue = createPerplRuntime(persistence)
+      venue =
+        config.perplAccountMode === 'per-user'
+          ? new PerplUserVenues(
+              persistence,
+              config.environment === 'mainnet' ? 'mainnet' : 'testnet',
+              custody!,
+              async (credentials) => {
+                const scoped = createPerplRuntime(persistence, {
+                  ...process.env,
+                  PERPL_API_KEY: credentials.apiKey,
+                  PERPL_API_KEY_SECRET: credentials.privateKey,
+                  PERPL_ACCOUNT_ID: String(credentials.accountId),
+                  MONAD_WALLET_ADDRESS: credentials.walletAddress,
+                  EYELER_PERPL_CONNECTION_ID: credentials.connectionId,
+                })
+                if (!scoped) throw new Error('PERPL_CONNECTION_UNAVAILABLE')
+                return scoped
+              },
+              64,
+              async (credentials) => {
+                const signer = new Ed25519PerplSigner(credentials.apiKey, credentials.privateKey, config.perplChainId)
+                const history = new PerplHistory(config.perplRestUrl, signer)
+                return discoverPerplAccount(await history.wallet(), credentials.walletAddress)
+              },
+            )
+          : createPerplRuntime(persistence)
     } catch (error) {
       logger.warn(
         { error: error instanceof Error ? error.message : 'PERPL_CONFIGURATION_INVALID' },
@@ -89,7 +134,9 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       : undefined
   const enrollment =
     services.enrollment ??
-    (persistence instanceof PostgresStore ? createPerplEnrollmentService(persistence, config, process.env) : undefined)
+    (persistence instanceof PostgresStore
+      ? createPerplEnrollmentService(persistence, config, process.env, fetch, custody)
+      : undefined)
   const closeBook =
     services.closeBook ??
     (runtime ? runtime.closeBook.bind(runtime) : testRuntime ? testRuntime.closeBook.bind(testRuntime) : undefined)
@@ -101,6 +148,8 @@ export function createServer(store?: Store, services: ServerServices = {}) {
         ? testRuntime.executeAction.bind(testRuntime)
         : undefined)
   app.addHook('onReady', async () => {
+    // Verify KMS before any worker or private venue starts. Failure aborts startup.
+    await custody?.assertReady?.()
     enrollment?.startCleanup()
     await runtime?.start()
     telegram?.start()
@@ -115,7 +164,11 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       try {
         await telegram?.stop()
       } finally {
-        if (persistence instanceof PostgresStore) await persistence.pool.end()
+        try {
+          if (persistence instanceof PostgresStore) await persistence.pool.end()
+        } finally {
+          custody?.close?.()
+        }
       }
     }
   })
@@ -131,6 +184,8 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     executeAction,
     testRuntime,
     enrollment,
+    telegramLinks,
+    publicCapital: createPublicCapital(persistence instanceof PostgresStore ? persistence : undefined, process.env),
   })
   return app
 }

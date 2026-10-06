@@ -90,7 +90,7 @@ export class PostgresStore implements Store {
       if (input.automationEnabled && !hasPosition) throw new Error('BOOK_POSITION_BINDING_REQUIRED')
       const status = hasPosition ? input.status : 'PAUSED'
       const result = await client.query(
-        'INSERT INTO books(user_id,market,market_id,venue_account_id,venue_position_id,side,stance,liquidation_floor,defense_cap,time_limit_ms,automation_enabled,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *',
+        'INSERT INTO books(user_id,market,market_id,venue_account_id,venue_position_id,side,stance,liquidation_floor,defense_cap,time_limit_ms,automation_enabled,status,perpl_connection_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',
         [
           userId,
           input.market,
@@ -104,6 +104,7 @@ export class PostgresStore implements Store {
           input.timeLimitMs,
           hasPosition && input.automationEnabled,
           status,
+          input.perplConnectionId ?? null,
         ],
       )
       const book = mapBook(result.rows[0])
@@ -465,6 +466,7 @@ function mapBook(row: Record<string, unknown>): Book {
     marketId: row.market_id == null ? undefined : Number(row.market_id),
     venueAccountId: row.venue_account_id == null ? undefined : Number(row.venue_account_id),
     venuePositionId: row.venue_position_id == null ? undefined : Number(row.venue_position_id),
+    perplConnectionId: row.perpl_connection_id == null ? undefined : String(row.perpl_connection_id),
     side: row.side as Book['side'],
     stance: row.stance as Book['stance'],
     liquidationFloor: Number(row.liquidation_floor),

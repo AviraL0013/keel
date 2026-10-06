@@ -2,17 +2,36 @@ import { formatUnits, type Address } from 'viem'
 import Decimal from 'decimal.js'
 import type { Reserve } from '../../domain/src/index.js'
 import type { ChainAdapter, ChainEnvironment } from '../../chain/src/index.js'
-export type AusdBalance = { token: Address; chainId: number; raw: bigint; decimals: number; symbol: string }
+export type AusdBalance = {
+  token: Address
+  chainId: number
+  raw: bigint
+  decimals: number
+  symbol: string
+  blockNumber?: bigint
+  observedAt?: number
+}
 export class AusdAdapter {
   constructor(private readonly chain: ChainAdapter) {}
   async walletBalance(address: Address): Promise<AusdBalance> {
     const value = await this.chain.getAusdBalance(address)
+    if (
+      value.chainId !== this.chain.config.chainId ||
+      value.address.toLowerCase() !== this.chain.config.ausdToken.toLowerCase() ||
+      value.decimals !== 6 ||
+      typeof value.balance !== 'bigint' ||
+      value.balance < 0n ||
+      value.balance >= 1n << 256n
+    )
+      throw new Error('INVALID_TOKEN_SNAPSHOT')
     return {
       token: value.address,
       chainId: value.chainId,
       raw: value.balance,
       decimals: value.decimals,
       symbol: value.symbol,
+      blockNumber: value.blockNumber,
+      observedAt: value.observedAt,
     }
   }
   reconcileReserve(reserve: Reserve, walletRaw: bigint, decimals = 6) {

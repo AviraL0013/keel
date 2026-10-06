@@ -1,3 +1,4 @@
+import '../../auth/data/auth_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
 import '../domain/notification_item.dart';
@@ -18,7 +19,10 @@ class NotificationRepository {
       api.post('/notifications/$id/read', decode: (_) => true);
 }
 
-final notificationRepositoryProvider = Provider<NotificationRepository>(
-    (ref) => NotificationRepository(ref.watch(apiClientProvider)));
+final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
+  ref.watch(
+      authProvider.select((state) => (state.authenticated, state.address)));
+  return NotificationRepository(ref.watch(apiClientProvider));
+});
 final notificationProvider = FutureProvider.autoDispose<List<NotificationItem>>(
     (ref) => ref.watch(notificationRepositoryProvider).list());

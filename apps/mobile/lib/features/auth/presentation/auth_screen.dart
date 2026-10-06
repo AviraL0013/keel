@@ -10,10 +10,34 @@ import '../domain/auth_state.dart';
 class AuthScreen extends ConsumerWidget {
   const AuthScreen({super.key});
 
+  Future<void> _createWallet(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('Create a new Mera wallet?'),
+              content: const Text(
+                  'This creates a different wallet from any existing Perpl wallet. Save the passkey in a provider you can recover. This does not transfer funds or enable trading.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('CANCEL')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('CREATE WALLET'))
+              ],
+            ));
+    if (confirmed == true && context.mounted) {
+      await ref
+          .read(authProvider.notifier)
+          .connectAndAuthenticate(createAccount: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
     final backend = ref.watch(backendStatusProvider);
+    final mera = ref.watch(walletConnectorProvider).supportsAccountCreation;
     final step = auth.authenticated
         ? 3
         : auth.walletStatus == WalletStatus.signing
@@ -60,7 +84,7 @@ class AuthScreen extends ConsumerWidget {
                                           style: EyelerTypography.title),
                                       const SizedBox(height: EyelerSpacing.xs),
                                       Text(
-                                          'Your wallet proves ownership. EYELER never receives your private key or Perpl credentials.',
+                                          'Your wallet proves ownership. Private wallet keys stay on your device. Perpl trade-only API credentials are encrypted on the server.',
                                           style: EyelerTypography.body.copyWith(
                                               color: Theme.of(context)
                                                   .textTheme
@@ -69,9 +93,12 @@ class AuthScreen extends ConsumerWidget {
                                       const SizedBox(height: EyelerSpacing.lg),
                                       _Step(
                                           index: 1,
-                                          title: 'Connect wallet',
-                                          description:
-                                              'Your provider supplies the connected address.',
+                                          title: mera
+                                              ? 'Sign in with Mera'
+                                              : 'Connect wallet',
+                                          description: mera
+                                              ? 'Use your existing passkey to recover the same wallet.'
+                                              : 'Your provider supplies the connected address.',
                                           active: step == 0,
                                           complete: step > 0,
                                           child: SizedBox(
@@ -90,7 +117,22 @@ class AuthScreen extends ConsumerWidget {
                                                           WalletStatus
                                                               .connecting
                                                       ? 'CONNECTING...'
-                                                      : 'CONNECT WALLET')))),
+                                                      : mera
+                                                          ? 'SIGN IN WITH PASSKEY'
+                                                          : 'CONNECT WALLET')))),
+                                      if (mera) ...[
+                                        const SizedBox(
+                                            height: EyelerSpacing.sm),
+                                        const Text(
+                                            'New here? Create a separate Mera wallet. Funds in your existing wallet do not move automatically.'),
+                                        OutlinedButton(
+                                            onPressed: auth.loading
+                                                ? null
+                                                : () =>
+                                                    _createWallet(context, ref),
+                                            child: const Text(
+                                                'CREATE NEW MERA WALLET')),
+                                      ],
                                       _Step(
                                           index: 2,
                                           title: 'Sign this exact message',

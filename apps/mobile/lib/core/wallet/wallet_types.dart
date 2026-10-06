@@ -5,6 +5,9 @@ class WalletConnection {
 }
 
 abstract class WalletConnector {
+  bool get supportsAccountCreation => false;
+  Future<WalletConnection> createAccount() async => throw const WalletException(
+      'Wallet creation is not supported by this provider.');
   Future<WalletConnection> connect();
   Future<String> signMessage(String address, String message);
   Future<String> signTypedData(String address, Map<String, Object?> typedData);

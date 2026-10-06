@@ -336,6 +336,21 @@ class _CapitalSection extends StatelessWidget {
                       style: EyelerTypography.metric.copyWith(fontSize: 17))),
             ]),
           )),
+      for (final value in values.values)
+        if (value.onChain case final details?)
+          ExpansionTile(
+            title: const Text('Wallet and network details'),
+            children: [
+              SelectableText('Wallet: ${details['wallet']}'),
+              Text(details['chainId'] == 143
+                  ? 'Monad mainnet (143)'
+                  : 'Monad testnet (${details['chainId']})'),
+              SelectableText('Token: ${details['token']}'),
+              if (details['blockNumber'] != null)
+                Text('Observed block: ${details['blockNumber']}'),
+              SelectableText('Explorer: ${details['explorerUrl']}'),
+            ],
+          ),
     ]));
   }
 
@@ -358,6 +373,10 @@ class _CapitalSection extends StatelessWidget {
         'BOOK_LEDGER_READ_FAILED' => 'Book ledger unavailable',
         'PERPL_BALANCE_READ_FAILED' => 'Perpl balance unavailable',
         'MONAD_COLLATERAL_READ_FAILED' => 'Wallet balance unavailable',
+        'MONAD_CHAIN_MISMATCH' => 'RPC network mismatch; balance rejected',
+        'INVALID_TOKEN_SNAPSHOT' => 'Invalid token data; balance rejected',
+        'PERPL_NOT_CONNECTED' =>
+          'Connect your Perpl account to view collateral',
         _ => 'Source unavailable',
       };
 }

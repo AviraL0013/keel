@@ -1,0 +1,99 @@
+{
+  "now": 1791288000000,
+  "address": "0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F",
+  "typedData": {
+    "domain": {
+      "name": "perpl.xyz",
+      "version": "1",
+      "chainId": "0x279f",
+      "verifyingContract": "0x0000000000000000000000000000000000000000",
+      "salt": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "types": {
+      "EIP712Domain": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "name": "chainId",
+          "type": "uint256"
+        },
+        {
+          "name": "verifyingContract",
+          "type": "address"
+        },
+        {
+          "name": "salt",
+          "type": "bytes32"
+        }
+      ],
+      "PerplRegisterApiKey": [
+        {
+          "name": "signer",
+          "type": "address"
+        },
+        {
+          "name": "statement",
+          "type": "string"
+        },
+        {
+          "name": "publicKey",
+          "type": "string"
+        },
+        {
+          "name": "scope",
+          "type": "string"
+        },
+        {
+          "name": "label",
+          "type": "string"
+        },
+        {
+          "name": "expiresAt",
+          "type": "string"
+        },
+        {
+          "name": "ipCidrs",
+          "type": "string"
+        },
+        {
+          "name": "origin",
+          "type": "string"
+        },
+        {
+          "name": "builderId",
+          "type": "string"
+        },
+        {
+          "name": "maxBuilderFeePer100K",
+          "type": "string"
+        },
+        {
+          "name": "time",
+          "type": "uint64"
+        }
+      ]
+    },
+    "primaryType": "PerplRegisterApiKey",
+    "message": {
+      "signer": "0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F",
+      "statement": "Authorize Eyeler (builder code 25) to place orders from this wallet and to charge a builder fee of up to 0.000% per order. This does not permit withdrawals.",
+      "publicKey": "0xabababababababababababababababababababababababababababababababab",
+      "scope": "3",
+      "label": "EYELER",
+      "expiresAt": "1791374400000",
+      "ipCidrs": "",
+      "origin": "https://app.eyeler.xyz",
+      "builderId": "25",
+      "maxBuilderFeePer100K": "0",
+      "time": "0x1a11115be00"
+    }
+  },
+  "digest": "0x393b1215865d2393f0d8bcdc8d7a27d4fd0b4f4120e0d23403babcbe96b12447",
+  "signature": "0x8a96fd7840b87be240a1200d5a3441f5a51812114e452f4fe67ff59ba23382810a487b3ab6876de0db64db0afd0c8983216d1f7dc965101ab9b4a631e22f372b1c"
+}

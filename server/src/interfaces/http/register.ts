@@ -1,8 +1,8 @@
-﻿import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { isAddress } from 'viem'
 import type { Config } from '../../config/index.js'
 import { executionDisabled as isExecutionDisabled, logger } from '../../config/index.js'
-import type { Book } from '../../../../packages/domain/src/index.js'
+import type { Book, CapitalSnapshot } from '../../../../packages/domain/src/index.js'
 import { buildTelemetryFreshness } from '../../../../packages/domain/src/index.js'
 import { AuthenticationError, InfrastructureError, ValidationError } from '../../application/errors.js'
 import { evaluateBookSnapshot } from '../../application/book-risk.js'
@@ -14,8 +14,10 @@ import { MemoryStore } from '../../memoryStore.js'
 import type { AuthService } from '../../auth.js'
 import type { NotificationStore } from '../../infrastructure/database/notification-store.js'
 import type { EyelerRuntime, RuntimeVenue } from '../../runtime.js'
+import { resolveRuntimeVenue } from '../../runtime.js'
 import type { DeterministicTestRuntime } from '../../infrastructure/replay/test-runtime.js'
 import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollment-service.js'
+import type { TelegramLinks } from '../../infrastructure/telegram/links.js'
 import { toBookDto } from './dto.js'
 import {
   toActionDto,
@@ -46,6 +48,8 @@ export type HttpContext = {
   ) => Promise<{ actionId: string; status: string }>
   testRuntime?: DeterministicTestRuntime
   enrollment?: PerplEnrollmentService
+  telegramLinks?: TelegramLinks
+  publicCapital?: (wallet: string, userId: string) => Promise<CapitalSnapshot>
 }
 
 type Session = { userId: string; walletAddress: string; expiresAt: number }
@@ -106,6 +110,29 @@ export function registerRoutes(context: HttpContext) {
     worker: context.runtime?.health() ?? { running: false, executionReady: false },
     environment: config.environment,
   }))
+  app.get('/connections/telegram', async (request) => {
+    const current = await requireSession(request)
+    return context.telegramLinks?.status(current.userId) ?? { status: 'UNAVAILABLE', reason: 'TELEGRAM_NOT_CONFIGURED' }
+  })
+  app.post(
+    '/connections/telegram/link',
+    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request) => {
+      const current = await requireSession(request)
+      if (!context.telegramLinks) throw new InfrastructureError('TELEGRAM_NOT_CONFIGURED')
+      return context.telegramLinks.start(current.userId)
+    },
+  )
+  app.post('/connections/telegram/unlink', async (request) => {
+    const current = await requireSession(request)
+    if (!context.telegramLinks) throw new InfrastructureError('TELEGRAM_NOT_CONFIGURED')
+    await context.telegramLinks.unlink(current.userId)
+    return { status: 'NOT_LINKED' }
+  })
+  app.post('/integrations/telegram/webhook', { bodyLimit: 16384 }, async (request) => {
+    if (!context.telegramLinks) throw new InfrastructureError('TELEGRAM_NOT_CONFIGURED')
+    return context.telegramLinks.handle(request.headers['x-telegram-bot-api-secret-token'], request.body)
+  })
   app.post<{ Body: { address: string } }>('/auth/challenge', async (request) => {
     if (!isAddress(request.body.address)) throw new ValidationError('INVALID_WALLET_ADDRESS')
     return auth.challenge(request.body.address)
@@ -144,6 +171,8 @@ export function registerRoutes(context: HttpContext) {
     return { ok: true }
   })
   app.addHook('preHandler', async (request, reply) => {
+    // Telegram has no browser session. This one route authenticates the webhook secret itself.
+    if (request.method === 'POST' && request.routeOptions.url === '/integrations/telegram/webhook') return
     if (
       request.url === '/' ||
       request.url === '/health' ||
@@ -160,9 +189,15 @@ export function registerRoutes(context: HttpContext) {
   app.get('/books', async (request) => {
     const userId = (await requireSession(request)).userId
     const listed = await books.list(userId)
-    if (context.venue?.syncClosedBooks) {
+    if (context.venue) {
       try {
-        await context.venue.syncClosedBooks(listed)
+        if (context.venue.forUser) {
+          for (const connectionId of new Set(listed.map((book) => book.perplConnectionId).filter(Boolean))) {
+            const bound = listed.filter((book) => book.perplConnectionId === connectionId)
+            const venue = await resolveRuntimeVenue(context.venue, userId, bound[0])
+            await venue?.syncClosedBooks?.(bound)
+          }
+        } else await context.venue.syncClosedBooks?.(listed)
       } catch (error) {
         logger.warn(
           { error: error instanceof Error ? error.message : 'BOOK_CLOSURE_SYNC_FAILED' },
@@ -272,9 +307,11 @@ export function registerRoutes(context: HttpContext) {
   app.get<{ Params: { id: string } }>('/books/:id/state', async (request) => {
     const current = await requireSession(request)
     let book = await books.get(current.userId, request.params.id)
+    let venue: RuntimeVenue | undefined
     if (context.venue?.refresh) {
       try {
-        await context.venue.refresh(book)
+        venue = await resolveRuntimeVenue(context.venue, current.userId, book)
+        await venue?.refresh(book)
         book = await books.get(current.userId, request.params.id)
       } catch (error) {
         logger.warn(
@@ -334,7 +371,7 @@ export function registerRoutes(context: HttpContext) {
       telemetry,
       reserve,
       priorEfficiency,
-      !unresolved && (context.venue?.ready() ?? false),
+      !unresolved && (venue?.ready() ?? false),
     )
     if (decision) {
       risk = toBookRiskDto({
@@ -393,8 +430,9 @@ export function registerRoutes(context: HttpContext) {
   })
   app.get('/connections', async (request) => {
     const current = await requireSession(request)
-    if (!(persistence instanceof PostgresStore))
-      return context.venue
+    if (!(persistence instanceof PostgresStore)) {
+      const venue = await resolveRuntimeVenue(context.venue, current.userId)
+      return venue
         ? [
             {
               id: 'test-venue',
@@ -405,18 +443,35 @@ export function registerRoutes(context: HttpContext) {
             },
           ]
         : []
+    }
     await context.enrollment?.cleanupExpired()
     const result = await persistence.pool.query(
-      "SELECT id,environment,scope,CASE WHEN status='ACTIVE' AND expires_at<=now() THEN 'EXPIRED' ELSE status END AS status,created_at,revoked_at,wallet_address AS \"walletAddress\",label,expires_at AS \"expiresAt\",public_key AS \"publicKey\",CASE WHEN last_error IN ('ENROLLED_NOT_SAVED','ENROLLMENT_OUTCOME_UNKNOWN') THEN last_error ELSE NULL END AS \"lastError\",CASE WHEN last_error IN ('ENROLLED_NOT_SAVED','ENROLLMENT_OUTCOME_UNKNOWN') THEN 'https://testnet.perpl.xyz/apikeys' ELSE NULL END AS \"perplKeyPageUrl\" FROM perpl_connections WHERE user_id=$1 ORDER BY created_at DESC",
+      "SELECT id,environment,scope,CASE WHEN status='ACTIVE' AND expires_at<=now() THEN 'EXPIRED' ELSE status END AS status,created_at,revoked_at,wallet_address AS \"walletAddress\",label,expires_at AS \"expiresAt\",public_key AS \"publicKey\",CASE WHEN last_error IN ('ENROLLED_NOT_SAVED','ENROLLMENT_OUTCOME_UNKNOWN') THEN last_error ELSE NULL END AS \"lastError\",CASE WHEN last_error IN ('ENROLLED_NOT_SAVED','ENROLLMENT_OUTCOME_UNKNOWN') THEN CASE WHEN environment='mainnet' THEN 'https://app.perpl.xyz/apikeys' ELSE 'https://testnet.perpl.xyz/apikeys' END ELSE NULL END AS \"perplKeyPageUrl\" FROM perpl_connections WHERE user_id=$1 ORDER BY created_at DESC",
       [current.userId],
     )
     return result.rows
   })
-  app.post('/connections/perpl/enrollment', async (request) => {
-    const current = await requireSession(request)
-    if (!context.enrollment) throw new InfrastructureError('PERPL_ENROLLMENT_NOT_CONFIGURED')
-    return context.enrollment.start(current.userId, current.walletAddress)
+  app.get('/connections/perpl/capabilities', async (request) => {
+    await requireSession(request)
+    if (config.perplAccountMode !== 'per-user')
+      return { status: 'UNAVAILABLE', reason: 'OPERATOR_ACCOUNT_MODE', environment: config.environment }
+    return (
+      context.enrollment?.capabilities() ?? {
+        status: 'UNAVAILABLE',
+        reason: 'PERPL_ENROLLMENT_NOT_CONFIGURED',
+        environment: config.environment,
+      }
+    )
   })
+  app.post(
+    '/connections/perpl/enrollment',
+    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request) => {
+      const current = await requireSession(request)
+      if (!context.enrollment) throw new InfrastructureError('PERPL_ENROLLMENT_NOT_CONFIGURED')
+      return context.enrollment.start(current.userId, current.walletAddress)
+    },
+  )
   app.post<{ Params: { id: string }; Body: { signature?: string } }>(
     '/connections/perpl/enrollment/:id/complete',
     async (request) => {
@@ -439,6 +494,16 @@ export function registerRoutes(context: HttpContext) {
   })
   app.post('/connections/perpl/validate', async (request) => {
     const current = await requireSession(request)
+    const venue = await resolveRuntimeVenue(context.venue, current.userId)
+    if (context.venue?.forUser) {
+      if (!venue?.validate) return { status: 'NOT_CONNECTED', connections: [] }
+      return {
+        status: await venue.validate(),
+        connections: [
+          { id: venue.connectionId, environment: config.environment, scope: 'read,trade', accountId: venue.accountId },
+        ],
+      }
+    }
     if (!(persistence instanceof PostgresStore)) {
       if (!context.venue?.validate) return { status: 'UNAVAILABLE', connections: [] }
       return {
@@ -488,13 +553,21 @@ export function registerRoutes(context: HttpContext) {
     return { status: result.rows[0]?.status ?? outcome, connections: result.rows }
   })
   app.get('/connections/perpl/positions', async (request) => {
-    await requireSession(request)
-    if (!context.venue?.listPositions) return { status: 'UNAVAILABLE', positions: [] }
-    return { status: 'VALID', positions: await context.venue.listPositions() }
+    const current = await requireSession(request)
+    const venue = await resolveRuntimeVenue(context.venue, current.userId)
+    if (!venue?.listPositions) return { status: 'UNAVAILABLE', reason: 'PERPL_NOT_CONNECTED', positions: [] }
+    return { status: 'VALID', positions: await venue.listPositions() }
   })
   app.get('/capital', async (request) => {
     const current = await requireSession(request)
-    if (!context.venue?.capital) {
+    let venue: RuntimeVenue | undefined
+    try {
+      venue = await resolveRuntimeVenue(context.venue, current.userId)
+    } catch {
+      // A disconnected private account must not hide the user's public AUSD balance.
+    }
+    if (!venue?.capital) {
+      if (context.publicCapital) return context.publicCapital(current.walletAddress, current.userId)
       const unavailable = (source: string, reason: string) => ({
         amount: null,
         asset: 'AUSD',
@@ -516,15 +589,16 @@ export function registerRoutes(context: HttpContext) {
         unreservedCapital: unavailable('EYELER_LEDGER', 'VENUE_NOT_CONFIGURED'),
       }
     }
-    return context.venue.capital(current.walletAddress, current.userId)
+    return venue.capital(current.walletAddress, current.userId)
   })
   app.get('/capital/agora-activity', async (request) => {
     const current = await requireSession(request)
+    const venue = await resolveRuntimeVenue(context.venue, current.userId)
     const cursor = (request.query as { cursor?: unknown }).cursor
     if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > 1024 || cursor.length === 0))
       throw new ValidationError('INVALID_AGORA_CURSOR')
     return (
-      context.venue?.agoraActivity?.(current.walletAddress, cursor as string | undefined) ?? {
+      venue?.agoraActivity?.(current.walletAddress, cursor as string | undefined) ?? {
         status: 'UNAVAILABLE',
         reason: 'AGORA_NOT_CONNECTED',
         rows: [],

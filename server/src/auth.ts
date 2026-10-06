@@ -9,6 +9,7 @@ export class AuthService {
     private readonly store: Store,
     private readonly secret: string,
     private readonly walletAccess: (address: string) => WalletAccess = () => 'ALLOWED',
+    private readonly audience?: { origin: string; chainId: number; environment: string },
   ) {}
   private requireWalletAccess(address: string) {
     const access = this.walletAccess(address)
@@ -18,7 +19,10 @@ export class AuthService {
     this.requireWalletAccess(address)
     const nonce = randomBytes(24).toString('base64url')
     const expiresAt = Date.now() + 5 * 60_000
-    const message = `Eyeler wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: ${new Date(expiresAt).toISOString()}`
+    const context = this.audience
+      ? `\nApp: ${this.audience.origin}\nWallet: ${address.toLowerCase()}\nChain ID: ${this.audience.chainId}\nEnvironment: ${this.audience.environment}\nPurpose: Sign in to Eyeler. This signature does not authorize trades, transfers or withdrawals.`
+      : ''
+    const message = `Eyeler wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: ${new Date(expiresAt).toISOString()}${context}`
     await this.store.createChallenge(address, nonce, expiresAt, message)
     return { message, nonce, expiresAt }
   }

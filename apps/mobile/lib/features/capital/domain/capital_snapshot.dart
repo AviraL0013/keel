@@ -14,6 +14,7 @@ class CapitalAmount {
       required this.freshness,
       this.ageMs,
       this.updatedAt,
+      this.onChain,
       this.reason});
   final String? amount;
   final String asset;
@@ -24,6 +25,7 @@ class CapitalAmount {
   final int? ageMs;
   final DateTime? updatedAt;
   final String? reason;
+  final Map<String, dynamic>? onChain;
   bool get isAvailable => availability == 'AVAILABLE' && amount != null;
   double? get numeric => amount == null ? null : double.tryParse(amount!);
 
@@ -56,6 +58,9 @@ class CapitalAmount {
         freshness: map['freshness'] as String? ?? 'UNKNOWN',
         ageMs: (map['ageMs'] as num?)?.toInt(),
         updatedAt: _date(map['updatedAt']),
+        onChain: map['onChain'] is Map
+            ? Map<String, dynamic>.from(map['onChain'] as Map)
+            : null,
         reason: map['reason'] as String? ?? fallbackReason);
   }
 }

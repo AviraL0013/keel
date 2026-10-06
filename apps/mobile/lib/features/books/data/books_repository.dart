@@ -1,3 +1,4 @@
+import '../../auth/data/auth_repository.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
@@ -124,8 +125,11 @@ class BooksRepository {
   }
 }
 
-final booksRepositoryProvider = Provider<BooksRepository>(
-    (ref) => BooksRepository(ref.watch(apiClientProvider)));
+final booksRepositoryProvider = Provider<BooksRepository>((ref) {
+  ref.watch(
+      authProvider.select((state) => (state.authenticated, state.address)));
+  return BooksRepository(ref.watch(apiClientProvider));
+});
 final booksProvider = FutureProvider.autoDispose<List<Book>>(
     (ref) => ref.watch(booksRepositoryProvider).list());
 final bookDashboardProvider = AsyncNotifierProvider.autoDispose

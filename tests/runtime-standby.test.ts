@@ -36,6 +36,30 @@ function venue() {
 }
 
 describe('runtime standby lock handover', () => {
+  it('closes private venue authority immediately on lock loss even while a tick is waiting', async () => {
+    const lease = client(
+      () => true,
+      () => undefined,
+    )
+    let finishRead!: (value: { rows: never[] }) => void
+    const pendingRead = new Promise<{ rows: never[] }>((resolve) => {
+      finishRead = resolve
+    })
+    const pool = { connect: vi.fn(async () => lease), query: vi.fn(() => pendingRead) }
+    const value = venue()
+    const runtime = new EyelerRuntime({ pool } as unknown as PostgresStore, value)
+    try {
+      await runtime.start()
+      const onError = lease.on.mock.calls.find(([event]) => event === 'error')![1]
+      onError(new Error('fixture lease lost'))
+      expect(value.close).toHaveBeenCalledOnce()
+      expect(runtime.health()).toMatchObject({ lockOwned: false, waitingForLock: true })
+      expect(value.submit).not.toHaveBeenCalled()
+    } finally {
+      finishRead({ rows: [] })
+      await runtime.stop()
+    }
+  })
   it('does not start the venue when shutdown begins during a lock attempt', async () => {
     let finishConnect!: (value: Client) => void
     const connecting = new Promise<Client>((resolve) => {

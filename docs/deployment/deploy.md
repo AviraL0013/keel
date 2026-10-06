@@ -6,6 +6,8 @@ Deploy exactly **one backend instance** per environment. Perpl allows four tradi
 
 ## Live testnet
 
+The following describes the existing single-operator deployment. The candidate per-user release uses `EYELER_PERPL_ACCOUNT_MODE=per-user`, removes shared Perpl API credentials, and requires [AWS KMS custody](aws-kms.md) on deployed testnet and mainnet. Do not enable it until the [product release checklist](../product/end-to-end-delivery.md) and operator handover pass. DevelopmentKeyCustody is no longer permitted on deployed networks.
+
 Set these on the backend host:
 
 | Variable | Purpose |
