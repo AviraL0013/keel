@@ -1,6 +1,7 @@
 export type KeyCustodyConfig =
   | { provider: 'development'; key: string }
   | { provider: 'aws-kms'; region: string; keyArn: string; decryptKeyArns: string[] }
+  | { provider: 'railway-testnet'; keys: Record<string, string>; activeVersion: string }
 
 export function kmsKeyRegion(arn: string): string | undefined {
   return /^arn:aws:kms:([a-z]{2}(?:-[a-z]+)+-\d):\d{12}:key\/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|mrk-[0-9a-f]{32})$/.exec(
@@ -15,8 +16,37 @@ export function loadKeyCustodyConfig(
 ): KeyCustodyConfig | undefined {
   const provider = env.EYELER_KEY_CUSTODY
   const developmentKey = env.EYELER_KEY_ENCRYPTION_KEY ?? env.KEEL_KEY_ENCRYPTION_KEY
+  const testnetKeys = env.EYELER_TESTNET_CUSTODY_KEYS
+  const activeVersion = env.EYELER_TESTNET_CUSTODY_ACTIVE_VERSION
   if (developmentKey && !['development', 'test'].includes(environment)) throw new Error('DEVELOPMENT_CUSTODY_FORBIDDEN')
   if (environment === 'mainnet' && provider !== 'aws-kms') throw new Error('KMS_CUSTODY_REQUIRED')
+  if (provider === 'railway-testnet') {
+    if (environment !== 'testnet') throw new Error('TESTNET_CUSTODY_FORBIDDEN')
+    let keys: Record<string, string>
+    try {
+      keys = JSON.parse(testnetKeys ?? '') as Record<string, string>
+    } catch {
+      throw new Error('INVALID_TESTNET_CUSTODY_CONFIGURATION')
+    }
+    if (
+      !keys ||
+      Array.isArray(keys) ||
+      typeof keys !== 'object' ||
+      Object.keys(keys).length < 1 ||
+      Object.keys(keys).length > 8 ||
+      !activeVersion ||
+      !Object.hasOwn(keys, activeVersion) ||
+      Object.entries(keys).some(
+        ([version, key]) => !/^[A-Za-z0-9_-]{1,32}$/.test(version) || !/^[0-9a-fA-F]{64}$/.test(key),
+      ) ||
+      developmentKey ||
+      env.EYELER_KMS_KEY_ARN ||
+      env.EYELER_KMS_DECRYPT_KEY_ARNS
+    )
+      throw new Error('INVALID_TESTNET_CUSTODY_CONFIGURATION')
+    return { provider, keys, activeVersion }
+  }
+  if (testnetKeys || activeVersion) throw new Error('INVALID_TESTNET_CUSTODY_CONFIGURATION')
   if (provider === 'aws-kms') {
     const keyArn = env.EYELER_KMS_KEY_ARN ?? ''
     const region = env.AWS_REGION ?? ''

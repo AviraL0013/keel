@@ -2,6 +2,51 @@ import { randomUUID } from 'node:crypto'
 import { expect, it, vi } from 'vitest'
 import { databaseFixture } from './helpers/database.js'
 import { rotateCredentialBatch } from '../server/src/infrastructure/perpl/rotate-credentials.js'
+import { RailwayTestnetKeyCustody } from '../server/src/infrastructure/perpl/railway-testnet-key-custody.js'
+import { credentialContext } from '../server/src/infrastructure/perpl/key-custody.js'
+
+it('rewraps persisted testnet envelopes and keeps credentials decryptable after dropping the old key', async () => {
+  const { db, store } = await databaseFixture()
+  try {
+    const user = await store.ensureUser('0x0000000000000000000000000000000000000001')
+    const id = randomUUID()
+    const oldCustody = new RailwayTestnetKeyCustody({ v1: '11'.repeat(32) }, 'v1')
+    const old = await oldCustody.seal('credential', credentialContext(user, id, 'api_token'))
+    await db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,sealed_api_token) VALUES($1,$2,'testnet','trade','test','ACTIVE',$3)`,
+      [id, user, old],
+    )
+    const upgraded = new RailwayTestnetKeyCustody({ v1: '11'.repeat(32), v2: '22'.repeat(32) }, 'v2')
+    expect(await rotateCredentialBatch(store, upgraded, 'testnet', { apply: true })).toMatchObject({ rotated: 1 })
+    const rotated = (await db.query('SELECT sealed_api_token FROM perpl_connections WHERE id=$1', [id])).rows[0]
+      .sealed_api_token as string
+    expect(
+      await new RailwayTestnetKeyCustody({ v2: '22'.repeat(32) }, 'v2').open(
+        rotated,
+        credentialContext(user, id, 'api_token'),
+      ),
+    ).toBe('credential')
+  } finally {
+    await db.close()
+  }
+}, 20000)
+
+it('keeps KMS-backed testnet rotation compatible with existing envelopes', async () => {
+  const { db, store } = await databaseFixture()
+  try {
+    const user = await store.ensureUser('0x0000000000000000000000000000000000000001')
+    const id = randomUUID()
+    await db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,sealed_api_token) VALUES($1,$2,'testnet','trade','test','ACTIVE','kms-v1:original')`,
+      [id, user],
+    )
+    const rotate = vi.fn(async () => 'kms-v1:rotated')
+    expect(await rotateCredentialBatch(store, { rotate }, 'testnet', { apply: true })).toMatchObject({ rotated: 1 })
+    expect(rotate).toHaveBeenCalledOnce()
+  } finally {
+    await db.close()
+  }
+}, 20000)
 
 it('rotation is dry-run by default, scopes environment and never restores a concurrently revoked credential', async () => {
   const { db, store } = await databaseFixture()

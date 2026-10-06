@@ -15,6 +15,20 @@ const base = {
 }
 
 describe('explicit per-user deployment configuration', () => {
+  it('starts per-user testnet with a Railway-held wrapping key but rejects that key on mainnet', () => {
+    const railway = {
+      ...base,
+      EYELER_KEY_CUSTODY: 'railway-testnet',
+      AWS_REGION: undefined,
+      EYELER_KMS_KEY_ARN: undefined,
+      EYELER_TESTNET_CUSTODY_KEYS: JSON.stringify({ v1: '11'.repeat(32) }),
+      EYELER_TESTNET_CUSTODY_ACTIVE_VERSION: 'v1',
+    }
+    expect(() => assertProductionConfig(loadConfig(railway), railway)).not.toThrow()
+    expect(() =>
+      assertProductionConfig(loadConfig({ ...railway, EYELER_ENV: 'mainnet' }), { ...railway, EYELER_ENV: 'mainnet' }),
+    ).toThrow('KMS_CUSTODY_REQUIRED')
+  })
   it('requires KMS and matching network settings before mainnet can be configured', () => {
     const mainnet = { ...base, EYELER_ENV: 'mainnet' }
     expect(() => assertProductionConfig(loadConfig(mainnet), mainnet)).not.toThrow()

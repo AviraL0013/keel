@@ -93,7 +93,11 @@ export function assertProductionConfig(config: Config, env: Record<string, strin
   if (config.perplAccountMode === 'per-user') {
     if (['PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'].some((key) => Boolean(env[key]?.trim())))
       throw new Error('PER_USER_SHARED_CREDENTIALS_FORBIDDEN')
-    if (['mainnet', 'testnet'].includes(config.environment) && custody?.provider !== 'aws-kms')
+    if (
+      ['mainnet', 'testnet'].includes(config.environment) &&
+      custody?.provider !== 'aws-kms' &&
+      !(config.environment === 'testnet' && custody?.provider === 'railway-testnet')
+    )
       throw new Error('KMS_CUSTODY_REQUIRED')
     if (
       !config.databaseUrl ||
