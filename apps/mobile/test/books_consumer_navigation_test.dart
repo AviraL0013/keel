@@ -118,6 +118,10 @@ void main() {
     ], child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('Current Book defense caps'), findsOneWidget);
+    expect(find.text('\$15.00'), findsOneWidget);
+    expect(find.text('Testnet USD - not wallet balance'), findsOneWidget);
+    expect(find.text('TESTNET'), findsOneWidget);
     expect(find.byKey(const ValueKey('book-card-safe')), findsOneWidget);
     expect(find.byKey(const ValueKey('book-card-active')), findsOneWidget);
     expect(
@@ -162,7 +166,22 @@ void main() {
             positionStatus: 'CLOSED'));
     await tester.pump(const Duration(seconds: 15));
     await tester.pump();
+    expect(find.text('\$10.00'), findsOneWidget);
     expect(find.text('2 current · 2 in history'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('closed Books contribute no current defense cap', (tester) async {
+    final closedBooks = [
+      book('closed-a', 'BTC', 'CLOSED'),
+      book('closed-b', 'ETH', 'CLOSED'),
+    ];
+    await tester.pumpWidget(ProviderScope(overrides: [
+      booksProvider.overrideWith((ref) async => closedBooks),
+    ], child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
+    await tester.pump();
+    expect(find.text('\$0.00'), findsOneWidget);
+    expect(find.text('TESTNET'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

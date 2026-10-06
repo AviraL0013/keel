@@ -9,6 +9,7 @@ cd "$(dirname "$0")/../../apps/mobile"
 build_sha=${EYELER_BUILD_SHA:-development}
 flutter build web --release \
   "--dart-define=EYELER_API_URL=$api_url" \
+  "--dart-define=EYELER_DEPLOYMENT=$1" \
   '--dart-define=EYELER_CHAIN_ID=10143' \
   '--dart-define=EYELER_CHAIN_NAME=Monad Testnet' \
   '--dart-define=EYELER_MONAD_RPC_URL=https://testnet-rpc.monad.xyz' \

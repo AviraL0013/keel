@@ -39,6 +39,9 @@ void main() {
     final capital = CapitalSnapshot.fromJson({'status': 'UNAVAILABLE'});
     expect(capital.ausdBalance, isNull);
     expect(capital.perplAvailable.amount, isNull);
+    expect(capital.walletAusd.asset, 'USD');
+    expect(capital.perplAvailable.asset, 'USD');
+    expect(capital.walletAgoraAusd.asset, 'AUSD');
   });
   test('capital preserves normalized amount metadata', () {
     final capital = CapitalSnapshot.fromJson({

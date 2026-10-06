@@ -79,6 +79,7 @@ void main() {
             MaterialApp(theme: EyelerTheme.dark, home: const CapitalScreen())));
     await tester.pumpAndSettle();
     expect(find.text('Wallet / USD'), findsOneWidget);
+    expect(find.text('USD balance'), findsOneWidget);
     expect(find.textContaining('1.600001 USD'), findsWidgets);
     expect(find.textContaining('0.100001 USD'), findsOneWidget);
     expect(find.textContaining('Perpl balance unavailable'), findsOneWidget);

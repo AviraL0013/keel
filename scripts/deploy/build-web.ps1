@@ -10,6 +10,7 @@ Push-Location (Join-Path $PSScriptRoot '..\..\apps\mobile')
 try {
     & $flutter.Source build web --release `
         "--dart-define=EYELER_API_URL=$apiUrl" `
+        "--dart-define=EYELER_DEPLOYMENT=$Target" `
         '--dart-define=EYELER_CHAIN_ID=10143' `
         '--dart-define=EYELER_CHAIN_NAME=Monad Testnet' `
         '--dart-define=EYELER_MONAD_RPC_URL=https://testnet-rpc.monad.xyz' `

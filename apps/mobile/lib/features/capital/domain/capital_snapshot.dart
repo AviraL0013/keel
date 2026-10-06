@@ -1,3 +1,9 @@
+const _defaultCollateralAsset =
+    String.fromEnvironment('EYELER_DEPLOYMENT', defaultValue: 'testnet') ==
+            'mainnet'
+        ? 'AUSD'
+        : 'USD';
+
 class CapitalAmount {
   const CapitalAmount(
       {required this.amount,
@@ -99,7 +105,7 @@ class CapitalSnapshot {
           : null,
       walletAusd: CapitalAmount.fromJson(
           json['walletAusd'] ?? json['ausdBalance'],
-          asset: 'AUSD',
+          asset: _defaultCollateralAsset,
           source: 'MONAD_AUSD',
           fallbackReason: json['walletAusd'] == null
               ? 'WALLET_BALANCE_NOT_RETURNED'
@@ -109,16 +115,16 @@ class CapitalSnapshot {
           source: 'MONAD_AGORA_AUSD',
           fallbackReason: 'MONAD_AGORA_AUSD_READ_FAILED'),
       perplAvailable: CapitalAmount.fromJson(json['perplAvailable'],
-          asset: 'AUSD', source: 'PERPL_COLLATERAL'),
+          asset: _defaultCollateralAsset, source: 'PERPL_COLLATERAL'),
       perplLocked: CapitalAmount.fromJson(json['perplLocked'],
-          asset: 'AUSD', source: 'PERPL_COLLATERAL'),
+          asset: _defaultCollateralAsset, source: 'PERPL_COLLATERAL'),
       bookReserved: CapitalAmount.fromJson(json['bookReserved'],
-          asset: 'AUSD', source: 'EYELER_LEDGER'),
+          asset: _defaultCollateralAsset, source: 'EYELER_LEDGER'),
       bookDeployed: CapitalAmount.fromJson(json['bookDeployed'],
-          asset: 'AUSD', source: 'EYELER_LEDGER'),
+          asset: _defaultCollateralAsset, source: 'EYELER_LEDGER'),
       bookRemaining: CapitalAmount.fromJson(json['bookRemaining'],
-          asset: 'AUSD', source: 'EYELER_LEDGER'),
-      unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'], asset: 'AUSD', source: 'EYELER_LEDGER'));
+          asset: _defaultCollateralAsset, source: 'EYELER_LEDGER'),
+      unreservedCapital: CapitalAmount.fromJson(json['unreservedCapital'], asset: _defaultCollateralAsset, source: 'EYELER_LEDGER'));
 }
 
 class AusdMetrics {

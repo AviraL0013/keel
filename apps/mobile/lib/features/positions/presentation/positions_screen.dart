@@ -69,8 +69,7 @@ class PositionsScreen extends ConsumerWidget {
                   const EmptyStateCard(
                       icon: Icons.layers_clear_outlined,
                       title: 'NO ACTIVE POSITIONS',
-                      message:
-                          'Connect a Perpl account to discover positions.'),
+                      message: 'No open positions on this Perpl account.'),
                 ...items.map((position) => _PositionCard(position: position)),
               ]),
         ),
@@ -312,7 +311,7 @@ class _ConnectionCard extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text(valid ? 'Perpl Connected' : 'Perpl $status',
+                    Text(valid ? 'Perpl venue connected' : 'Perpl $status',
                         style: EyelerTypography.section),
                     Text(
                         '${environment?.toUpperCase() ?? 'SERVER-SIDE'}${accountId == null ? '' : ' / ACCOUNT $accountId'}',
