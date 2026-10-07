@@ -14,6 +14,9 @@ import { TelegramLinks } from '../server/src/infrastructure/telegram/links.js'
 import { StrategyTelegramCommands } from '../server/src/infrastructure/strategies/telegram-commands.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import { OpeningTrades } from '../server/src/application/opening-trades.js'
+import { StrategyOrderRecovery } from '../server/src/infrastructure/strategies/order-recovery.js'
+import { strategyIntentHash } from '../packages/strategies/src/order-intent.js'
+import type { StrategyOrderEvidence } from '../packages/strategies/src/order-reconciliation.js'
 
 // No supplied connection string, environment file, production service or network
 // endpoint is accepted. This command owns one ephemeral, loopback-only fixture.
@@ -466,6 +469,94 @@ async function proveBookOpening(db: pg.Pool, observer: pg.Pool, bookFirst: boole
   }
 }
 
+async function proveStrategyRecovery(db: pg.Pool, observer: pg.Pool) {
+  const f = await seed(observer, 707),
+    id = randomUUID()
+  const order = { acc: 707, mkt: 16, t: 1, s: 100, p: 990, lv: 100, fl: 1 as const, orderTtlBlocks: 20 }
+  const terms = { priceDecimals: 1, sizeDecimals: 3 }
+  const strategy = (
+    await observer.query<{ id: string }>(
+      `INSERT INTO strategies(user_id,connection_id,environment,
+    account_id,market_id,mode,kind,capital,config,state,status)
+    VALUES($1,$2,'testnet',707,16,'LIVE','GRID',10,'{}','{}','HALTED') RETURNING id`,
+      [f.user, f.connection],
+    )
+  ).rows[0].id
+  await observer.query(
+    `INSERT INTO strategy_orders(id,strategy_id,environment,account_id,market_id,kind,status,
+    side,price,size,idempotency_key,wire_order,market_terms,payload_hash,request_id,last_execution_block,submitted_at)
+    VALUES($1,$2,'testnet',707,16,'POST','SUBMITTING','BUY',99,0.1,$3,$4,$5,$6,45,120,now())`,
+    [id, strategy, randomUUID(), JSON.stringify(order), JSON.stringify(terms), strategyIntentHash(order, terms, null)],
+  )
+  const evidence: StrategyOrderEvidence = {
+    historyComplete: true,
+    history: [],
+    snapshotReady: true,
+    snapshot: [{ acc: 707, mkt: 16, rq: '45', oid: 75, st: 2, t: 1, sr: 0, os: 100, fs: 0, at: { b: 110 } }],
+    operations: [
+      {
+        accountId: 707,
+        requestId: '45',
+        marketId: 16,
+        type: 1,
+        orderId: '0',
+        sizeRaw: '100',
+        priceRaw: '990',
+        leverageHundredths: 100,
+        postOnly: true,
+        fillOrKill: false,
+        immediateOrCancel: false,
+        expiryBlock: '0',
+        amountRaw: '0',
+        maxNegPnlCollatBps: '0',
+        feePer100K: '0',
+        lastExecutionBlock: 120,
+        block: 110,
+        txHash: `0x${'a'.repeat(64)}`,
+        requestLogIndex: 0,
+        outcomeLogIndex: 1,
+        outcome: 'PLACED',
+        venueOrderId: 75,
+      },
+    ],
+  }
+  let read = async () => evidence
+  const scoped = { accountId: 707, strategyOrderEvidence: () => read() } as RuntimeVenue
+  const venue = { forUser: async () => scoped } as RuntimeVenue
+  const recovery = new StrategyOrderRecovery(db, venue, 'testnet')
+  await recovery.recover()
+  assert.equal((await observer.query('SELECT status FROM strategy_orders WHERE id=$1', [id])).rows[0].status, 'OPEN')
+  const entered = signal(),
+    release = signal()
+  read = async () => {
+    entered.resolve()
+    await release.promise
+    return evidence
+  }
+  const work = recovery.recover()
+  try {
+    await waitForBarrier(entered.promise, work)
+    // A different PostgreSQL session changes the immutable command while the
+    // read-only venue lookup is held. The old recovery write must lose its CAS.
+    await observer.query(
+      `UPDATE strategy_orders SET wire_order=jsonb_set(wire_order,'{p}','991'),
+      status='UNKNOWN',error='NEWER_SESSION',updated_at=now() WHERE id=$1`,
+      [id],
+    )
+    release.resolve()
+    await work
+    const saved = (await observer.query('SELECT status,error,venue_order_id FROM strategy_orders WHERE id=$1', [id]))
+      .rows[0]
+    assert.equal(saved.status, 'UNKNOWN')
+    assert.equal(saved.error, 'NEWER_SESSION')
+    assert.equal(Number(saved.venue_order_id), 75)
+    console.log('PASS independent strategy recovery CAS preserves newer command and pinned order; no submission method')
+  } finally {
+    release.resolve()
+    await work
+  }
+}
+
 if (process.argv[2] === '--allocator-worker') {
   const db = pool(await fixturePort(process.argv[3] ?? ''), 'eyeler_fixture_allocator', 1)
   try {
@@ -514,6 +605,7 @@ if (process.argv[2] === '--allocator-worker') {
     await proveBookOpening(db, observer, false)
     await proveBookOpening(db, observer, true)
     await proveTelegram(port, observer)
+    await proveStrategyRecovery(db, observer)
     const outputs = await Promise.all(
       [1, 2].map(() =>
         run(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--allocator-worker', id!], {

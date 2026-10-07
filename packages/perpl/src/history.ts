@@ -5,6 +5,7 @@ import { parsePerplRequestIds } from './request-id.js'
 import { decodeEventLog, decodeFunctionData, parseAbi } from 'viem'
 import { encodeAmount } from './units.js'
 import Decimal from 'decimal.js'
+import { verifyStrategyCommandReceipt } from './strategy-receipts.js'
 
 export type AccountEvent = {
   id: number
@@ -269,6 +270,64 @@ export class PerplHistory {
       }
     }
     return operations
+  }
+  /** Signed history supplies candidates, including OPEN and original target rq.
+   * On-chain request and outcome events own positive command admission proof.
+   * A failed/incomplete history scan throws; it cannot establish absence.
+   */
+  async strategyCommandEvidence(
+    accountId: number,
+    requestedId: string,
+    marketId: number,
+    targetOrderId?: number,
+    minBlock?: number,
+  ) {
+    if (!this.rpcUrl || !this.exchangeAddress) throw new Error('PERPL_RECONCILIATION_RPC_UNAVAILABLE')
+    const history = await this.read<WireOrder>(
+      'order-history',
+      (row) =>
+        row.acc === accountId &&
+        (String(row.rq) === requestedId || (row.mkt === marketId && row.oid === targetOrderId)),
+      minBlock,
+    )
+    const hashes = [
+      ...new Set(
+        history
+          .map((row) => row.at.txid?.replace(/^0x/i, '').toLowerCase())
+          .filter((hash): hash is string => typeof hash === 'string' && /^(?:0x)?[0-9a-f]{64}$/i.test(hash)),
+      ),
+    ]
+    if (hashes.length > 64) throw new Error('PERPL_STRATEGY_RECEIPT_SCAN_LIMIT')
+    const operations = [] as ReturnType<typeof verifyStrategyCommandReceipt>
+    for (const raw of hashes) {
+      const hash = raw.startsWith('0x') ? raw : `0x${raw}`
+      const [tx, receipt] = await Promise.all([
+        this.rpc('eth_getTransactionByHash', hash),
+        this.rpc('eth_getTransactionReceipt', hash),
+      ])
+      operations.push(
+        ...verifyStrategyCommandReceipt(this.exchangeAddress, hash, tx, receipt).filter(
+          (op) =>
+            op.accountId === accountId &&
+            op.requestId === requestedId &&
+            history.some(
+              (row) =>
+                row.at.txid?.replace(/^0x/, '').toLowerCase() === hash.slice(2).toLowerCase() &&
+                row.at.b === op.block &&
+                row.mkt === op.marketId &&
+                (String(row.rq) === requestedId || String(row.oid) === op.orderId),
+            ),
+        ),
+      )
+    }
+    const wallet = await this.wallet()
+    const account = wallet.as.find((row) => row.id === accountId)
+    return {
+      history,
+      operations,
+      historyComplete: true,
+      ...(account?.lfr !== undefined ? { account: { lfr: String(account.lfr), block: wallet.at.b! } } : {}),
+    }
   }
   async evidence(
     accountId: number,

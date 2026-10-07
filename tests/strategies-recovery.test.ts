@@ -27,7 +27,55 @@ const config: StrategyConfig = {
   grid: { lower: 99, upper: 101, levels: 3 },
 }
 
-it('rebuilds order state from venue snapshot after restart without any resubmission', async () => {
+it('reconciles beyond the first 100 unresolved orders without starving later requests', async () => {
+  const { db, store } = await databaseFixture()
+  try {
+    const user = await store.ensureUser('0x0000000000000000000000000000000000000074')
+    const connection = randomUUID()
+    await db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,expires_at)
+      VALUES($1,$2,'testnet','trade','fixture','ACTIVE',now()+interval '1 hour')`,
+      [connection, user],
+    )
+    const strategy = (
+      await db.query(
+        `INSERT INTO strategies(user_id,connection_id,environment,account_id,market_id,
+      mode,kind,capital,config,state,status) VALUES($1,$2,'testnet',642,16,'PAPER','GRID',100,'{}','{}','PAUSED') RETURNING id`,
+        [user, connection],
+      )
+    ).rows[0].id
+    await db.query(
+      `INSERT INTO strategy_orders(strategy_id,environment,account_id,market_id,kind,status,side,price,size,request_id,created_at)
+      SELECT $1,'testnet',642,16,'POST','UNKNOWN','BUY',99,1,n,to_timestamp(n) FROM generate_series(1,101) n`,
+      [strategy],
+    )
+    const seen = new Set<string>()
+    const scoped = {
+      accountId: 642,
+      strategyOrderEvidence: async (intent: { requestId: string }) => {
+        seen.add(intent.requestId)
+        return { snapshotReady: false, snapshot: [], history: [] }
+      },
+    } as unknown as RuntimeVenue
+    const venue = { forUser: async () => scoped } as unknown as RuntimeVenue
+    const recovery = new StrategyOrderRecovery(store.pool, venue, 'testnet')
+    await recovery.recover()
+    expect(seen.size).toBe(0) // Legacy rows lack immutable command metadata.
+    expect(
+      (await db.query("SELECT count(*)::int AS n FROM strategy_orders WHERE error='STRATEGY_INTENT_UNVERIFIED'"))
+        .rows[0].n,
+    ).toBe(100)
+    await recovery.recover()
+    expect(
+      (await db.query("SELECT count(*)::int AS n FROM strategy_orders WHERE error='STRATEGY_INTENT_UNVERIFIED'"))
+        .rows[0].n,
+    ).toBe(101)
+  } finally {
+    await db.close()
+  }
+}, 30_000)
+
+it('keeps legacy snapshot-only state unverified after restart without any resubmission', async () => {
   const { db, store } = await databaseFixture()
   try {
     const user = await store.ensureUser('0x0000000000000000000000000000000000000069')
@@ -79,11 +127,14 @@ it('rebuilds order state from venue snapshot after restart without any resubmiss
     const venue = { ...scoped, forUser: async () => scoped } as RuntimeVenue
     const recovery = new StrategyOrderRecovery(store.pool, venue, 'testnet')
     await recovery.recover()
-    expect((await repo.orders(user, strategy.id))[0]).toMatchObject({ status: 'OPEN', venue_order_id: 75 })
+    expect((await repo.orders(user, strategy.id))[0]).toMatchObject({
+      status: 'UNKNOWN',
+      error: 'STRATEGY_INTENT_UNVERIFIED',
+    })
     snapshot = []
     history = [order(5)]
     await recovery.recover()
-    expect((await repo.orders(user, strategy.id))[0].status).toBe('CANCELED')
+    expect((await repo.orders(user, strategy.id))[0].status).toBe('UNKNOWN')
     expect(submissions).toBe(0)
   } finally {
     await db.close()

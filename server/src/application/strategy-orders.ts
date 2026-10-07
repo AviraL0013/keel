@@ -1,7 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import Decimal from 'decimal.js'
 import { requestId } from '../../../packages/perpl/src/request-id.js'
 import { PerplPreSubmissionError, type PerplOrder } from '../../../packages/perpl/src/trading.js'
+import { strategyIntentHash as hash } from '../../../packages/strategies/src/order-intent.js'
 import type { PostgresStore } from '../infrastructure/database/postgres-store.js'
 import type { RuntimeVenue } from '../runtime.js'
 
@@ -38,14 +39,6 @@ export type StrategyOrderRecord = {
 }
 type StrategyBinding = { id: string; connection_id: string; account_id: string; market_id: number; mode: string }
 type Options = { enabled: boolean; executionDisabled: boolean; accountMode: 'operator' | 'per-user' }
-
-function hash(order: PerplOrder, terms: Terms, target: string | null) {
-  // PostgreSQL JSONB reorders keys. Hash sorted entries, not insertion order.
-  const sorted = (value: object) => Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return createHash('sha256')
-    .update(JSON.stringify([sorted(order), sorted(terms), target]))
-    .digest('hex')
-}
 
 /** Internal, fake-tested submission seam. Not mounted in HTTP or the worker.
  * LIVE startup remains blocked until capital isolation, verified cleanup and confirmation are implemented.
@@ -300,7 +293,7 @@ export class StrategyOrders {
           WHERE id=$1 AND status='SUBMITTING' AND payload_hash=$5 AND request_id IS NOT DISTINCT FROM $6::numeric`,
         [
           intent.id,
-          result.status === 'FAILED' ? 'FAILED' : 'UNKNOWN',
+          'UNKNOWN', // A failed mt:24 is not proof that this request never executed.
           result.venueProgress ? JSON.stringify(result.venueProgress) : null,
           result.reason ?? null,
           intent.payload_hash,

@@ -14,7 +14,7 @@ import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
-import type { WirePosition, WireOrder } from '../../../../packages/perpl/src/decoder.js'
+import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
 import { PerplRequestIdAllocator } from './request-id-allocator.js'
 import { listOpeningMarkets, openingMarketSnapshot } from '../../../../packages/perpl/src/opening-market.js'
 import {
@@ -708,12 +708,11 @@ export function createPerplRuntime(
     },
     async strategyOrderEvidence(intent) {
       if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
-      const historyRows = await history.read<WireOrder>(
-        'order-history',
-        (item) =>
-          item.acc === intent.accountId &&
-          item.mkt === intent.marketId &&
-          (String(item.rq) === intent.requestId || (intent.kind === 'CANCEL' && item.oid === intent.venueOrderId)),
+      const proof = await history.strategyCommandEvidence(
+        intent.accountId,
+        intent.requestId,
+        intent.marketId,
+        intent.venueOrderId,
       )
       const snapshotReady = trading.isReady()
       const snapshot = snapshotReady
@@ -722,12 +721,11 @@ export function createPerplRuntime(
             .orders.filter(
               (item) =>
                 item.acc === intent.accountId &&
-                item.mkt === intent.marketId &&
                 (String(item.rq) === intent.requestId ||
-                  (intent.kind === 'CANCEL' && item.oid === intent.venueOrderId)),
+                  (item.mkt === intent.marketId && item.oid === intent.venueOrderId)),
             )
         : []
-      return { history: historyRows, snapshotReady, snapshot }
+      return { ...proof, snapshotReady, snapshot }
     },
     async reconcile(action) {
       return live.reconcile(action)

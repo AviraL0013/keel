@@ -40,6 +40,7 @@ async function fixture(maxConnections = 64, cache = {}) {
       submitOpening: vi.fn(async () => ({ venueReference: '642:102', status: 'SUBMITTED' as const })),
       reconcile: vi.fn(),
       listPositions: vi.fn(async () => []),
+      strategyOrderEvidence: vi.fn(async () => ({ snapshotReady: false, snapshot: [], history: [] })),
     }
     created.push(venue)
     return venue
@@ -349,8 +350,16 @@ describe('per-user Perpl runtime ownership', () => {
       expect(f.created.every((venue) => vi.mocked(venue.submit).mock.calls.length === 0)).toBe(true)
       expect((await f.store.getBook(f.a, bookId))?.perplConnectionId).toBe(oldId)
       expect(await f.registry.recoveryForUser(f.b, oldId)).toBeUndefined()
+      const intent = { accountId: 642, marketId: 16, requestId: '45', kind: 'POST' as const }
+      await recovery!.strategyOrderEvidence!(intent)
+      expect(f.created.at(-1)!.strategyOrderEvidence).toHaveBeenCalledWith(intent)
+      await expect(recovery!.strategyOrderEvidence!({ ...intent, accountId: 888 })).rejects.toThrow(
+        'PERPL_ACCOUNT_MISMATCH',
+      )
+      expect(recovery!.submitStrategy).toBeUndefined()
       await f.db.query("UPDATE perpl_connections SET status='REVOKED' WHERE id=$1", [nextId])
       await expect(recovery!.reconcile(action)).rejects.toThrow('PERPL_CONNECTION_UNAVAILABLE')
+      await expect(recovery!.strategyOrderEvidence!(intent)).rejects.toThrow('PERPL_CONNECTION_UNAVAILABLE')
       await f.add(f.a, 888)
       expect(await f.registry.recoveryForUser(f.a, oldId)).toBeUndefined()
     } finally {

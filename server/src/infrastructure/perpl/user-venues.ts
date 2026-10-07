@@ -247,6 +247,18 @@ export class PerplUserVenues implements RuntimeVenue {
               }),
           }
         : {}),
+      ...(entry.raw.strategyOrderEvidence
+        ? {
+            strategyOrderEvidence: (intent: Parameters<NonNullable<RuntimeVenue['strategyOrderEvidence']>>[0]) =>
+              entry.use(async () => {
+                await authorize()
+                if (intent.accountId !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                const evidence = await entry.raw.strategyOrderEvidence!(intent)
+                await authorize()
+                return evidence
+              }),
+          }
+        : {}),
       refresh: (book) =>
         entry.use(async () => {
           assertBook(book)

@@ -48,6 +48,8 @@ The JSON output distinguishes simulated fills and lists transaction hashes only 
 
 The internal [durable intent seam](order-intents.md) now has fake-venue proof. It remains unmounted; the production live controller and the steps below are still required.
 
+The [receipt-backed command recovery](order-proof.md) adds exact singleton POST/CHANGE/CANCEL admission proof and immutable restart recovery. Ambiguous batches and later financial settlement remain unverified. The [account capital admission](capital-admission.md) keeps Book and opening commitments separate; live strategy allocation and release still need their own lifecycle.
+
 1. Implement and test a live controller that persists an intent before sending, reconciles each request against mt:24/history/snapshot, and never resubmits `UNKNOWN`.
 2. Add real cancel-all of strategy-owned open orders on halt, shutdown, lease loss, and kill; verify each cancellation by venue evidence. Keep Book orders untouched.
 3. Atomically reserve strategy capital outside Book reserves and other strategies. Add optional Book DEFEND/REDUCE/EXIT protection for strategy inventory, with ownership and sizing checks.

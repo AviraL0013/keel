@@ -4,7 +4,7 @@ import { databaseFixture } from './helpers/database.js'
 import { StrategyOrders, type StrategyOrderRecord } from '../server/src/application/strategy-orders.js'
 import { StrategyStore } from '../server/src/infrastructure/strategies/store.js'
 import { StrategyOrderRecovery } from '../server/src/infrastructure/strategies/order-recovery.js'
-import { PerplPreSubmissionError, type PerplOrder } from '../packages/perpl/src/trading.js'
+import { PerplPreSubmissionError, type PerplOrder, type PerplSubmitResult } from '../packages/perpl/src/trading.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 
 async function fixture() {
@@ -43,7 +43,7 @@ async function fixture() {
       order: PerplOrder,
       beforeSend: (reference: string, lb: number) => Promise<void>,
       beforeVerify?: () => Promise<void>,
-    ): Promise<{ venueReference: string; status: 'SUBMITTED' | 'CANCELED' }> => {
+    ): Promise<PerplSubmitResult> => {
       await beforeSend(reference, expiry)
       const saved = await row(id)
       expect(saved).toMatchObject({
@@ -109,6 +109,27 @@ async function fixture() {
     options,
   }
 }
+
+it('keeps a failed mt:24 recoverable and never resends it as a fresh intent', async () => {
+  const f = await fixture()
+  try {
+    f.submit.mockImplementationOnce(async (_id, _order, beforeSend, verify) => {
+      await beforeSend('642:45', 120)
+      await verify?.()
+      f.wire()
+      return { venueReference: '642:45', status: 'FAILED', reason: 'UNVERIFIED_ORDER_UPDATE' }
+    })
+    expect(await f.service().submit(f.user, f.strategy, f.input)).toMatchObject({
+      status: 'UNKNOWN',
+      error: 'UNVERIFIED_ORDER_UPDATE',
+      request_id: '45',
+    })
+    await f.service().submit(f.user, f.strategy, f.input)
+    expect(f.wire).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
 
 it('persists the exact intent before one fake write and never resends duplicate or restarted requests', async () => {
   const f = await fixture()
@@ -396,7 +417,7 @@ it('derives cancellation identity only from an owned real POST and rejects forge
       }),
     } as unknown as RuntimeVenue
     await new StrategyOrderRecovery(f.store.pool, recoveryVenue, 'testnet').recover()
-    expect((await f.row(canceled.id)).status).toBe('CANCELED')
+    expect((await f.row(canceled.id)).status).toBe('UNKNOWN') // Target history alone does not prove our CANCEL.
     expect(f.wire).toHaveBeenCalledTimes(2)
   } finally {
     await f.db.close()
