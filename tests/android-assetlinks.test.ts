@@ -33,4 +33,11 @@ describe('Mera Android passkey association', () => {
       value: 'application/json',
     })
   })
+
+  it('declares the RP asset statements in the Android app manifest', () => {
+    const manifest = readFileSync(resolve(root, 'apps/mobile/android/app/src/main/AndroidManifest.xml'), 'utf8')
+    const strings = readFileSync(resolve(root, 'apps/mobile/android/app/src/main/res/values/strings.xml'), 'utf8')
+    expect(manifest).toContain('android:name="asset_statements" android:resource="@string/asset_statements"')
+    expect(strings).toContain('https://app.eyeler.xyz/.well-known/assetlinks.json')
+  })
 })
