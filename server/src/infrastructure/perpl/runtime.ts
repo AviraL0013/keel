@@ -14,7 +14,7 @@ import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
-import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
+import type { WirePosition, WireOrder } from '../../../../packages/perpl/src/decoder.js'
 import { PerplRequestIdAllocator } from './request-id-allocator.js'
 import { listOpeningMarkets, openingMarketSnapshot } from '../../../../packages/perpl/src/opening-market.js'
 import {
@@ -34,7 +34,7 @@ import { readAgoraActivity } from '../agora/activity.js'
 import { readCapital } from '../capital/snapshot.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
-import { brandEnv, logger } from '../../config/index.js'
+import { brandEnv, executionDisabled, logger } from '../../config/index.js'
 
 export function assertPerplFreeBalance(
   balance: PerplBalance,
@@ -667,6 +667,34 @@ export function createPerplRuntime(
     },
     async submitOpening(openingId, order, beforeSend, verifyBeforeSend) {
       return trading.submitOpening(openingId, order, beforeSend, verifyBeforeSend)
+    },
+    async submitStrategy(intentId, order, beforeSend, verifyBeforeSend) {
+      if (order.t !== 5 && (env.EYELER_STRATEGIES_LIVE_ENABLED !== 'true' || executionDisabled(env)))
+        throw new Error('STRATEGIES_LIVE_DISABLED')
+      return trading.submitStrategy(intentId, order, beforeSend, verifyBeforeSend)
+    },
+    async strategyOrderEvidence(intent) {
+      if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
+      const historyRows = await history.read<WireOrder>(
+        'order-history',
+        (item) =>
+          item.acc === intent.accountId &&
+          item.mkt === intent.marketId &&
+          (String(item.rq) === intent.requestId || (intent.kind === 'CANCEL' && item.oid === intent.venueOrderId)),
+      )
+      const snapshotReady = trading.isReady()
+      const snapshot = snapshotReady
+        ? trading
+            .stateSnapshot()
+            .orders.filter(
+              (item) =>
+                item.acc === intent.accountId &&
+                item.mkt === intent.marketId &&
+                (String(item.rq) === intent.requestId ||
+                  (intent.kind === 'CANCEL' && item.oid === intent.venueOrderId)),
+            )
+        : []
+      return { history: historyRows, snapshotReady, snapshot }
     },
     async reconcile(action) {
       return live.reconcile(action)

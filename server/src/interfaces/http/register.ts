@@ -26,6 +26,7 @@ import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollme
 import type { TelegramLinks } from '../../infrastructure/telegram/links.js'
 import { toBookDto } from './dto.js'
 import { OpeningTrades, type OpeningPreviewInput } from '../../application/opening-trades.js'
+import { registerStrategyRoutes } from './routes/strategies.js'
 import {
   toActionDto,
   toAutopsyDto,
@@ -746,6 +747,12 @@ export function registerRoutes(context: HttpContext) {
       throw Object.assign(new Error('TEST_VENUE_NOT_ENABLED'), { statusCode: 404 })
     context.testRuntime.venue.setScenario(request.body.scenario)
     return { ok: true, scenario: request.body.scenario, environment: 'DEV / TEST VENUE' }
+  })
+  registerStrategyRoutes({
+    app,
+    persistence: persistence instanceof PostgresStore ? persistence : null,
+    environment: config.environment === 'mainnet' ? 'mainnet' : 'testnet',
+    session,
   })
   app.setErrorHandler((error, _request, reply) => {
     logger.error({ error: error instanceof Error ? error.message : 'INTERNAL_ERROR' }, 'request failed')
