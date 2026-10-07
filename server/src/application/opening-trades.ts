@@ -7,6 +7,7 @@ import { assertOpeningReserveCoverage } from './opening-reserves.js'
 import type { PostgresStore } from '../infrastructure/database/postgres-store.js'
 import type { RuntimeVenue } from '../runtime.js'
 import { AuthorizationError, ConflictError, InfrastructureError, NotFoundError, ValidationError } from './errors.js'
+import { assertAccountCapitalCoverage, withAccountCapital } from '../infrastructure/capital/admission.js'
 
 export type OpeningPreviewInput = OpeningInput & { marketId: number }
 type Options = { enabled: boolean; executionDisabled: boolean; previewTtlMs?: number }
@@ -70,8 +71,8 @@ export class OpeningTrades {
     if (!Number.isSafeInteger(input?.marketId) || input.marketId <= 0) throw new ValidationError('PERPL_MARKET_INVALID')
     const venue = await this.venue(userId)
     if (!venue.openingMarketSnapshot) throw new InfrastructureError('PERPL_MARKET_UNAVAILABLE')
-    const now = this.now()
     const snapshot = await venue.openingMarketSnapshot(input.marketId)
+    const now = this.now()
     if (
       snapshot.environment !== this.environment ||
       snapshot.accountId !== venue.accountId ||
@@ -171,70 +172,98 @@ export class OpeningTrades {
     )
       throw new NotFoundError('OPENING_PREVIEW_NOT_FOUND')
     if (!venue.openingMarketSnapshot) throw new InfrastructureError('PERPL_MARKET_UNAVAILABLE')
-    const snapshot = await venue.openingMarketSnapshot(row.market_id)
-    if (
-      snapshot.environment !== this.environment ||
-      snapshot.accountId !== venue.accountId ||
-      snapshot.marketId !== row.market_id
-    )
-      throw new ConflictError('PREVIEW_STALE')
-    const oldTerms = parameters.marketTerms as Record<string, unknown> | undefined
-    if (
-      !oldTerms ||
-      Object.entries(oldTerms).some(([key, value]) => snapshot[key as keyof typeof snapshot] !== value) ||
-      snapshot.collateralDecimals !== 6
-    )
-      throw new ConflictError('PREVIEW_STALE')
-    if (
-      (old.side === 'LONG' && snapshot.askRaw > old.limitPriceRaw) ||
-      (old.side === 'SHORT' && snapshot.bidRaw < old.limitPriceRaw)
-    )
-      throw new ConflictError('PREVIEW_STALE')
-    const nextLb = snapshot.headBlock + snapshot.orderTtlBlocks
-    if (!Number.isSafeInteger(nextLb) || nextLb <= snapshot.headBlock)
-      throw new InfrastructureError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
-    const current = previewOpeningTrade(
-      { side: old.side, size: old.size, leverage: old.leverage, slippageBps: old.slippageBps },
-      snapshot,
-      now,
-    )
-    if (current.sizeRaw !== old.sizeRaw || current.leverageHundredths !== old.leverageHundredths)
-      throw new ConflictError('PREVIEW_STALE')
-    if (new Decimal(current.estimatedRequiredBalance).gt(old.estimatedRequiredBalance))
-      throw new ConflictError('PREVIEW_STALE')
-    const reserves = await this.store.pool.query<{ available: string }>(
-      `SELECT r.available::text AS available FROM reserves r JOIN books b ON b.id=r.book_id
-       WHERE b.user_id=$1 AND b.venue_account_id=$2 AND b.status<>'CLOSED'`,
-      [userId, venue.accountId],
-    )
-    assertOpeningReserveCoverage(
-      snapshot.freeBalance,
-      old.estimatedRequiredBalance,
-      reserves.rows.map((item) => item.available),
-    )
-    const fee = new Decimal(old.estimatedTradingFee).plus(old.recycleFee).toFixed(6)
     try {
-      const inserted = await this.store.pool.query(
-        `INSERT INTO opening_orders
+      return await withAccountCapital(
+        this.store.pool,
+        { userId, connectionId: row.connection_id, accountId: venue.accountId!, environment: this.environment },
+        async (client, binding) => {
+          const duplicate = await client.query('SELECT * FROM opening_orders WHERE user_id=$1 AND idempotency_key=$2', [
+            userId,
+            idempotencyKey,
+          ])
+          if (duplicate.rows[0]) return { ...duplicate.rows[0], createdNow: false }
+          if (new Date(row.expires_at).getTime() <= this.now()) throw new ConflictError('PREVIEW_STALE')
+          const snapshot = await venue.openingMarketSnapshot!(row.market_id, client)
+          if (
+            snapshot.environment !== this.environment ||
+            snapshot.accountId !== venue.accountId ||
+            snapshot.marketId !== row.market_id
+          )
+            throw new ConflictError('PREVIEW_STALE')
+          const oldTerms = parameters.marketTerms as Record<string, unknown> | undefined
+          if (
+            !oldTerms ||
+            Object.entries(oldTerms).some(([key, value]) => snapshot[key as keyof typeof snapshot] !== value) ||
+            snapshot.collateralDecimals !== 6
+          )
+            throw new ConflictError('PREVIEW_STALE')
+          if (
+            (old.side === 'LONG' && snapshot.askRaw > old.limitPriceRaw) ||
+            (old.side === 'SHORT' && snapshot.bidRaw < old.limitPriceRaw)
+          )
+            throw new ConflictError('PREVIEW_STALE')
+          const nextLb = snapshot.headBlock + snapshot.orderTtlBlocks
+          if (!Number.isSafeInteger(nextLb) || nextLb <= snapshot.headBlock)
+            throw new InfrastructureError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
+          const current = previewOpeningTrade(
+            { side: old.side, size: old.size, leverage: old.leverage, slippageBps: old.slippageBps },
+            snapshot,
+            this.now(),
+          )
+          if (current.sizeRaw !== old.sizeRaw || current.leverageHundredths !== old.leverageHundredths)
+            throw new ConflictError('PREVIEW_STALE')
+          if (new Decimal(current.estimatedRequiredBalance).gt(old.estimatedRequiredBalance))
+            throw new ConflictError('PREVIEW_STALE')
+          const reserves = await client.query<{ available: string }>(
+            `SELECT r.available::text AS available FROM reserves r JOIN books b ON b.id=r.book_id
+       LEFT JOIN perpl_connections c ON c.id=b.perpl_connection_id
+       WHERE b.user_id=$1 AND b.venue_account_id=$2 AND b.status<>'CLOSED' AND (c.environment=$3 OR c.id IS NULL)`,
+            [userId, venue.accountId, this.environment],
+          )
+          assertOpeningReserveCoverage(
+            snapshot.freeBalance,
+            old.estimatedRequiredBalance,
+            reserves.rows.map((item) => item.available),
+          )
+          await assertAccountCapitalCoverage(
+            client,
+            binding,
+            {
+              environment: snapshot.environment,
+              accountId: snapshot.accountId,
+              free: snapshot.freeBalance,
+              observedAt: snapshot.balanceObservedAt,
+              observedBlock: snapshot.balanceBlock!,
+            },
+            old.estimatedRequiredBalance,
+            undefined,
+            this.now(),
+          )
+          if (new Date(row.expires_at).getTime() <= this.now()) throw new ConflictError('PREVIEW_STALE')
+          const fee = new Decimal(old.estimatedTradingFee).plus(old.recycleFee).toFixed(6)
+          const inserted = await client.query(
+            `INSERT INTO opening_orders
          (user_id,connection_id,environment,account_id,market_id,side,size,price_limit,leverage,collateral,fees,preview_id,idempotency_key,status)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'QUEUED') RETURNING *`,
-        [
-          userId,
-          row.connection_id,
-          this.environment,
-          venue.accountId,
-          row.market_id,
-          old.side,
-          old.size,
-          old.limitPrice,
-          old.leverage,
-          old.estimatedMargin,
-          fee,
-          previewId,
-          idempotencyKey,
-        ],
+            [
+              userId,
+              row.connection_id,
+              this.environment,
+              venue.accountId,
+              row.market_id,
+              old.side,
+              old.size,
+              old.limitPrice,
+              old.leverage,
+              old.estimatedMargin,
+              fee,
+              previewId,
+              idempotencyKey,
+            ],
+          )
+          return { ...inserted.rows[0], createdNow: true }
+        },
       )
-      return { ...inserted.rows[0], createdNow: true }
     } catch (error) {
       if ((error as { code?: string }).code !== '23505') throw error
       const duplicate = await this.store.pool.query(
@@ -264,7 +293,8 @@ export class OpeningTrades {
       const preview = await this.store.pool.query<{
         quote: ReturnType<typeof previewOpeningTrade>
         parameters: { marketTerms?: Record<string, unknown> }
-      }>('SELECT quote,parameters FROM opening_previews WHERE id=$1 AND user_id=$2', [previewId, userId])
+        expires_at: Date
+      }>('SELECT quote,parameters,expires_at FROM opening_previews WHERE id=$1 AND user_id=$2', [previewId, userId])
       const quote = preview.rows[0]?.quote
       if (!quote || quote.accountId !== venue.accountId) throw new NotFoundError('OPENING_PREVIEW_NOT_FOUND')
       const order = {
@@ -301,45 +331,73 @@ export class OpeningTrades {
           const authorized = await this.venue(userId, intent.connection_id)
           if (!authorized.openingMarketSnapshot || authorized.accountId !== venue.accountId)
             throw new Error('PERPL_CONNECTION_UNAVAILABLE')
-          const snapshot = await authorized.openingMarketSnapshot(quote.marketId)
-          const originalTerms = preview.rows[0]?.parameters.marketTerms
-          if (
-            snapshot.environment !== this.environment ||
-            snapshot.accountId !== quote.accountId ||
-            !originalTerms ||
-            Object.entries(originalTerms).some(([key, value]) => snapshot[key as keyof typeof snapshot] !== value) ||
-            snapshot.collateralDecimals !== 6 ||
-            (quote.side === 'LONG' && snapshot.askRaw > quote.limitPriceRaw) ||
-            (quote.side === 'SHORT' && snapshot.bidRaw < quote.limitPriceRaw)
-          )
-            throw new Error('PREVIEW_STALE')
-          const pending = await current()
-          if (
-            !pending ||
-            pending.status !== 'SUBMITTING' ||
-            snapshot.headBlock >= Number(pending.lb) ||
-            Number(pending.lb) > snapshot.headBlock + snapshot.orderTtlBlocks
-          )
-            throw new Error('PREVIEW_STALE')
-          const updated = previewOpeningTrade(
-            { side: quote.side, size: quote.size, leverage: quote.leverage, slippageBps: quote.slippageBps },
-            snapshot,
-            this.now(),
-          )
-          if (
-            updated.sizeRaw !== quote.sizeRaw ||
-            new Decimal(updated.estimatedRequiredBalance).gt(quote.estimatedRequiredBalance)
-          )
-            throw new Error('PREVIEW_STALE')
-          const reserves = await this.store.pool.query<{ available: string }>(
-            `SELECT r.available::text AS available FROM reserves r JOIN books b ON b.id=r.book_id
-             WHERE b.user_id=$1 AND b.venue_account_id=$2 AND b.status<>'CLOSED'`,
-            [userId, venue.accountId],
-          )
-          assertOpeningReserveCoverage(
-            snapshot.freeBalance,
-            quote.estimatedRequiredBalance,
-            reserves.rows.map((item) => item.available),
+          return withAccountCapital(
+            this.store.pool,
+            { userId, connectionId: intent.connection_id, accountId: venue.accountId!, environment: this.environment },
+            async (client, binding) => {
+              if (!preview.rows[0] || new Date(preview.rows[0].expires_at).getTime() <= this.now())
+                throw new Error('PREVIEW_STALE')
+              const snapshot = await authorized.openingMarketSnapshot!(quote.marketId, client)
+              const originalTerms = preview.rows[0]?.parameters.marketTerms
+              if (
+                snapshot.environment !== this.environment ||
+                snapshot.accountId !== quote.accountId ||
+                !originalTerms ||
+                Object.entries(originalTerms).some(
+                  ([key, value]) => snapshot[key as keyof typeof snapshot] !== value,
+                ) ||
+                snapshot.collateralDecimals !== 6 ||
+                (quote.side === 'LONG' && snapshot.askRaw > quote.limitPriceRaw) ||
+                (quote.side === 'SHORT' && snapshot.bidRaw < quote.limitPriceRaw)
+              )
+                throw new Error('PREVIEW_STALE')
+              const pending = (
+                await client.query('SELECT * FROM opening_orders WHERE id=$1 AND user_id=$2', [intent.id, userId])
+              ).rows[0]
+              if (
+                !pending ||
+                pending.status !== 'SUBMITTING' ||
+                snapshot.headBlock >= Number(pending.lb) ||
+                Number(pending.lb) > snapshot.headBlock + snapshot.orderTtlBlocks
+              )
+                throw new Error('PREVIEW_STALE')
+              const updated = previewOpeningTrade(
+                { side: quote.side, size: quote.size, leverage: quote.leverage, slippageBps: quote.slippageBps },
+                snapshot,
+                this.now(),
+              )
+              if (
+                updated.sizeRaw !== quote.sizeRaw ||
+                new Decimal(updated.estimatedRequiredBalance).gt(quote.estimatedRequiredBalance)
+              )
+                throw new Error('PREVIEW_STALE')
+              const reserves = await client.query<{ available: string }>(
+                `SELECT r.available::text AS available FROM reserves r JOIN books b ON b.id=r.book_id
+             LEFT JOIN perpl_connections c ON c.id=b.perpl_connection_id
+             WHERE b.user_id=$1 AND b.venue_account_id=$2 AND b.status<>'CLOSED' AND (c.environment=$3 OR c.id IS NULL)`,
+                [userId, venue.accountId, this.environment],
+              )
+              assertOpeningReserveCoverage(
+                snapshot.freeBalance,
+                quote.estimatedRequiredBalance,
+                reserves.rows.map((item) => item.available),
+              )
+              await assertAccountCapitalCoverage(
+                client,
+                binding,
+                {
+                  environment: snapshot.environment,
+                  accountId: snapshot.accountId,
+                  free: snapshot.freeBalance,
+                  observedAt: snapshot.balanceObservedAt,
+                  observedBlock: snapshot.balanceBlock!,
+                },
+                quote.estimatedRequiredBalance,
+                intent.id,
+                this.now(),
+              )
+              if (new Date(preview.rows[0].expires_at).getTime() <= this.now()) throw new Error('PREVIEW_STALE')
+            },
           )
         },
       )

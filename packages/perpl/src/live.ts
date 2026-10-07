@@ -192,6 +192,10 @@ export class PerplLiveAdapter {
         error: undefined,
         failedAt: undefined,
         confirmedAt: new Date().toISOString(),
+        venueProgress: action.venueProgress && {
+          ...action.venueProgress,
+          confirmedExecutionBlock: evidence.collateralSuccess.block,
+        },
       }
     }
     const noEvidence =

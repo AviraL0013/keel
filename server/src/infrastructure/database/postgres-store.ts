@@ -8,6 +8,8 @@ import {
 import { validateBookControls } from '../../bookControls.js'
 import { ConflictError } from '../../application/errors.js'
 import { canonicalMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
+import type { BookSetup } from '../../application/books.js'
+import { assertAccountCapitalCoverage, lockAccountCapital } from '../capital/admission.js'
 export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & {
   reserveAvailable?: number
   initialPosition?: BookPositionSeed
@@ -25,7 +27,11 @@ export type Store = {
     bookId: string,
     patch: { automationEnabled?: boolean; status?: Book['status']; stance?: Book['stance'] },
   ): Promise<Book | null>
-  createBook(userId: string, input: CreateBookInput): Promise<Book>
+  createBook(
+    userId: string,
+    input: CreateBookInput,
+    reloadSetup?: (transaction: Pick<pg.PoolClient, 'query'>) => Promise<BookSetup>,
+  ): Promise<Book>
   getBook(userId: string, bookId: string): Promise<Book | null>
   listBooks(userId: string): Promise<Book[]>
   getPositionRow(userId: string, bookId: string): Promise<Record<string, unknown> | null>
@@ -80,10 +86,34 @@ export class PostgresStore implements Store {
   async revokeUserSessions(userId: string) {
     await this.pool.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId])
   }
-  async createBook(userId: string, input: CreateBookInput) {
+  async createBook(
+    userId: string,
+    input: CreateBookInput,
+    reloadSetup?: (transaction: Pick<pg.PoolClient, 'query'>) => Promise<BookSetup>,
+  ) {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
+      if (input.perplConnectionId) {
+        if (!reloadSetup || !input.venueAccountId || !input.venuePositionId || !input.marketId)
+          throw new ConflictError('BOOK_CAPITAL_ADMISSION_REQUIRED')
+        const binding = await lockAccountCapital(client, userId, input.perplConnectionId, input.venueAccountId)
+        const fresh = await reloadSetup(client)
+        if (!fresh.capital) throw new ConflictError('BOOK_CAPITAL_ADMISSION_REQUIRED')
+        await assertAccountCapitalCoverage(
+          client,
+          binding,
+          fresh.capital,
+          canonicalMoney(moneyMicros(input.reserveAvailable ?? 0)),
+        )
+        input = {
+          ...input,
+          market: fresh.market,
+          side: fresh.position.side,
+          initialPosition: fresh.position,
+          initialTelemetry: fresh.telemetry,
+        }
+      }
       const hasPosition = Boolean(
         input.initialPosition &&
         input.initialTelemetry &&

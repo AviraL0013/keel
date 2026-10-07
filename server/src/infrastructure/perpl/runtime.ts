@@ -36,16 +36,42 @@ import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
 import { brandEnv, executionDisabled, logger } from '../../config/index.js'
 
+function perplFreeBalance(
+  balance: PerplBalance,
+  now = Date.now(),
+  freshnessMs = defaultFreshnessThresholds.marketMs,
+): Decimal {
+  if (!Number.isFinite(balance.updatedAt) || balance.updatedAt! > now || now - balance.updatedAt! > freshnessMs)
+    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  try {
+    const available = new Decimal(balance.available)
+    const locked = new Decimal(balance.locked)
+    const free = available.minus(locked)
+    if (
+      !available.isFinite() ||
+      !locked.isFinite() ||
+      available.lt(0) ||
+      locked.lt(0) ||
+      free.lt(0) ||
+      balance.decimals !== 6 ||
+      available.decimalPlaces() > 6 ||
+      locked.decimalPlaces() > 6
+    )
+      throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+    return free
+  } catch {
+    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  }
+}
+
 export function assertPerplFreeBalance(
   balance: PerplBalance,
   amount: number,
   now = Date.now(),
   freshnessMs = defaultFreshnessThresholds.marketMs,
 ) {
-  if (!Number.isFinite(balance.updatedAt) || balance.updatedAt! > now || now - balance.updatedAt! > freshnessMs)
-    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  const free = perplFreeBalance(balance, now, freshnessMs)
   try {
-    const free = new Decimal(balance.available).minus(balance.locked)
     const needed = new Decimal(amount)
     if (!free.isFinite() || !needed.isFinite() || needed.lte(0)) throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
     if (free.lt(needed)) throw new Error('PERPL_FREE_BALANCE_INSUFFICIENT')
@@ -541,13 +567,20 @@ export function createPerplRuntime(
       const { bookId: _bookId, ...positionSeed } = position
       const { source: _source, freshnessMs: _freshnessMs, ...telemetrySeed } = currentTelemetry
       const balance = await adapter.getBalance(accountId)
-      const reserveAvailable = Number(balance.available)
-      if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('PERPL_BALANCE_INVALID')
+      const free = perplFreeBalance(balance, Date.now(), freshnessThresholds.marketMs)
+      const reserveAvailable = free.toNumber()
       return {
         market: market.symbol,
         position: positionSeed,
         telemetry: { ...telemetrySeed, source: currentTelemetry.source, freshnessMs: currentTelemetry.freshnessMs },
         reserveAvailable,
+        capital: {
+          environment,
+          accountId,
+          free: free.toFixed(6),
+          observedAt: balance.updatedAt!,
+          observedBlock: balance.observedBlock!,
+        },
       }
     },
     async listPositions() {

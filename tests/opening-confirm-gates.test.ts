@@ -4,6 +4,7 @@ import { databaseFixture } from './helpers/database.js'
 import { OpeningTrades } from '../server/src/application/opening-trades.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import type { OpeningMarketSnapshot } from '../packages/perpl/src/opening-preview.js'
+import type { OpeningMarketDetail } from '../packages/perpl/src/opening-market.js'
 import { PerplPreSubmissionError } from '../packages/perpl/src/trading.js'
 
 async function fixture() {
@@ -20,7 +21,8 @@ async function fixture() {
   await db.query('INSERT INTO perpl_accounts(connection_id,account_id,forwarding,frozen) VALUES($1,12,true,false)', [
     connectionId,
   ])
-  let current: OpeningMarketSnapshot = {
+  await db.query("INSERT INTO perpl_account_owners(environment,account_id,user_id) VALUES('testnet',12,$1)", [userId])
+  let current: OpeningMarketDetail = {
     environment: 'testnet',
     accountId: 12,
     marketId: 7,
@@ -31,6 +33,10 @@ async function fixture() {
     collateralDecimals: 6,
     bidRaw: 999999,
     askRaw: 1000001,
+    markRaw: 1000000,
+    priceTick: '0.1',
+    sizeStep: '0.00001',
+    minimumSize: '0.00001',
     initialMarginBps: 1000,
     takerFeeMicros: 500,
     minimumNotionalRaw: '1000000',
@@ -38,6 +44,7 @@ async function fixture() {
     marketOpen: true,
     marketObservedAt: now,
     balanceObservedAt: now,
+    balanceBlock: 100,
     marketBlock: 100,
     headBlock: 101,
     headObservedAt: now,
@@ -48,6 +55,7 @@ async function fixture() {
     throw new Error('NO_ORDER_IN_TEST')
   })
   let beforeVerify = () => {}
+  let duringSnapshot = () => {}
   const fakeWireWrite = vi.fn()
   const sendOpening = vi.fn(
     async (
@@ -83,13 +91,16 @@ async function fixture() {
     averagePrice: '100000.0',
     positionId: 98,
     txHash: `0x${'a'.repeat(64)}`,
-    evidence: { receipt: true },
+    evidence: { orders: [], fills: [], positions: [], operations: [] },
   }))
   const scoped: RuntimeVenue = {
     accountId: 12,
     connectionId,
     ready: () => true,
-    openingMarketSnapshot: async () => current,
+    openingMarketSnapshot: async () => {
+      duringSnapshot()
+      return current
+    },
     submit: send,
     submitOpening: sendOpening,
     reconcileOpening,
@@ -119,6 +130,9 @@ async function fixture() {
     setBeforeVerify: (work: () => void) => {
       beforeVerify = work
     },
+    setDuringSnapshot: (work: () => void) => {
+      duringSnapshot = work
+    },
     input,
     setSnapshot: (change: Partial<OpeningMarketSnapshot>) => {
       current = { ...current, ...change }
@@ -128,6 +142,77 @@ async function fixture() {
     },
   }
 }
+
+it('compares asynchronous quote timestamps with the clock after the snapshot arrives', async () => {
+  const f = await fixture()
+  let tick = f.now
+  try {
+    f.setDuringSnapshot(() => {
+      tick++
+      f.setTime(tick)
+      f.setSnapshot({ marketObservedAt: tick, balanceObservedAt: tick, headObservedAt: tick })
+    })
+    const preview = await f.service.preview(f.userId, f.input)
+    const confirmed = await f.service.confirm(f.userId, preview.id, randomUUID())
+    expect(confirmed.status).toBe('VERIFYING')
+    expect(f.fakeWireWrite).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30_000)
+
+it('refuses expiry during delayed admission or final snapshot with no fake socket write', async () => {
+  const f = await fixture()
+  try {
+    const expiredSnapshot = () => {
+      const at = f.now + 15_001
+      f.setTime(at)
+      f.setSnapshot({ marketObservedAt: at, balanceObservedAt: at, headObservedAt: at })
+    }
+    const first = await f.service.preview(f.userId, f.input)
+    f.setDuringSnapshot(expiredSnapshot)
+    await expect(f.service.prepareConfirmation(f.userId, first.id, randomUUID())).rejects.toThrow('PREVIEW_STALE')
+    expect(
+      (await f.db.query<{ count: number }>('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count,
+    ).toBe(0)
+    f.setDuringSnapshot(() => {})
+    f.setTime(f.now)
+    f.setSnapshot({ marketObservedAt: f.now, balanceObservedAt: f.now, headObservedAt: f.now })
+    const second = await f.service.preview(f.userId, f.input)
+    f.setBeforeVerify(() => f.setDuringSnapshot(expiredSnapshot))
+    expect(await f.service.confirm(f.userId, second.id, randomUUID())).toMatchObject({
+      status: 'FAILED',
+      error: 'PREVIEW_STALE',
+    })
+    expect(f.fakeWireWrite).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30_000)
+
+it('keeps Book reserve admission scoped to the opening environment', async () => {
+  const f = await fixture()
+  try {
+    const mainnet = randomUUID(),
+      book = randomUUID()
+    await f.db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,expires_at)
+      VALUES($1,$2,'mainnet','trade','fake','ACTIVE',now()+interval '1 day')`,
+      [mainnet, f.userId],
+    )
+    await f.db.query(
+      `INSERT INTO books(id,user_id,market,side,stance,liquidation_floor,defense_cap,time_limit_ms,venue_account_id,perpl_connection_id)
+      VALUES($1,$2,'BTC','LONG','DEFEND',5,10,1000,12,$3)`,
+      [book, f.userId, mainnet],
+    )
+    await f.db.query('INSERT INTO reserves(book_id,available,reserved,deployed,cap) VALUES($1,10000,0,0,10)', [book])
+    const preview = await f.service.preview(f.userId, f.input)
+    expect((await f.service.confirm(f.userId, preview.id, randomUUID())).status).toBe('VERIFYING')
+    expect(f.fakeWireWrite).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30_000)
 
 it('recovers a durable opening after restart and never sends it again', async () => {
   const f = await fixture()
@@ -241,7 +326,9 @@ it('refuses expired and moved-price previews before intent persistence', async (
     f.setSnapshot({ askRaw: 1_000_001 })
     f.setTime(f.now + 15001)
     await expect(f.service.prepareConfirmation(f.userId, preview.id, randomUUID())).rejects.toThrow('PREVIEW_STALE')
-    expect((await f.db.query('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count).toBe(0)
+    expect(
+      (await f.db.query<{ count: number }>('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count,
+    ).toBe(0)
     expect(f.send).not.toHaveBeenCalled()
   } finally {
     await f.db.close()
@@ -254,7 +341,9 @@ it('refuses a better short fill when its larger notional exceeds the confirmed c
     const preview = await f.service.preview(f.userId, { ...f.input, side: 'SHORT' })
     f.setSnapshot({ bidRaw: 1_100_000, askRaw: 1_100_001 })
     await expect(f.service.prepareConfirmation(f.userId, preview.id, randomUUID())).rejects.toThrow('PREVIEW_STALE')
-    expect((await f.db.query('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count).toBe(0)
+    expect(
+      (await f.db.query<{ count: number }>('SELECT count(*)::int AS count FROM opening_orders')).rows[0].count,
+    ).toBe(0)
     expect(f.send).not.toHaveBeenCalled()
   } finally {
     await f.db.close()

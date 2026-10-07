@@ -1,18 +1,10 @@
-import { PGlite } from '@electric-sql/pglite'
-import { readFile } from 'node:fs/promises'
+import { databaseFixture } from './helpers/database.js'
 import { expect, it } from 'vitest'
 import { settleDefense } from '../server/src/reserveSettlement.js'
 
 it('settles confirmed defense, ledger and audit atomically and once', async () => {
-  const db = new PGlite()
+  const { db } = await databaseFixture()
   try {
-    await db.exec(
-      (await readFile('database/migrations/001_initial.sql', 'utf8')).replace(
-        'CREATE EXTENSION IF NOT EXISTS pgcrypto;',
-        '',
-      ),
-    )
-    await db.exec(await readFile('database/migrations/002_execution.sql', 'utf8'))
     const user = (
       await db.query<{ id: string }>("INSERT INTO users(wallet_address) VALUES('settlement-test') RETURNING id")
     ).rows[0].id

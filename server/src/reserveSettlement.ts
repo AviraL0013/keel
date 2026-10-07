@@ -1,4 +1,5 @@
 import { canonicalMoney, moneyMicros } from '../../packages/ausd/src/money.js'
+import { lockBookAccountCapital } from './infrastructure/capital/admission.js'
 
 export interface TransactionClient {
   query(sql: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>
@@ -20,6 +21,7 @@ export async function settleDefense(
     throw new Error('INVALID_DEPLOYMENT_AMOUNT')
   }
   const exactAmount = canonicalMoney(amountMicros)
+  await lockBookAccountCapital(client, bookId)
   const action = await client.query('SELECT * FROM actions WHERE id=$1 AND book_id=$2 AND decision_id=$3 FOR UPDATE', [
     actionId,
     bookId,

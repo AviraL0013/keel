@@ -26,6 +26,7 @@ import type { StrategyOrderEvidence, StrategyOrderIntent } from '../../packages/
 import { MonitorScheduler } from './lifecycle.js'
 import { ConflictError, NotFoundError, PolicyRejectedError } from './application/errors.js'
 import { executionDisabled as isExecutionDisabled, logger } from './config/index.js'
+import type { BookSetup } from './application/books.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
@@ -37,7 +38,8 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     marketId: number,
     accountId: number,
     positionId: number,
-  ): Promise<{ market: string; position: BookPositionSeed; telemetry: BookTelemetrySeed; reserveAvailable: number }>
+    transaction?: Pick<PoolClient, 'query'>,
+  ): Promise<BookSetup>
   listPositions?(): Promise<
     Array<{
       marketId: number
@@ -50,7 +52,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     }>
   >
   listOpeningMarkets?(): Promise<Array<{ id: number; symbol: string; status: 'OPEN' | 'CLOSED' }>>
-  openingMarketSnapshot?(marketId: number): Promise<OpeningMarketDetail>
+  openingMarketSnapshot?(marketId: number, transaction?: Pick<PoolClient, 'query'>): Promise<OpeningMarketDetail>
   submitOpening?(
     openingId: string,
     order: PerplOrder,

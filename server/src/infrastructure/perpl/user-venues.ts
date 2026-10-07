@@ -3,6 +3,7 @@ import type { RuntimeVenue } from '../../runtime.js'
 import type { PostgresStore } from '../database/postgres-store.js'
 import { credentialContext, type KeyCustody } from './key-custody.js'
 import { logger } from '../../config/index.js'
+import type { PoolClient } from 'pg'
 
 export type PerplUserCredentials = {
   connectionId: string
@@ -111,8 +112,12 @@ export class PerplUserVenues implements RuntimeVenue {
     await Promise.all([...this.closing.values()])
   }
 
-  private async lookup(userId: string, connectionId?: string): Promise<Connection | undefined> {
-    const result = await this.store.pool.query<Connection>(
+  private async lookup(
+    userId: string,
+    connectionId?: string,
+    transaction: Pick<PoolClient, 'query'> = this.store.pool,
+  ): Promise<Connection | undefined> {
+    const result = await transaction.query<Connection>(
       `SELECT c.id,c.user_id,c.wallet_address,c.sealed_private_key,c.sealed_api_token,a.account_id
        FROM perpl_connections c JOIN users u ON u.id=c.user_id
        LEFT JOIN perpl_accounts a ON a.connection_id=c.id
@@ -125,7 +130,7 @@ export class PerplUserVenues implements RuntimeVenue {
     )
     if (result.rows.length > 1) throw new Error('PERPL_ACCOUNT_SELECTION_REQUIRED')
     if (result.rows[0]?.account_id != null) {
-      const conflicts = await this.store.pool.query(
+      const conflicts = await transaction.query(
         `SELECT 1 FROM perpl_accounts a JOIN perpl_connections c ON c.id=a.connection_id
          WHERE a.account_id=$1 AND c.environment=$2 AND c.user_id<>$3
          AND c.status='ACTIVE' AND c.revoked_at IS NULL AND c.expires_at>now() LIMIT 1`,
@@ -349,19 +354,19 @@ export class PerplUserVenues implements RuntimeVenue {
         return undefined
       }
       const isCurrent = () => this.active && generation === this.generation && this.entries.get(row.id) === entry
-      const authorize = async () => {
-        const current = isCurrent() ? await this.lookup(row.user_id, row.id) : undefined
+      const authorize = async (transaction?: Pick<PoolClient, 'query'>) => {
+        const current = isCurrent() ? await this.lookup(row.user_id, row.id, transaction) : undefined
         if (!isCurrent() || !current || Number(current.account_id) !== accountId) {
           await this.evict(row.id, entry)
           throw new Error('PERPL_CONNECTION_UNAVAILABLE')
         }
       }
-      const use = async <T>(operation: () => Promise<T>): Promise<T> => {
+      const use = async <T>(operation: () => Promise<T>, transaction?: Pick<PoolClient, 'query'>): Promise<T> => {
         if (!isCurrent()) throw new Error('PERPL_CONNECTION_UNAVAILABLE')
         entry.inFlight++
         entry.lastUsedAt = this.now()
         try {
-          await authorize()
+          await authorize(transaction)
           return await operation()
         } finally {
           entry.inFlight--
@@ -385,7 +390,10 @@ export class PerplUserVenues implements RuntimeVenue {
         close: () => this.evict(row.id, entry),
         ...(raw.listOpeningMarkets ? { listOpeningMarkets: () => use(async () => raw.listOpeningMarkets!()) } : {}),
         ...(raw.openingMarketSnapshot
-          ? { openingMarketSnapshot: (marketId: number) => use(async () => raw.openingMarketSnapshot!(marketId)) }
+          ? {
+              openingMarketSnapshot: (marketId: number, transaction?: Pick<PoolClient, 'query'>) =>
+                use(async () => raw.openingMarketSnapshot!(marketId, transaction), transaction),
+            }
           : {}),
         submit: (action) =>
           use(() =>
@@ -499,11 +507,16 @@ export class PerplUserVenues implements RuntimeVenue {
           : {}),
         ...(raw.loadBookSetup
           ? {
-              loadBookSetup: (marketId: number, requestedAccount: number, positionId: number) =>
+              loadBookSetup: (
+                marketId: number,
+                requestedAccount: number,
+                positionId: number,
+                transaction?: Pick<PoolClient, 'query'>,
+              ) =>
                 use(async () => {
                   if (requestedAccount !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
-                  return raw.loadBookSetup!(marketId, requestedAccount, positionId)
-                }),
+                  return raw.loadBookSetup!(marketId, requestedAccount, positionId, transaction)
+                }, transaction),
             }
           : {}),
         ...(raw.capital
