@@ -41,6 +41,8 @@ export type VerifiedStrategyOperation = {
 }
 const hashPattern = /^0x[0-9a-f]{64}$/i
 function integer(value: unknown): number | undefined {
+  if (!['string', 'number', 'bigint'].includes(typeof value) || !/^(?:0x[0-9a-f]+|[0-9]+)$/i.test(String(value)))
+    return undefined
   try {
     const n = Number(BigInt(String(value)))
     return Number.isSafeInteger(n) && n >= 0 ? n : undefined
@@ -51,9 +53,9 @@ function integer(value: unknown): number | undefined {
 
 /** Command admission, not a fill or a balance credit.
  * The contract may skip an individual command while its transaction succeeds.
- * Anonymous outcome events cannot be attributed safely in an ambiguous batch.
- * Until execution ordering is independently verified, only a singleton,
- * non-triggered forwarded command with one matching request context is accepted.
+ * The official SDK replaces context on each request and clears it at batch end.
+ * Match complete calldata; skipped descriptors must not shift outcome ownership.
+ * Nonempty extensions and trigger execution remain unsupported.
  */
 export function verifyStrategyCommandReceipt(
   exchange: string,
@@ -79,20 +81,32 @@ export function verifyStrategyCommandReceipt(
     const decoded = decodeFunctionData({ abi: forwardedOrderAbi, data: String(tx.input) as `0x${string}` })
     if (
       decoded.functionName !== 'execFwdPositionOpsV2' ||
-      decoded.args[0].length !== 1 ||
+      !decoded.args[0].length ||
+      (decoded.args[1].length !== 0 && decoded.args[1].length !== decoded.args[0].length) ||
       decoded.args[1].some((extension) => extension !== '0x')
     )
       return []
-    const envelope = decoded.args[0][0],
-      command = envelope.orderDesc
-    if (
-      envelope.execTriggerOrder ||
-      envelope.triggerPricePNS !== 0n ||
-      envelope.triggerPriceCondition !== 0 ||
-      envelope.triggerRequestId !== 0n ||
-      envelope.triggerPositionId !== 0n
-    )
-      return []
+    const envelopes = decoded.args[0]
+    const commands = new Map<string, (typeof envelopes)[number]>()
+    for (const envelope of envelopes) {
+      const command = envelope.orderDesc
+      const key = `${envelope.accountId}:${command.orderDescId}`
+      if (
+        commands.has(key) ||
+        !integer(envelope.accountId) ||
+        !integer(command.perpId) ||
+        integer(command.leverageHdths) === undefined ||
+        !integer(command.lastExecutionBlock) ||
+        command.orderDescId <= 0n ||
+        envelope.execTriggerOrder ||
+        envelope.triggerPricePNS !== 0n ||
+        envelope.triggerPriceCondition !== 0 ||
+        envelope.triggerRequestId !== 0n ||
+        envelope.triggerPositionId !== 0n
+      )
+        return []
+      commands.set(key, envelope)
+    }
     const indices = new Set<number>()
     const logs: Array<{ name: string; args: Record<string, unknown>; index: number }> = []
     for (const raw of receipt.logs) {
@@ -122,87 +136,89 @@ export function verifyStrategyCommandReceipt(
         logs.push({ name: 'UNRECOGNIZED', args: {}, index })
       }
     }
-    const contexts = logs.filter((log) => ['OrderRequest', 'OrderRequestV2'].includes(log.name))
-    if (contexts.length !== 1) return []
-    const context = contexts[0]
-    if (
-      context.args.accountId !== envelope.accountId ||
-      Object.entries(command).some(([key, value]) => context.args[key] !== value) ||
-      (context.name === 'OrderRequestV2' && context.args.extension !== '0x')
-    )
-      return []
-    const accountId = integer(envelope.accountId),
-      marketId = integer(command.perpId)
-    const leverage = integer(command.leverageHdths),
-      lb = integer(command.lastExecutionBlock)
-    if (!accountId || !marketId || leverage === undefined || !lb || command.orderDescId <= 0n) return []
-    const operation: VerifiedStrategyOperation = {
-      accountId,
-      requestId: command.orderDescId.toString(),
-      marketId,
-      type: command.orderType + 1,
-      orderId: command.orderId.toString(),
-      sizeRaw: command.lotLNS.toString(),
-      priceRaw: command.pricePNS.toString(),
-      leverageHundredths: leverage,
-      postOnly: command.postOnly,
-      fillOrKill: command.fillOrKill,
-      immediateOrCancel: command.immediateOrCancel,
-      expiryBlock: command.expiryBlock.toString(),
-      amountRaw: command.amountCNS.toString(),
-      maxNegPnlCollatBps: command.maxNegPnlCollatBPS.toString(),
-      feePer100K: envelope.feePer100K.toString(),
-      lastExecutionBlock: lb,
-      block,
-      txHash: hash.toLowerCase(),
-      requestLogIndex: context.index,
-      outcome: 'UNVERIFIED',
+    type Log = (typeof logs)[number]
+    type Segment = { envelope: (typeof envelopes)[number]; context: Log; logs: Log[] }
+    const segments: Segment[] = []
+    const seen = new Set<string>()
+    let current: Segment | undefined
+    for (const log of logs.sort((a, b) => a.index - b.index)) {
+      if (['OrderRequest', 'OrderRequestV2'].includes(log.name)) {
+        const key = `${log.args.accountId}:${log.args.orderDescId}`
+        const envelope = commands.get(key)
+        if (
+          !envelope ||
+          seen.has(key) ||
+          Object.entries(envelope.orderDesc).some(([key, value]) => log.args[key] !== value) ||
+          (log.name === 'OrderRequestV2' && log.args.extension !== '0x')
+        )
+          return []
+        seen.add(key)
+        current = { envelope, context: log, logs: [] }
+        segments.push(current)
+      } else if (log.name === 'OrderBatchCompleted') {
+        current = undefined
+      } else {
+        current?.logs.push(log)
+      }
     }
-    const name = [0, 1].includes(command.orderType)
-      ? 'OrderPlaced'
-      : command.orderType === 6
-        ? 'OrderChanged'
-        : command.orderType === 4
-          ? 'OrderCancelled'
-          : undefined
-    const outcomes = logs.filter((log) => log.name === name || log.name === 'OrderPostFailed')
-    if (
-      !name ||
-      outcomes.length !== 1 ||
-      outcomes[0].index <= context.index ||
-      logs.some(
-        (log) => !['OrderRequest', 'OrderRequestV2', 'OrderBatchCompleted', name, 'OrderPostFailed'].includes(log.name),
-      )
-    )
-      return [operation]
-    const outcome = outcomes[0]
-    if (outcome.name === 'OrderPostFailed' && [0, 1].includes(command.orderType)) {
-      return [
-        {
+    return segments.map(({ envelope, context, logs }): VerifiedStrategyOperation => {
+      const command = envelope.orderDesc
+      const operation: VerifiedStrategyOperation = {
+        accountId: integer(envelope.accountId)!,
+        requestId: command.orderDescId.toString(),
+        marketId: integer(command.perpId)!,
+        type: command.orderType + 1,
+        orderId: command.orderId.toString(),
+        sizeRaw: command.lotLNS.toString(),
+        priceRaw: command.pricePNS.toString(),
+        leverageHundredths: integer(command.leverageHdths)!,
+        postOnly: command.postOnly,
+        fillOrKill: command.fillOrKill,
+        immediateOrCancel: command.immediateOrCancel,
+        expiryBlock: command.expiryBlock.toString(),
+        amountRaw: command.amountCNS.toString(),
+        maxNegPnlCollatBps: command.maxNegPnlCollatBPS.toString(),
+        feePer100K: envelope.feePer100K.toString(),
+        lastExecutionBlock: integer(command.lastExecutionBlock)!,
+        block,
+        txHash: hash.toLowerCase(),
+        requestLogIndex: context.index,
+        outcome: 'UNVERIFIED',
+      }
+      const name = [0, 1].includes(command.orderType)
+        ? 'OrderPlaced'
+        : command.orderType === 6
+          ? 'OrderChanged'
+          : command.orderType === 4
+            ? 'OrderCancelled'
+            : undefined
+      if (!name || logs.length !== 1) return operation
+      const outcome = logs[0]
+      if (outcome.name === 'OrderPostFailed' && [0, 1].includes(command.orderType)) {
+        return {
           ...operation,
           outcome: 'REJECTED',
           rejectionReason: String(outcome.args.reason),
           outcomeLogIndex: outcome.index,
-        },
-      ]
-    }
-    const oid = integer(name === 'OrderCancelled' ? command.orderId : outcome.args.orderId)
-    if (
-      !oid ||
-      (name !== 'OrderPlaced' && BigInt(oid) !== command.orderId) ||
-      (name !== 'OrderCancelled' && outcome.args.lotLNS !== command.lotLNS) ||
-      (name === 'OrderChanged' &&
-        (outcome.args.pricePNS !== command.pricePNS || outcome.args.expiryBlock !== command.expiryBlock))
-    )
-      return [operation]
-    return [
-      {
+        }
+      }
+      if (outcome.name !== name) return operation
+      const oid = integer(name === 'OrderCancelled' ? command.orderId : outcome.args.orderId)
+      if (
+        !oid ||
+        (name !== 'OrderPlaced' && BigInt(oid) !== command.orderId) ||
+        (name !== 'OrderCancelled' && outcome.args.lotLNS !== command.lotLNS) ||
+        (name === 'OrderChanged' &&
+          (outcome.args.pricePNS !== command.pricePNS || outcome.args.expiryBlock !== command.expiryBlock))
+      )
+        return operation
+      return {
         ...operation,
         outcome: name === 'OrderPlaced' ? 'PLACED' : name === 'OrderChanged' ? 'CHANGED' : 'CANCELED',
         venueOrderId: oid,
         outcomeLogIndex: outcome.index,
-      },
-    ]
+      }
+    })
   } catch {
     return []
   }

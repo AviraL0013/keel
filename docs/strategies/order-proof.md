@@ -9,14 +9,16 @@ The internal strategy submission seam remains unmounted. No live strategy is ena
 Positive admission requires all of the following:
 
 1. The transaction and successful receipt identify the configured Exchange, the same transaction hash, and consistent block, transaction and log indices.
-2. The transaction decodes as a singleton, non-triggered `execFwdPositionOpsV2` command with no nonempty extension.
-3. Exactly one `OrderRequest` or `OrderRequestV2` event matches the forwarded command.
-4. A uniquely attributable success event follows that context: `OrderPlaced`, `OrderChanged`, or `OrderCancelled`. Placement size and change target/price/size/expiry must match. The CANCEL target comes from the verified request context because `OrderCancelled` itself has no order ID.
+2. The transaction decodes as non-triggered `execFwdPositionOpsV2` commands with no nonempty extension. A supplied extension array must have the same length as the command array.
+3. Each `OrderRequest` or `OrderRequestV2` context matches a unique forwarded account/request identity and every calldata descriptor field. Duplicate identities or repeated contexts reject the receipt proof. Skipped descriptors may have no context; matching never relies on array position.
+4. Exchange logs are processed by their verified log index. A request starts a segment; the next request, `OrderBatchCompleted`, or receipt end closes it. A uniquely attributable success event must occur inside that segment: `OrderPlaced`, `OrderChanged`, or `OrderCancelled`. Placement size and change target/price/size/expiry must match. The CANCEL target comes from the verified request context because `OrderCancelled` itself has no order ID.
 5. The command matches the immutable persisted account, request ID, market, type, target, raw size and price, leverage, flags and bounded `lb`. This seam permits GTC lifetime, no triggers, zero forwarded fee and zero extra negative-PnL collateralization. Changed terms or execution after `lb` produce `PERPL_REQUEST_ID_SUPERSEDED`.
 
-A successful transaction can skip an individual command. Its success status alone is therefore insufficient. Unknown Exchange logs, triggers, duplicated contexts, inconsistent stamps and ambiguous batches cannot establish admission. Admin/liquidator cancellation is not proof that Eyeler's CANCEL executed.
+A successful transaction can skip an individual command. Its success status alone is therefore insufficient. Unknown, trigger, conflicting or unsupported events leave their segment UNVERIFIED without borrowing the next segment's outcome. Logs outside a request segment cannot establish admission. Duplicated contexts and inconsistent stamps reject the receipt proof. Admin/liquidator cancellation is not proof that Eyeler's CANCEL executed.
 
 The declarations and independent encoding vectors come from the [official Perpl SDK Exchange ABI](https://github.com/PerplFoundation/dex-sdk/blob/main/crates/sdk/abi/dex/Exchange.json). The downloaded full ABI has SHA-256 `766fc81326bdf27f243ca582f65c3e2ff72bc639d88674876697a63ae1c47cb3`. The checked-in `packages/perpl/fixtures/strategy-command-abi.json` contains the relevant unmodified ABI entries. Tests encode against that fixture, separately from the verifier's declarations. The existing API-to-contract order mapping is 1/2 to 0/1 for POST, 5 to 4 for CANCEL, and 7 to 6 for CHANGE.
+
+Batch attribution additionally follows the independently published [official SDK state handler at revision `01b9910`](https://github.com/PerplFoundation/dex-sdk/blob/01b9910761755b0a0d9c710c1ede62ab937daa7d/crates/sdk/src/state/exchange.rs). Lines 293–299 process ordered events and reset context between transactions; 1286–1294 replace context on each request; 1084–1087 clear it at batch completion. CANCEL (1089), CHANGE (1150) and POST (1227) consume that context. Request failures do not create a boundary or transfer ownership. The fake ABI vectors cover mixed POST/CHANGE/CANCEL, skipped descriptors, equal request IDs on different accounts, shuffled receipt arrays, request failures and segment boundaries. Signed history still selects only the owned account/request from the verified receipt.
 
 ## Recovery and negative proof
 
@@ -34,11 +36,11 @@ A renewed credential may read old evidence only for the same verified owner, env
 
 Command admission and later order settlement are separate. A resting order's `lb` bounds admission only. Later maker fills may occur after `lb` and after three minutes. `st:10` means a command executed; it is not a fill. A verified placement plus a fresh OPEN/PARTIAL snapshot records the observed lifecycle; snapshot filled size is not a financial ledger credit.
 
-This milestone does not settle maker fills, fees, funding, realized PnL or inventory from receipts. Missing lifecycle proof keeps an admitted order UNKNOWN while retaining its admission. It does not release strategy capital. Batch request/outcome ordering still needs independent proof before multi-command receipts can establish admission. These gaps, owned cancellation cleanup and explicit live confirmation still block the production live controller.
+This milestone does not settle maker fills, fees, funding, realized PnL or inventory from receipts. Missing lifecycle proof keeps an admitted order UNKNOWN while retaining its admission. It does not release strategy capital. Nonempty builder extensions remain unsupported until their decoding and exact binding have independent proof; a zero fee does not remove attribution bytes. These gaps, owned cancellation cleanup and explicit live confirmation still block the production live controller.
 
 ## Regression evidence
 
-- `strategies-receipts.test.ts`: independent ABI POST/CHANGE/CANCEL vectors, skipped commands, rejected POST, inconsistent stamps/context, foreign outcomes, ambiguous batches, signed OPEN/target history, superseded markets and unavailable receipts.
+- `strategies-receipts.test.ts`: independent ABI POST/CHANGE/CANCEL vectors, skipped commands, rejected POST, inconsistent stamps/context, foreign outcomes, batch context isolation, duplicate identities, signed OPEN/target history, superseded markets and unavailable receipts.
 - `strategies-command-proof.test.ts`: exact terms, bounded admission, three-minute ambiguity, wraparound `lfr`, partial observations after `lb`, same-block ordering and no fill inference from status 10.
 - `strategies-durable-recovery.test.ts`: persisted payload, restart without resend, immutable metadata rejection, stale-write protection, retained admission after `lfr` reset and own-request CANCEL proof.
 - `strategies-order-intents.test.ts` and `strategies-recovery.test.ts`: failed updates remain recoverable; legacy metadata stays unverified; recovery continues beyond 100 rows.
