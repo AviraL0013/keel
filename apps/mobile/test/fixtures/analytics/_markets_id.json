@@ -1,0 +1,21 @@
+{
+  "asOf": "2026-10-07T12:00:00.000Z",
+  "block": 35000000,
+  "source": "perpl_api",
+  "stale": false,
+  "data": {
+    "id": 1,
+    "symbol": "BTC",
+    "volume24h": "1200000.000000",
+    "openInterest": "3100000.000000",
+    "longOpenInterest": "1550000.000000",
+    "shortOpenInterest": "1550000.000000",
+    "longSharePct": "50.00",
+    "fundingRate": "0.000012",
+    "markPrice": "112500.0",
+    "tvl": "500000.000000",
+    "priceDecimals": 1,
+    "sizeDecimals": 5,
+    "fundingIntervalSeconds": 3600
+  }
+}

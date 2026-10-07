@@ -8,6 +8,7 @@ import '../../../capital/presentation/capital_screen.dart';
 import '../../../autopsy/presentation/autopsy_screen.dart';
 import '../../../notifications/presentation/notifications_screen.dart';
 import '../../../settings/presentation/settings_screen.dart';
+import '../../../analytics/analytics_screen.dart';
 import '../../data/books_repository.dart';
 
 class AppShell extends ConsumerStatefulWidget {
@@ -42,6 +43,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       const BooksScreen(),
       const PositionsScreen(),
       const CapitalScreen(),
+      const AnalyticsScreen(),
       books.maybeWhen(
           data: (items) => items.isEmpty
               ? const Center(child: Text('Create a Book to inspect Autopsy.'))
@@ -66,7 +68,15 @@ class _AppShellState extends ConsumerState<AppShell> {
                   clipBehavior: Clip.none,
                   alignment: Alignment.topCenter,
                   children: [
-                    NavigationBar(
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: MediaQuery.sizeOf(context).width < 392
+                            ? 392
+                            : MediaQuery.sizeOf(context).width > 720
+                                ? 720
+                                : MediaQuery.sizeOf(context).width,
+                        child: NavigationBar(
                       selectedIndex: index,
                       onDestinationSelected: (value) =>
                           setState(() => index = value),
@@ -80,6 +90,9 @@ class _AppShellState extends ConsumerState<AppShell> {
                             icon: Icon(Icons.account_balance_outlined),
                             label: 'Capital'),
                         NavigationDestination(
+                            icon: Icon(Icons.analytics_outlined),
+                            label: 'Analytics'),
+                        NavigationDestination(
                             icon: Icon(Icons.history), label: 'Autopsy'),
                         NavigationDestination(
                             icon: Icon(Icons.notifications_none),
@@ -88,6 +101,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                             icon: Icon(Icons.settings_outlined),
                             label: 'Settings'),
                       ],
+                        ),
+                      ),
                     ),
                     Positioned(
                         top: -20,
