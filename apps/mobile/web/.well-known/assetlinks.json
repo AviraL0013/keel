@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.get_login_creds"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "xyz.eyeler.app",
+      "sha256_cert_fingerprints": [
+        "3B:5E:1E:84:90:F0:26:F8:09:5E:1B:F7:22:83:ED:AC:F2:25:3F:AF:2E:78:8E:F9:AA:4D:44:31:0E:F6:80:19"
+      ]
+    }
+  }
+]
