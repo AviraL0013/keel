@@ -8,6 +8,7 @@ import 'package:web3dart/crypto.dart';
 import 'package:web3dart/web3dart.dart';
 
 import 'mera_derivation.dart';
+import 'mera_transaction.dart';
 import 'perpl_enrollment_signing.dart';
 import 'wallet_types.dart';
 
@@ -18,7 +19,8 @@ enum MeraNetwork { testnet, mainnet }
 /// PRF output remains in process memory only long enough to derive account 0.
 /// The derived key is held by this connector until [dispose] and is never sent
 /// to Eyeler or persisted.
-class MeraWalletConnector extends WalletConnector {
+class MeraWalletConnector extends WalletConnector
+    implements MeraTransactionActions {
   MeraWalletConnector(
       {PasskeyAuthenticator? authenticator,
       DateTime Function()? now,
@@ -38,6 +40,7 @@ class MeraWalletConnector extends WalletConnector {
   final PasskeyAuthenticator _authenticator;
   final DateTime Function() _now;
   EthPrivateKey? _key;
+  MeraTransactionQuote? _prepared;
   int _generation = 0;
 
   @override
@@ -83,8 +86,103 @@ class MeraWalletConnector extends WalletConnector {
   }
 
   @override
+  Future<MeraTransactionQuote> prepareTransaction({
+    required MeraTransactionRpc rpc,
+    required String contract,
+    required String function,
+    required String exactAmount,
+    required Uint8List data,
+  }) async {
+    final key = _key;
+    if (key == null) throw const WalletException('Connect Mera first.');
+    final generation = _generation;
+    if (_chainId != 143 || await rpc.chainId() != 143) {
+      throw const WalletException('Monad mainnet chain 143 required.');
+    }
+    final address = key.address.hexEip55;
+    final to = EthereumAddress.fromHex(contract);
+    final nonce = await rpc.pendingNonce(address);
+    final gas = await rpc.estimateGas(address, to.hexEip55, data);
+    final baseFee = await rpc.baseFeePerGas();
+    final priority = await rpc.priorityFeePerGas();
+    if (nonce < 0 ||
+        gas <= BigInt.zero ||
+        gas > BigInt.from(10000000) ||
+        baseFee <= BigInt.zero ||
+        priority < BigInt.zero) {
+      throw const WalletException('Monad transaction estimate unavailable.');
+    }
+    final maxFeePerGas = baseFee * BigInt.two + priority;
+    if (await rpc.nativeBalance(address) < gas * maxFeePerGas) {
+      throw const WalletException(
+          'Not enough MON for the maximum network fee.');
+    }
+    _assertCurrent(generation);
+    final quote = MeraTransactionQuote(
+      address: address,
+      chainId: 143,
+      contract: to.hexEip55,
+      function: function,
+      exactAmount: exactAmount,
+      data: Uint8List.fromList(data),
+      nonce: nonce,
+      gasLimit: gas.toInt(),
+      maxFeePerGas: maxFeePerGas,
+      priorityFeePerGas: priority,
+      generation: generation,
+    );
+    _prepared = quote;
+    return quote;
+  }
+
+  @override
+  Future<String> confirmAndSendTransaction({
+    required MeraTransactionQuote quote,
+    required MeraTransactionRpc rpc,
+    required Future<bool> Function(MeraTransactionQuote) confirm,
+  }) async {
+    if (!identical(_prepared, quote)) {
+      throw const WalletException('Prepare a new transaction.');
+    }
+    _prepared =
+        null; // Consume before any await; an uncertain send is never replayed.
+    _assertCurrent(quote.generation);
+    if (_chainId != 143 ||
+        quote.chainId != 143 ||
+        _key?.address.hexEip55 != quote.address ||
+        await rpc.chainId() != 143) {
+      throw const WalletException('Monad mainnet wallet required.');
+    }
+    if (!await confirm(quote)) {
+      throw const WalletException('Transaction cancelled.');
+    }
+    _assertCurrent(quote.generation);
+    if (await rpc.chainId() != 143) {
+      throw const WalletException('Monad mainnet chain changed.');
+    }
+    if (await rpc.nativeBalance(quote.address) < quote.maximumFeeWei) {
+      throw const WalletException(
+          'Not enough MON for the maximum network fee.');
+    }
+    final transaction = Transaction(
+      from: _key!.address,
+      to: EthereumAddress.fromHex(quote.contract),
+      value: EtherAmount.zero(),
+      data: quote.data,
+      nonce: quote.nonce,
+      maxGas: quote.gasLimit,
+      maxFeePerGas: EtherAmount.inWei(quote.maxFeePerGas),
+      maxPriorityFeePerGas: EtherAmount.inWei(quote.priorityFeePerGas),
+    );
+    final signed = prependTransactionType(
+        0x02, signTransactionRaw(transaction, _key!, chainId: 143));
+    return rpc.sendRawTransaction(bytesToHex(signed, include0x: true));
+  }
+
+  @override
   void dispose() {
     _generation++;
+    _prepared = null;
     final key = _key;
     if (key != null) key.privateKey.fillRange(0, key.privateKey.length, 0);
     _key = null;

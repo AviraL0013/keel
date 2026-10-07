@@ -110,6 +110,18 @@ export function assertProductionConfig(config: Config, env: Record<string, strin
       config.perplChainId !== (config.environment === 'mainnet' ? 143 : 10143)
     )
       throw new Error('PERPL_ENVIRONMENT_MISMATCH')
+    if (
+      config.environment === 'mainnet' &&
+      (config.accessMode !== 'allowlist' ||
+        config.corsOrigin !== 'https://app.eyeler.xyz' ||
+        env.PERPL_ENROLLMENT_ORIGIN !== 'https://app.eyeler.xyz' ||
+        env.MONAD_CHAIN_ID !== '143' ||
+        env.MONAD_RPC_URL !== 'https://rpc.monad.xyz' ||
+        env.AUSD_TOKEN_ADDRESS?.toLowerCase() !== '0x00000000efe302beaa2b3e6e1b18d08d69a9012a' ||
+        brandEnv(env, 'BUILDER_ID') !== '25' ||
+        brandEnv(env, 'MAX_BUILDER_FEE_PER_100K') !== '0')
+    )
+      throw new Error('MAINNET_BOUNTY_PROFILE_MISMATCH')
     return
   }
   const liveCredentials = ['PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'].every((key) =>

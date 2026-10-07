@@ -61,6 +61,12 @@ void main() {
     final wallet = await connector.connect();
     expect(wallet.chainId, 143);
     expect(wallet.address, '0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F');
+    final testnet = MeraWalletConnector(
+        authenticator: FixtureAuthenticator(), network: MeraNetwork.testnet);
+    final testnetWallet = await testnet.connect();
+    expect(testnetWallet.chainId, 10143);
+    expect(testnetWallet.address, wallet.address);
+    testnet.dispose();
     connector.dispose();
   });
   test('background locking invalidates an unfinished passkey ceremony',

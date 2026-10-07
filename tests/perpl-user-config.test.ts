@@ -16,10 +16,32 @@ const base = {
 
 describe('explicit per-user deployment configuration', () => {
   it('requires KMS and matching network settings before mainnet can be configured', () => {
-    const mainnet = { ...base, EYELER_ENV: 'mainnet' }
+    const mainnet = {
+      ...base,
+      EYELER_ENV: 'mainnet',
+      CORS_ORIGIN: 'https://app.eyeler.xyz',
+      PERPL_ENROLLMENT_ORIGIN: 'https://app.eyeler.xyz',
+      AUSD_TOKEN_ADDRESS: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a',
+      MONAD_CHAIN_ID: '143',
+      MONAD_RPC_URL: 'https://rpc.monad.xyz',
+      EYELER_BUILDER_ID: '25',
+      EYELER_MAX_BUILDER_FEE_PER_100K: '0',
+    }
     expect(() => assertProductionConfig(loadConfig(mainnet), mainnet)).not.toThrow()
     const mixed = { ...mainnet, PERPL_CHAIN_ID: '10143' }
     expect(() => assertProductionConfig(loadConfig(mixed), mixed)).toThrow('PERPL_ENVIRONMENT_MISMATCH')
+    for (const invalid of [
+      { AUSD_TOKEN_ADDRESS: '0xdf5b718d8fcc173335185a2a1513ee8151e3c027' },
+      { MONAD_CHAIN_ID: '10143' },
+      { MONAD_RPC_URL: 'https://testnet-rpc.monad.xyz' },
+      { CORS_ORIGIN: 'https://testnet.eyeler.xyz' },
+      { PERPL_ENROLLMENT_ORIGIN: 'https://testnet.eyeler.xyz' },
+      { EYELER_BUILDER_ID: '26' },
+      { EYELER_MAX_BUILDER_FEE_PER_100K: '1' },
+    ])
+      expect(() => assertProductionConfig(loadConfig({ ...mainnet, ...invalid }), { ...mainnet, ...invalid })).toThrow(
+        'MAINNET_BOUNTY_PROFILE_MISMATCH',
+      )
   })
   it('accepts multiple allowlisted users only with isolated connections and no shared credentials', () => {
     expect(loadConfig(base)).toMatchObject({ perplAccountMode: 'per-user' })

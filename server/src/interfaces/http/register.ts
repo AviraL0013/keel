@@ -463,6 +463,11 @@ export function registerRoutes(context: HttpContext) {
       }
     )
   })
+  app.get('/connections/perpl/account-state', async (request) => {
+    const current = await requireSession(request)
+    if (!context.enrollment) return { status: 'NOT_CONNECTED' }
+    return context.enrollment.accountState(current.userId, current.walletAddress)
+  })
   app.post(
     '/connections/perpl/enrollment',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },

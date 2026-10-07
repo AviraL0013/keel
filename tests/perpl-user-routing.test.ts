@@ -7,6 +7,30 @@ import type { Book } from '../packages/domain/src/index.js'
 afterEach(() => vi.unstubAllEnvs())
 
 describe('authenticated venue routing', () => {
+  it('reads forwarding only for authenticated wallet owner through enrolled credentials', async () => {
+    vi.stubEnv('EYELER_ENV', 'test')
+    const store = new MemoryStore()
+    const address = '0x0000000000000000000000000000000000000001'
+    const userId = await store.ensureUser(address)
+    await store.createSession('owner', { userId, walletAddress: address, expiresAt: Date.now() + 60_000 })
+    const accountState = vi.fn(async () => ({ status: 'AVAILABLE', accountId: 7, forwardingEnabled: false }))
+    const app = createServer(store, {
+      enrollment: { accountState, startCleanup: () => {}, stopCleanup: () => {} } as never,
+    })
+    try {
+      const unauthenticated = await app.inject({ method: 'GET', url: '/connections/perpl/account-state' })
+      expect(unauthenticated.statusCode).toBe(401)
+      const response = await app.inject({
+        method: 'GET',
+        url: '/connections/perpl/account-state',
+        headers: { authorization: 'Bearer owner' },
+      })
+      expect(response.json()).toEqual({ status: 'AVAILABLE', accountId: 7, forwardingEnabled: false })
+      expect(accountState).toHaveBeenCalledWith(userId, address)
+    } finally {
+      await app.close()
+    }
+  })
   it('uses renewed credentials only for reconciliation, preserving the historical owner and connection', async () => {
     const recovery = { connectionId: 'old' } as RuntimeVenue
     const recoveryForUser = vi.fn(async () => recovery)
