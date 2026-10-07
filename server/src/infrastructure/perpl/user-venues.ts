@@ -423,6 +423,44 @@ export class PerplUserVenues implements RuntimeVenue {
                 ),
             }
           : {}),
+        ...(raw.submitStrategy
+          ? {
+              submitStrategy: (
+                intentId: string,
+                order: Parameters<NonNullable<RuntimeVenue['submitStrategy']>>[1],
+                beforeSend: Parameters<NonNullable<RuntimeVenue['submitStrategy']>>[2],
+                verifyBeforeSend: () => Promise<void> = async () => undefined,
+              ) =>
+                use(() =>
+                  this.serializeSubmission(accountId, async () => {
+                    await authorize()
+                    if (order.acc !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                    return raw.submitStrategy!(
+                      intentId,
+                      order,
+                      async (reference, lb) => {
+                        await authorize()
+                        await beforeSend(reference, lb)
+                      },
+                      async () => {
+                        await authorize()
+                        await verifyBeforeSend()
+                      },
+                    )
+                  }),
+                ),
+            }
+          : {}),
+        ...(raw.strategyOrderEvidence
+          ? {
+              strategyOrderEvidence: (intent: Parameters<NonNullable<RuntimeVenue['strategyOrderEvidence']>>[0]) =>
+                use(async () => {
+                  await authorize()
+                  if (intent.accountId !== accountId) throw new Error('PERPL_ACCOUNT_MISMATCH')
+                  return raw.strategyOrderEvidence!(intent)
+                }),
+            }
+          : {}),
         reconcile: (action) =>
           use(async () => {
             await actionBook(action.bookId)

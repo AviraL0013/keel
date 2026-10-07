@@ -1,0 +1,19 @@
+{
+  "kind": "MARKET_MAKER",
+  "mode": "BACKTEST",
+  "marketId": 1,
+  "accountId": 1,
+  "capital": 1000,
+  "quoteSize": 0.001,
+  "maxNotional": 1000,
+  "maxInventory": 0.01,
+  "maxOpenOrders": 2,
+  "maxDailyLoss": 100,
+  "maxDrawdownPct": 10,
+  "maxVolatility": 0.1,
+  "maxDataAgeMs": 60000,
+  "maxPriceBandBps": 200,
+  "maxFundingRate": 0.01,
+  "leverage": 1,
+  "maker": { "baseSpreadBps": 20, "volatilitySpreadMultiplier": 100, "inventorySkewBps": 50, "refreshMs": 3600000 }
+}

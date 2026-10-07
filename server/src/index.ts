@@ -21,6 +21,7 @@ import { registerRoutes } from './interfaces/http/register.js'
 import { installShutdownHandlers } from './shutdown.js'
 import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
 import { TelegramLinks } from './infrastructure/telegram/links.js'
+import { StrategyTelegramCommands, telegramCommandSender } from './infrastructure/strategies/telegram-commands.js'
 import { createPublicCapital } from './infrastructure/capital/snapshot.js'
 import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
 
@@ -65,7 +66,17 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     process.env.TELEGRAM_BOT_TOKEN &&
     process.env.TELEGRAM_BOT_USERNAME &&
     process.env.TELEGRAM_WEBHOOK_SECRET
-      ? new TelegramLinks(persistence.pool, process.env.TELEGRAM_BOT_USERNAME, process.env.TELEGRAM_WEBHOOK_SECRET)
+      ? new TelegramLinks(
+          persistence.pool,
+          process.env.TELEGRAM_BOT_USERNAME,
+          process.env.TELEGRAM_WEBHOOK_SECRET,
+          Date.now,
+          new StrategyTelegramCommands(
+            persistence.pool,
+            config.environment === 'mainnet' ? 'mainnet' : 'testnet',
+            telegramCommandSender(process.env.TELEGRAM_BOT_TOKEN),
+          ),
+        )
       : undefined
   const snapshotRetention =
     persistence instanceof PostgresStore
