@@ -26,6 +26,7 @@ import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollme
 import type { TelegramLinks } from '../../infrastructure/telegram/links.js'
 import { toBookDto } from './dto.js'
 import { OpeningTrades, type OpeningPreviewInput } from '../../application/opening-trades.js'
+import { registerAnalyticsRoutes } from './routes/analytics.js'
 import {
   toActionDto,
   toAutopsyDto,
@@ -64,6 +65,8 @@ type RequestWithSession = FastifyRequest & { user?: Session }
 
 export function registerRoutes(context: HttpContext) {
   const { app, config, persistence, auth, notificationStore } = context
+  if (process.env.EYELER_ANALYTICS_ENABLED === 'true')
+    registerAnalyticsRoutes(app, persistence instanceof PostgresStore ? persistence.pool : null)
   const books = new BooksApplication(persistence, context.venue)
   const authToken = (request: FastifyRequest) => {
     const bearer = request.headers.authorization
