@@ -121,7 +121,7 @@ export class TelegramLinks {
     )
       return { ok: true }
     const client = await this.pool.connect()
-    let commandOwner: { userId: string; linkId: string; chatId: string } | undefined
+    let commandOwner: { userId: string; linkId: string; chatId: string; text: string } | undefined
     try {
       await client.query('BEGIN')
       const duplicate = await client.query(
@@ -152,28 +152,38 @@ export class TelegramLinks {
             'SELECT id,user_id,chat_id FROM telegram_links WHERE chat_id=$1 AND telegram_user_id=$1 AND revoked_at IS NULL',
             [String(message.chat.id)],
           )
-          if (linked.rows[0])
-            commandOwner = { userId: linked.rows[0].user_id, linkId: linked.rows[0].id, chatId: linked.rows[0].chat_id }
+          if (linked.rows[0]) {
+            const owner = linked.rows[0]
+            await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [owner.user_id])
+            const active = await client.query(
+              'SELECT id FROM telegram_links WHERE id=$1 AND user_id=$2 AND chat_id=$3 AND telegram_user_id=$3 AND revoked_at IS NULL FOR UPDATE',
+              [owner.id, owner.user_id, owner.chat_id],
+            )
+            if (active.rows.length) {
+              const text = await this.strategyCommands.execute(owner.user_id, command, client)
+              commandOwner = { userId: owner.user_id, linkId: owner.id, chatId: owner.chat_id, text }
+            }
+          }
         }
       }
       await client.query('DELETE FROM telegram_webhook_updates WHERE received_at < $1', [
         new Date(this.now() - 7 * 86400000).toISOString(),
       ])
       await client.query('COMMIT')
-      if (commandOwner && command && this.strategyCommands) {
-        const text = await this.strategyCommands.execute(commandOwner.userId, command)
-        const active = await this.pool.query(
-          'SELECT 1 FROM telegram_links WHERE id=$1 AND user_id=$2 AND chat_id=$3 AND revoked_at IS NULL',
-          [commandOwner.linkId, commandOwner.userId, commandOwner.chatId],
-        )
-        if (active.rows.length) await this.strategyCommands.send(commandOwner.chatId, text)
-      }
-      return { ok: true }
     } catch (error) {
       await client.query('ROLLBACK')
       throw error
     } finally {
       client.release()
     }
+    // Reply failure must not roll back or replay an already committed control.
+    if (commandOwner && this.strategyCommands) {
+      const active = await this.pool.query(
+        'SELECT 1 FROM telegram_links WHERE id=$1 AND user_id=$2 AND chat_id=$3 AND revoked_at IS NULL',
+        [commandOwner.linkId, commandOwner.userId, commandOwner.chatId],
+      )
+      if (active.rows.length) await this.strategyCommands.send(commandOwner.chatId, commandOwner.text)
+    }
+    return { ok: true }
   }
 }

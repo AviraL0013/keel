@@ -2,7 +2,7 @@
 import { toEventSelector, type AbiEvent } from 'viem'
 import { exchangeEvents } from '../packages/analytics/src/exchange-events.js'
 
-const rpcUrl = process.env.EYELER_ANALYTICS_RPC_URL
+const rpcUrl = process.env.EYELER_ANALYTICS_RPC_URL ?? ''
 if (!rpcUrl) throw new Error('EYELER_ANALYTICS_RPC_URL_REQUIRED')
 const exchange = '0x34B6552d57a35a1D042CcAe1951BD1C370112a6F'
 let id = 0

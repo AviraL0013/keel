@@ -22,7 +22,7 @@ async function fixture() {
   ])
   await db.query("INSERT INTO perpl_account_owners(environment,account_id,user_id) VALUES('testnet',642,$1)", [user])
   const strategy = (
-    await db.query(
+    await db.query<{ id: string }>(
       `INSERT INTO strategies(user_id,connection_id,environment,account_id,market_id,
     mode,kind,capital,config,state,status,live_confirmed_at)
     VALUES($1,$2,'testnet',642,16,'LIVE','GRID',100,'{}','{}','RUNNING',now()) RETURNING id`,
@@ -35,14 +35,15 @@ async function fixture() {
   let disconnect = false
   let intercepted = async (_id: string) => {}
   const verify = vi.fn(async (_intent: StrategyOrderRecord) => {})
-  const row = async (id: string) => (await db.query('SELECT * FROM strategy_orders WHERE id=$1', [id])).rows[0]
+  const row = async (id: string) =>
+    (await db.query<StrategyOrderRecord>('SELECT * FROM strategy_orders WHERE id=$1', [id])).rows[0]!
   const submit = vi.fn(
     async (
       id: string,
       order: PerplOrder,
       beforeSend: (reference: string, lb: number) => Promise<void>,
       beforeVerify?: () => Promise<void>,
-    ) => {
+    ): Promise<{ venueReference: string; status: 'SUBMITTED' | 'CANCELED' }> => {
       await beforeSend(reference, expiry)
       const saved = await row(id)
       expect(saved).toMatchObject({
@@ -222,7 +223,7 @@ it('keeps ambiguous and late responses from overwriting durable recovery evidenc
       await f.db.query("UPDATE strategy_orders SET status='FILLED' WHERE id=$1", [id])
     })
     // The second fake frame uses a fresh request; read assertion is adjusted for this case.
-    f.submit.mockImplementationOnce(async (id, order, beforeSend, verify) => {
+    f.submit.mockImplementationOnce(async (id, _order, beforeSend, verify) => {
       await beforeSend('642:46', 120)
       await verify?.()
       f.wire()
@@ -286,7 +287,7 @@ it('blocks failed persistence and never marks another submitter reference as a d
 it('reauthorizes after persistence and rejects reference mutation before the fake write', async () => {
   const f = await fixture()
   try {
-    f.submit.mockImplementationOnce(async (id, _order, beforeSend, verify) => {
+    f.submit.mockImplementationOnce(async (_id, _order, beforeSend, verify) => {
       await beforeSend('642:45', 120)
       await f.db.query("UPDATE perpl_connections SET status='REVOKED' WHERE id=$1", [f.connection])
       try {

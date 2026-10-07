@@ -1,6 +1,12 @@
 {
   "capturedAt": "2026-10-07T16:53:19.283Z",
   "blockNumber": "111376536",
+  "entryBlock": {
+    "number": "0x6a377b6",
+    "timestamp": "0x6ac678b8",
+    "hash": "0x8e4559c02a16e9404f6dfd76f65af3e7c833bf1fddb515fa35ad56c530c3f7ce",
+    "openedAt": "2026-10-07T16:52:08.000Z"
+  },
   "account": {
     "accountId": "25",
     "balanceCNS": "1412227132218",

@@ -1,4 +1,4 @@
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import { randomUUID } from 'node:crypto'
 import {
   initialState,
@@ -84,11 +84,9 @@ export class StrategyStore {
     return result.rows[0] ?? null
   }
 
-  async list(userId: string): Promise<StrategyRecord[]> {
+  async list(userId: string, client: Pick<PoolClient, 'query'> = this.pool): Promise<StrategyRecord[]> {
     return (
-      await this.pool.query<StrategyRecord>('SELECT * FROM strategies WHERE user_id=$1 ORDER BY created_at DESC', [
-        userId,
-      ])
+      await client.query<StrategyRecord>('SELECT * FROM strategies WHERE user_id=$1 ORDER BY created_at DESC', [userId])
     ).rows
   }
 
@@ -98,18 +96,38 @@ export class StrategyStore {
     ).rows
   }
 
-  async killed(userId: string): Promise<boolean> {
-    const result = await this.pool.query<{ killed: boolean }>(
+  async killed(userId: string, client: Pick<PoolClient, 'query'> = this.pool): Promise<boolean> {
+    const result = await client.query<{ killed: boolean }>(
       'SELECT killed FROM strategy_user_controls WHERE user_id=$1',
       [userId],
     )
     return result.rows[0]?.killed ?? false
   }
 
-  async kill(userId: string): Promise<void> {
-    const client = await this.pool.connect()
+  private async controls<T>(
+    userId: string,
+    external: PoolClient | undefined,
+    work: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = external ?? (await this.pool.connect())
     try {
-      await client.query('BEGIN')
+      if (!external) await client.query('BEGIN')
+      // Match Telegram unlink's lock order; an external transaction owns its
+      // update claim and authorization until the control change commits.
+      await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId])
+      const result = await work(client)
+      if (!external) await client.query('COMMIT')
+      return result
+    } catch (error) {
+      if (!external) await client.query('ROLLBACK')
+      throw error
+    } finally {
+      if (!external) client.release()
+    }
+  }
+
+  async kill(userId: string, transaction?: PoolClient): Promise<void> {
+    await this.controls(userId, transaction, async (client) => {
       await client.query(
         `INSERT INTO strategy_user_controls(user_id,killed) VALUES($1,true)
         ON CONFLICT(user_id) DO UPDATE SET killed=true,updated_at=now()`,
@@ -131,13 +149,7 @@ export class StrategyStore {
         SELECT id,'KILL_SWITCH' FROM strategies WHERE user_id=$1 AND status='HALTED'`,
         [userId],
       )
-      await client.query('COMMIT')
-    } catch (error) {
-      await client.query('ROLLBACK')
-      throw error
-    } finally {
-      client.release()
-    }
+    })
   }
 
   async resetKill(userId: string): Promise<void> {
@@ -148,10 +160,8 @@ export class StrategyStore {
     )
   }
 
-  async pauseAll(userId: string): Promise<number> {
-    const client = await this.pool.connect()
-    try {
-      await client.query('BEGIN')
+  async pauseAll(userId: string, transaction?: PoolClient): Promise<number> {
+    return this.controls(userId, transaction, async (client) => {
       const changed = await client.query(
         `UPDATE strategies SET status='PAUSED',
         state=jsonb_set(jsonb_set(state,'{openOrders}','[]'::jsonb),'{status}','"PAUSED"'::jsonb),
@@ -165,25 +175,21 @@ export class StrategyStore {
           AND simulated=true AND status IN ('OPEN','PARTIAL')`,
         [userId],
       )
-      await client.query('COMMIT')
       return changed.rows.length
-    } catch (error) {
-      await client.query('ROLLBACK')
-      throw error
-    } finally {
-      client.release()
-    }
+    })
   }
 
-  async resumeAll(userId: string): Promise<number> {
-    if (await this.killed(userId)) throw new Error('STRATEGY_KILL_SWITCH')
-    const changed = await this.pool.query(
-      `UPDATE strategies SET status='RUNNING',
+  async resumeAll(userId: string, transaction?: PoolClient): Promise<number> {
+    return this.controls(userId, transaction, async (client) => {
+      if (await this.killed(userId, client)) throw new Error('STRATEGY_KILL_SWITCH')
+      const changed = await client.query(
+        `UPDATE strategies SET status='RUNNING',
       state=jsonb_set(state,'{status}','"READY"'::jsonb),version=version+1,updated_at=now()
       WHERE user_id=$1 AND mode='PAPER' AND status='PAUSED' RETURNING id`,
-      [userId],
-    )
-    return changed.rows.length
+        [userId],
+      )
+      return changed.rows.length
+    })
   }
 
   async configure(userId: string, id: string, input: StrategyConfig): Promise<StrategyRecord> {

@@ -1,4 +1,4 @@
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import { strategyEquity } from '../../../../packages/strategies/src/index.js'
 import { StrategyStore } from './store.js'
 
@@ -13,25 +13,26 @@ export class StrategyTelegramCommands {
     this.store = new StrategyStore(pool, environment)
   }
 
-  async execute(userId: string, command: StrategyTelegramCommand): Promise<string> {
+  async execute(userId: string, command: StrategyTelegramCommand, transaction?: PoolClient): Promise<string> {
     if (command === 'killswitch') {
-      await this.store.kill(userId)
+      await this.store.kill(userId, transaction)
       return 'Eyeler Autopilot: kill switch ON. Strategies halted. Reset in app.'
     }
     if (command === 'pause') {
-      const count = await this.store.pauseAll(userId)
+      const count = await this.store.pauseAll(userId, transaction)
       return `Eyeler Autopilot: ${count} paper strategies paused.`
     }
     if (command === 'resume') {
-      if (await this.store.killed(userId)) return 'Eyeler Autopilot: kill switch ON. Reset in app before resuming.'
-      const count = await this.store.resumeAll(userId)
+      if (await this.store.killed(userId, transaction))
+        return 'Eyeler Autopilot: kill switch ON. Reset in app before resuming.'
+      const count = await this.store.resumeAll(userId, transaction)
       return `Eyeler Autopilot: ${count} paper strategies resumed.`
     }
-    const rows = await this.store.list(userId)
+    const rows = await this.store.list(userId, transaction)
     if (command === 'status') {
       const running = rows.filter((row) => row.status === 'RUNNING').length
       const halted = rows.filter((row) => row.status === 'HALTED').length
-      return `Eyeler Autopilot: ${running} running, ${halted} halted, ${rows.length} total. Kill switch ${(await this.store.killed(userId)) ? 'ON' : 'OFF'}.`
+      return `Eyeler Autopilot: ${running} running, ${halted} halted, ${rows.length} total. Kill switch ${(await this.store.killed(userId, transaction)) ? 'ON' : 'OFF'}.`
     }
     const observed = rows.filter((row) => row.mode === 'PAPER' && row.state.lastMark !== undefined)
     const pnl = observed.reduce(

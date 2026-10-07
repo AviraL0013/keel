@@ -17,7 +17,7 @@ it('migration 031 reruns without losing legacy rows and binds cancel targets to 
     for (let n = 0; n < 2; n++) {
       strategies.push(
         (
-          await db.query(
+          await db.query<{ id: string }>(
             `INSERT INTO strategies(user_id,connection_id,environment,account_id,market_id,
         mode,kind,capital,config,state,status) VALUES($1,$2,'testnet',642,16,'LIVE','GRID',100,'{}','{}','PAUSED')
         RETURNING id`,
@@ -35,7 +35,9 @@ it('migration 031 reruns without losing legacy rows and binds cancel targets to 
     const sql = await readFile('database/migrations/031_strategy_order_intents.sql', 'utf8')
     await db.exec(sql)
     await db.exec(sql)
-    expect((await db.query('SELECT status FROM strategy_orders WHERE id=$1', [legacy])).rows[0].status).toBe('UNKNOWN')
+    expect(
+      (await db.query<{ status: string }>('SELECT status FROM strategy_orders WHERE id=$1', [legacy])).rows[0].status,
+    ).toBe('UNKNOWN')
     const key = randomUUID()
     const values = [strategies[0], key, 'a'.repeat(64)]
     const insert = `INSERT INTO strategy_orders(strategy_id,environment,account_id,market_id,kind,status,side,price,size,
