@@ -6,6 +6,7 @@ import 'core/theme/theme_controller.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/domain/auth_state.dart';
 import 'features/landing/presentation/eyeler_landing_page.dart';
+import 'features/onboarding/data/onboarding_repository.dart';
 
 void main() => runApp(const ProviderScope(child: EyelerApp()));
 
@@ -18,11 +19,19 @@ class EyelerApp extends ConsumerStatefulWidget {
 class _EyelerAppState extends ConsumerState<EyelerApp>
     with WidgetsBindingObserver {
   bool _landingComplete = false;
+  final _navigator = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ref.listenManual(authProvider, (previous, next) {
+      if (previous?.authenticated == true &&
+          (!next.authenticated || previous?.address != next.address)) {
+        // Remove wallet-specific routes as well as clearing provider caches.
+        _navigator.currentState?.popUntil((route) => route.isFirst);
+      }
+    });
     Future.microtask(() => ref.read(authProvider.notifier).restore());
   }
 
@@ -33,6 +42,7 @@ class _EyelerAppState extends ConsumerState<EyelerApp>
         state == AppLifecycleState.detached) {
       ref.read(walletConnectorProvider).dispose();
     }
+    if (state == AppLifecycleState.resumed) refreshOnboarding(ref);
   }
 
   @override
@@ -44,12 +54,18 @@ class _EyelerAppState extends ConsumerState<EyelerApp>
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'EYELER',
+        navigatorKey: _navigator,
         debugShowCheckedModeBanner: false,
         theme: EyelerTheme.light,
         darkTheme: EyelerTheme.dark,
         themeMode: ref.watch(themeModeProvider),
         home: _landingComplete
-            ? _Gate(state: ref.watch(authProvider))
+            ? _Gate(
+                key: ValueKey((
+                  ref.watch(authProvider).authenticated,
+                  ref.watch(authProvider).address
+                )),
+                state: ref.watch(authProvider))
             : EyelerLandingPage(
                 onFinished: () {
                   if (mounted) setState(() => _landingComplete = true);
@@ -59,7 +75,7 @@ class _EyelerAppState extends ConsumerState<EyelerApp>
 }
 
 class _Gate extends StatelessWidget {
-  const _Gate({required this.state});
+  const _Gate({super.key, required this.state});
   final AuthState state;
   @override
   Widget build(BuildContext context) {

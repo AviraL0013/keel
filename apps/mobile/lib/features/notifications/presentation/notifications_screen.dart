@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/eyeler_exception.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/eyeler_widgets.dart';
+import '../../../core/errors/eyeler_exception.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/eyeler_widgets.dart';
 import '../data/notification_repository.dart';
 import '../domain/notification_item.dart';
 

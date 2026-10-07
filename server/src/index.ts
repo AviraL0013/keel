@@ -178,20 +178,24 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       }
     }
   })
-  registerRoutes({
-    app,
-    config,
-    persistence,
-    auth,
-    notificationStore,
-    venue,
-    runtime,
-    closeBook,
-    executeAction,
-    testRuntime,
-    enrollment,
-    telegramLinks,
-    publicCapital: createPublicCapital(persistence instanceof PostgresStore ? persistence : undefined, process.env),
+  // Register routes after cookie/CORS/rate-limit plugins have installed their
+  // hooks. Declaring root routes synchronously bypasses rate-limit's onRoute.
+  void app.register(async (routes) => {
+    registerRoutes({
+      app: routes,
+      config,
+      persistence,
+      auth,
+      notificationStore,
+      venue,
+      runtime,
+      closeBook,
+      executeAction,
+      testRuntime,
+      enrollment,
+      telegramLinks,
+      publicCapital: createPublicCapital(persistence instanceof PostgresStore ? persistence : undefined, process.env),
+    })
   })
   return app
 }

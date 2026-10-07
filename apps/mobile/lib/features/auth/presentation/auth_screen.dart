@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/eyeler_widgets.dart';
 import '../data/auth_repository.dart';
 import '../domain/auth_state.dart';
+import '../../../core/errors/eyeler_exception.dart';
 
 class AuthScreen extends ConsumerWidget {
   const AuthScreen({super.key});
@@ -16,7 +17,7 @@ class AuthScreen extends ConsumerWidget {
         builder: (context) => AlertDialog(
               title: const Text('Create a new Mera wallet?'),
               content: const Text(
-                  'This creates a different wallet from any existing Perpl wallet. Save the passkey in a provider you can recover. This does not transfer funds or enable trading.'),
+                  'This creates a separate wallet. Save its passkey in a provider with sync and account recovery. EYELER cannot reset the wallet, export a seed, or recover funds if the passkey is lost. Sign in with your existing passkey if you already have an EYELER wallet.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -72,6 +73,11 @@ class AuthScreen extends ConsumerWidget {
                                     ?.color)),
                         const SizedBox(height: EyelerSpacing.lg),
                         _EnvironmentCard(status: backend),
+                        if (!mera)
+                          const Padding(
+                              padding: EdgeInsets.only(top: EyelerSpacing.md),
+                              child: Text(
+                                  'Browser wallet mode. Mera passkey sign-in and wallet creation are available in the Android app.')),
                         const SizedBox(height: EyelerSpacing.md),
                         EyelerPanel(
                             child: Padding(
@@ -204,6 +210,14 @@ class AuthScreen extends ConsumerWidget {
                                                 .copyWith(
                                                     color: EyelerColors.exit))
                                       ],
+                                      if (auth.error == 'WALLET_NOT_ALLOWED' &&
+                                          auth.address != null) ...[
+                                        const SizedBox(
+                                            height: EyelerSpacing.sm),
+                                        const Text(
+                                            'Request access for this wallet, then sign in with the same passkey:'),
+                                        SelectableText(auth.address!),
+                                      ],
                                       if (auth.loading) ...[
                                         const SizedBox(
                                             height: EyelerSpacing.md),
@@ -227,9 +241,10 @@ class AuthScreen extends ConsumerWidget {
     );
   }
 
-  static String _friendly(String value) => value
-      .replaceFirst('WalletException: ', '')
-      .replaceFirst('EyelerException: ', '');
+  static String _friendly(String value) => EyelerException(value
+          .replaceFirst('WalletException: ', '')
+          .replaceFirst('EyelerException: ', ''))
+      .userMessage;
 }
 
 class _Step extends StatelessWidget {

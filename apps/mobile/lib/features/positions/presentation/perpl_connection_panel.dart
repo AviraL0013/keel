@@ -6,22 +6,8 @@ import '../../../shared/widgets/eyeler_widgets.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../capital/data/capital_repository.dart';
 import '../data/positions_repository.dart';
-
-final enrollmentProvider =
-    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  ref.watch(
-      authProvider.select((state) => (state.authenticated, state.address)));
-  final api = ref.watch(apiClientProvider);
-  final capability = await api.get('/connections/perpl/capabilities',
-      (value) => Map<String, dynamic>.from(value as Map));
-  final connections = await api.get(
-      '/connections',
-      (value) => (value as List)
-          .whereType<Map>()
-          .map((row) => Map<String, dynamic>.from(row))
-          .toList());
-  return {...capability, 'connections': connections};
-});
+import '../data/perpl_connection_repository.dart';
+export '../data/perpl_connection_repository.dart' show enrollmentProvider;
 
 class PerplConnectionPanel extends ConsumerStatefulWidget {
   const PerplConnectionPanel({super.key});
@@ -86,7 +72,7 @@ class _PerplConnectionPanelState extends ConsumerState<PerplConnectionPanel> {
                           child: const Text('DISCONNECT ACCESS')),
                     if (current?['status'] == 'ACTIVE')
                       const Text(
-                          'Refresh Positions to verify the account. If the wallet is inactive, activate it on Perpl first.'),
+                          'Access is connected. Continue setup in Home to verify the account, collateral and order forwarding.'),
                   ]);
             }),
         if (busy) const LinearProgressIndicator(),

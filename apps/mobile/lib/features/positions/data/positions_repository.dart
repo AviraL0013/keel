@@ -1,6 +1,7 @@
 import '../../auth/data/auth_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
+import '../../../core/errors/eyeler_exception.dart';
 import '../domain/position.dart';
 
 class PositionsRepository {
@@ -10,7 +11,9 @@ class PositionsRepository {
     final result = await api.get('/connections/perpl/positions',
         (value) => Map<String, dynamic>.from(value as Map));
     final rows = result['positions'];
-    if (rows is! List) return const [];
+    if (result['status'] != 'VALID' || rows is! List) {
+      throw const EyelerException('PERPL_NOT_CONNECTED');
+    }
     return rows
         .map(
             (item) => Position.fromJson(Map<String, dynamic>.from(item as Map)))

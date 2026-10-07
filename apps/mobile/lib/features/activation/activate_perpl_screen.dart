@@ -11,10 +11,12 @@ class ActivatePerplScreen extends StatefulWidget {
       {super.key,
       required this.coordinator,
       this.connectPanel,
-      this.onReceive});
+      this.onReceive,
+      this.onReady});
   final PerplActivationCoordinator coordinator;
   final Widget? connectPanel;
   final VoidCallback? onReceive;
+  final VoidCallback? onReady;
 
   @override
   State<ActivatePerplScreen> createState() => _ActivatePerplScreenState();
@@ -182,8 +184,16 @@ class _ActivatePerplScreenState extends State<ActivatePerplScreen> {
                                 child: const Text('VIEW ON MONADSCAN')),
                         ],
                       ),
-                    ActivationStep.ready => const Text(
-                        'Perpl account active. API key connected and order forwarding enabled.'),
+                    ActivationStep.ready => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                                'Perpl account active. API key connected and order forwarding enabled.'),
+                            if (widget.onReady != null)
+                              FilledButton(
+                                  onPressed: widget.onReady,
+                                  child: const Text('CONTINUE TO APP')),
+                          ]),
                   },
                 ],
               ],

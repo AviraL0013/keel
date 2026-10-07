@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import '../../../../core/errors/eyeler_exception.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/eyeler_widgets.dart';
+import '../../../core/errors/eyeler_exception.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/eyeler_widgets.dart';
 import '../data/capital_repository.dart';
 import '../domain/capital_snapshot.dart';
 import '../../auth/data/auth_repository.dart';

@@ -88,6 +88,7 @@ class _ActivatePerplRouteState extends ConsumerState<ActivatePerplRoute> {
     return ActivatePerplScreen(
         coordinator: active,
         connectPanel: const PerplConnectionPanel(),
+        onReady: () => Navigator.of(context).pop(),
         onReceive: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => ReceiveScreen(address: address))));
   }

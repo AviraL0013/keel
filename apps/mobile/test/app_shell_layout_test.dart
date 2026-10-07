@@ -6,6 +6,9 @@ import 'package:eyeler_mobile/features/books/data/books_repository.dart';
 import 'package:eyeler_mobile/features/books/presentation/screens/app_shell.dart';
 import 'package:eyeler_mobile/features/books/presentation/screens/books_screen.dart';
 import 'package:eyeler_mobile/features/positions/data/positions_repository.dart';
+import 'package:eyeler_mobile/features/onboarding/data/onboarding_repository.dart';
+import 'package:eyeler_mobile/features/onboarding/domain/onboarding_progress.dart';
+import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
 
 void main() {
   for (final size in [const Size(427, 952), const Size(1440, 900)]) {
@@ -17,6 +20,16 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       await tester.pumpWidget(ProviderScope(
         overrides: [
+          onboardingProvider.overrideWith((ref) async {
+            final snapshot = CapitalSnapshot.fromJson({'perplAvailable': '20'});
+            return OnboardingProgress(
+                step: OnboardingStep.complete,
+                environment: 'testnet',
+                walletBalance: snapshot.walletAgoraAusd,
+                collateral: snapshot.perplAvailable,
+                canOpenTrade: true,
+                accountId: 642);
+          }),
           booksProvider.overrideWith((ref) async => []),
           positionsProvider.overrideWith((ref) async => []),
           perplConnectionProvider.overrideWith((ref) async =>
@@ -42,7 +55,7 @@ void main() {
               .selectedIndex,
           1);
       expect(find.text('NO ACTIVE POSITIONS').hitTestable(), findsOneWidget);
-      await tester.tap(find.text('Books'));
+      await tester.tap(find.text('Home'));
       await tester.pumpAndSettle();
       expect(find.text('VIEW POSITIONS').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);

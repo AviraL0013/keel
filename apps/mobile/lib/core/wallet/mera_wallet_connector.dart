@@ -201,12 +201,14 @@ class MeraWalletConnector extends WalletConnector
   Future<WalletConnection> createAccount() async {
     dispose();
     final generation = _generation;
+    final accountLabel =
+        'EYELER ${DateTime.now().toIso8601String().substring(0, 16)} ${_encode(_randomBytes(3))}';
     final registered = await _authenticator.register(RegisterRequestType(
       challenge: _encode(_randomBytes(32)),
       relyingParty: RelyingPartyType(name: _rpName, id: _rpId),
       user: UserType(
-          displayName: 'EYELER user',
-          name: 'eyeler',
+          displayName: accountLabel,
+          name: accountLabel,
           id: _encode(_randomBytes(32))),
       excludeCredentials: const [],
       authSelectionType: AuthenticatorSelectionType(

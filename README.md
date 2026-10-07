@@ -2,7 +2,7 @@
 
 Eyeler watches a leveraged position against a reserve and clear risk limits. When conditions change, it chooses HOLD, bounded DEFEND, reduce-only REDUCE or EXIT, then checks Perpl before calling the action complete. If market data or execution evidence is uncertain, it pauses new orders and shows why.
 
-This is a non-custodial testnet build. The wallet signs in; server-side Perpl credentials act only on the one configured account. The product is not a general multi-user trading service yet.
+The existing live deployment is the restricted testnet operator build. This repository also implements the Agora bounty candidate: native Mera passkey wallets, per-user encrypted Perpl credentials, mainnet AUSD activation, confirmed opening trades, and guided onboarding. Device passkey ceremonies and a real mainnet demo trade still require release verification; implementation is not a claim about the current deployment. See the [submission journey and demo guide](docs/product/agora-submission.md) and [mainnet rollout plan](docs/deployment/mainnet-bounty.md).
 
 | Capability | Live testnet | Public sandbox |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ This is a non-custodial testnet build. The wallet signs in; server-side Perpl cr
 | Capital and Agora | Separate wallet, Perpl and Book balances; read-only Agora activity and optional global AUSD supply | Fake venue balances; Agora unavailable unless configured |
 | Telegram | Optional operator-only alerts | Off |
 
-The Flutter app calls Fastify over HTTPS. The server owns authentication, the one-second monitor, policy and execution; PostgreSQL holds Books, actions, snapshots and evidence. The Perpl adapter handles REST/WS state and submissions. Monad supplies the signed-in wallet's collateral-token balance (testnet USD; mainnet AUSD). Capital keeps wallet, Perpl free/locked and Book allocations separate, and warns when available Book reserves exceed Perpl free balance. Agora activity and optional global AUSD supply are informational only. The client never authorizes an order.
+The Flutter app calls Fastify over HTTPS. The server owns authentication, the one-second monitor, policy and execution; PostgreSQL holds Books, actions, snapshots and evidence. The Perpl adapter handles REST/WS state and submissions. Monad supplies the signed-in wallet's collateral-token balance (testnet USD; mainnet AUSD). Capital keeps wallet, Perpl free/locked and Book allocations separate, and warns when available Book reserves exceed Perpl free balance. Agora activity and optional global AUSD supply are informational only. The client obtains the user's explicit order confirmation; the server independently validates whether an order may execute.
 
 ## Try it locally
 

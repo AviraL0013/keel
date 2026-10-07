@@ -39,7 +39,7 @@ export function loadEnrollmentConfig(env: Record<string, string | undefined>, co
     throw new Error('INVALID_PERPL_ENROLLMENT_ORIGIN')
   }
   const ttlDays = Number(brandEnv(env, 'KEY_TTL_DAYS') ?? 90)
-  if (!Number.isSafeInteger(ttlDays) || ttlDays < 1 || ttlDays > 3650) throw new Error('INVALID_EYELER_KEY_TTL_DAYS')
+  if (!Number.isSafeInteger(ttlDays) || ttlDays < 1 || ttlDays > 90) throw new Error('INVALID_EYELER_KEY_TTL_DAYS')
   const ipCidrs = (brandEnv(env, 'EGRESS_CIDRS') ?? '')
     .split(',')
     .map((value) => value.trim())
@@ -58,6 +58,8 @@ export function loadEnrollmentConfig(env: Record<string, string | undefined>, co
     })
   )
     throw new Error('INVALID_EYELER_EGRESS_CIDRS')
+  // Reject unsupported signed restrictions before starting a user ceremony.
+  if (ipCidrs.length) throw new Error('PERPL_CIDR_ENROLLMENT_NOT_SUPPORTED')
   const builderIdRaw = brandEnv(env, 'BUILDER_ID')
   const feeRaw = brandEnv(env, 'MAX_BUILDER_FEE_PER_100K')
   const builderId = builderIdRaw == null || builderIdRaw === '' ? undefined : Number(builderIdRaw)

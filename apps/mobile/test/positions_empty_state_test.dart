@@ -20,6 +20,7 @@ void main() {
         find.text('No open positions on this Perpl account.'), findsOneWidget);
     expect(find.text('Connect a Perpl account to discover positions.'),
         findsNothing);
-    expect(find.text('Open position'), findsOneWidget);
+    // A VALID connection alone does not establish forwarding/fresh collateral.
+    expect(find.text('Continue account setup'), findsOneWidget);
   });
 }
