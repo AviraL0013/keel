@@ -1,0 +1,16 @@
+{
+  "asOf": "2026-10-07T12:00:00.000Z",
+  "block": 35000000,
+  "source": "perpl_api",
+  "stale": false,
+  "data": {
+    "marketId": 1,
+    "points": [
+      {
+        "time": "2026-10-07T11:00:00.000Z",
+        "block": 34999900,
+        "rate": "0.000012"
+      }
+    ]
+  }
+}

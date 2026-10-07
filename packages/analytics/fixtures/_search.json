@@ -1,0 +1,14 @@
+{
+  "asOf": "2026-10-07T12:00:00.000Z",
+  "block": 35000000,
+  "source": "monad_exchange",
+  "stale": false,
+  "data": {
+    "items": [
+      {
+        "address": "0x1234567890abcdef1234567890abcdef12345678",
+        "accountId": "42"
+      }
+    ]
+  }
+}
