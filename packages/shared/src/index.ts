@@ -14,6 +14,7 @@ export type Config = {
   allowedWallets: string[]
   perplAccountMode: 'operator' | 'per-user'
   accessMode: 'allowlist' | 'public'
+  openingEnabled: boolean
   safeModeResumeTicks: number
   tickStaleMs: number
 }
@@ -47,6 +48,10 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
   if (accessMode !== 'allowlist' && accessMode !== 'public') throw new Error('INVALID_EYELER_ACCESS_MODE')
   if (accessMode === 'public' && perplAccountMode !== 'per-user')
     throw new Error('PUBLIC_ACCESS_REQUIRES_PER_USER_ACCOUNTS')
+  const openingFlag = (brandEnv(env, 'OPENING_ENABLED') ?? 'false').trim().toLowerCase()
+  if (!['true', 'false'].includes(openingFlag)) throw new Error('INVALID_EYELER_OPENING_ENABLED')
+  const openingEnabled = openingFlag === 'true'
+  if (openingEnabled && perplAccountMode !== 'per-user') throw new Error('OPENING_REQUIRES_PER_USER_ACCOUNTS')
   const explicit = (brandEnv(env, 'ALLOWED_WALLETS') ?? '').trim()
   const source = explicit ? explicit : (env.MONAD_WALLET_ADDRESS ?? '')
   const allowedWallets = [
@@ -71,6 +76,7 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
     environment,
     perplAccountMode,
     accessMode,
+    openingEnabled,
     port: Number(env.PORT ?? 8787),
     databaseUrl: env.DATABASE_URL,
     sessionSecret: env.SESSION_SECRET ?? 'development-only-change-me',
@@ -93,7 +99,11 @@ export function assertProductionConfig(config: Config, env: Record<string, strin
   if (config.perplAccountMode === 'per-user') {
     if (['PERPL_API_KEY', 'PERPL_API_KEY_SECRET', 'PERPL_ACCOUNT_ID'].some((key) => Boolean(env[key]?.trim())))
       throw new Error('PER_USER_SHARED_CREDENTIALS_FORBIDDEN')
-    if (['mainnet', 'testnet'].includes(config.environment) && custody?.provider !== 'aws-kms')
+    if (
+      ['mainnet', 'testnet'].includes(config.environment) &&
+      custody?.provider !== 'aws-kms' &&
+      !(config.environment === 'testnet' && custody?.provider === 'railway-testnet')
+    )
       throw new Error('KMS_CUSTODY_REQUIRED')
     if (
       !config.databaseUrl ||

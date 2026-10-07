@@ -130,7 +130,13 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   }
   const runtime =
     persistence instanceof PostgresStore
-      ? new EyelerRuntime(persistence, venue, Date.now, config.safeModeResumeTicks)
+      ? new EyelerRuntime(
+          persistence,
+          venue,
+          Date.now,
+          config.safeModeResumeTicks,
+          config.environment === 'mainnet' ? 'mainnet' : config.environment === 'testnet' ? 'testnet' : undefined,
+        )
       : undefined
   const enrollment =
     services.enrollment ??
