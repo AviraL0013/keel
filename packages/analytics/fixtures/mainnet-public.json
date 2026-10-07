@@ -1,0 +1,1516 @@
+{
+  "capturedAt": "2026-10-07T16:46:18.496Z",
+  "context": {
+    "chain": {
+      "ver": 292,
+      "chain_id": 143,
+      "name": "Monad",
+      "block_explorer_urls": ["https://monadscan.com/"],
+      "gas": {
+        "at": {
+          "b": 111375153,
+          "t": 1791391579000
+        },
+        "h": 111375153,
+        "max": "145000000000",
+        "p95": "145000000000",
+        "p50": "102000000001",
+        "min": "0",
+        "base": "100000000000"
+      }
+    },
+    "instances": [
+      {
+        "ver": 292,
+        "id": 1,
+        "address": "0x34b6552d57a35a1d042ccae1951bd1c370112a6f",
+        "collateral_token_id": 1,
+        "min_account_open_amount": "10000000",
+        "min_deposit_amount": "10000000",
+        "min_withdraw_amount": "10000",
+        "max_account_equity": "1000000000000",
+        "max_account_trigger_orders": 16
+      }
+    ],
+    "tokens": [
+      {
+        "ver": 292,
+        "id": 1,
+        "address": "0x00000000efe302beaa2b3e6e1b18d08d69a9012a",
+        "symbol": "AUSD",
+        "name": "AUSD",
+        "decimals": 6,
+        "display_precision": 2,
+        "usd_index": "<index_name>"
+      }
+    ],
+    "markets": [
+      {
+        "ver": 292,
+        "id": 1,
+        "instance_id": 1,
+        "perpetual_id": 1,
+        "symbol": "",
+        "name": "BTC",
+        "size_units": "BTC",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 1,
+          "size_decimals": 5,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 0,
+          "initial_margin": 1500,
+          "maintenance_margin": 2500,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375145,
+            "t": 1791391576000
+          },
+          "orl": 834357,
+          "mrk": 834390,
+          "lst": 834537,
+          "mid": 834536,
+          "bid": 834536,
+          "ask": 834537,
+          "prv": 856616,
+          "dv": 13781497,
+          "dva": "11599510009938",
+          "oi": 767100,
+          "tvl": "213213898375"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 40,
+          "idx": 834696,
+          "ppl": 33,
+          "sum": -34960,
+          "div": 1
+        }
+      },
+      {
+        "ver": 292,
+        "id": 10,
+        "instance_id": 1,
+        "perpetual_id": 10,
+        "symbol": "",
+        "name": "MON",
+        "size_units": "MON",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 6,
+          "size_decimals": 0,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 1000,
+          "maintenance_margin": 2000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375153,
+            "t": 1791391579000
+          },
+          "orl": 25763,
+          "mrk": 25781,
+          "lst": 25846,
+          "mid": 25841,
+          "bid": 25826,
+          "ask": 25857,
+          "prv": 28566,
+          "dv": 56605728,
+          "dva": "1563211656095",
+          "oi": 3623865,
+          "tvl": "74059518947"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 30,
+          "idx": 25861,
+          "ppl": 77,
+          "sum": 77714,
+          "div": 100
+        }
+      },
+      {
+        "ver": 292,
+        "id": 20,
+        "instance_id": 1,
+        "perpetual_id": 20,
+        "symbol": "ETH",
+        "name": "ETH",
+        "size_units": "ETH",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 2,
+          "size_decimals": 3,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 0,
+          "initial_margin": 1200,
+          "maintenance_margin": 2000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375153,
+            "t": 1791391579000
+          },
+          "orl": 256676,
+          "mrk": 256795,
+          "lst": 256938,
+          "mid": 256907,
+          "bid": 256848,
+          "ask": 256967,
+          "prv": 269831,
+          "dv": 534612,
+          "dva": "1395067159930",
+          "oi": 210215,
+          "tvl": "233449715694"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 40,
+          "idx": 256789,
+          "ppl": 10,
+          "sum": 1314,
+          "div": 1
+        }
+      },
+      {
+        "ver": 292,
+        "id": 31,
+        "instance_id": 1,
+        "perpetual_id": 31,
+        "symbol": "SOL",
+        "name": "SOL",
+        "size_units": "SOL",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 3,
+          "size_decimals": 3,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 1200,
+          "maintenance_margin": 2000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375149,
+            "t": 1791391577000
+          },
+          "orl": 116857,
+          "mrk": 116814,
+          "lst": 116746,
+          "mid": 116778,
+          "bid": 116728,
+          "ask": 116828,
+          "prv": 120456,
+          "dv": 2263912,
+          "dva": "266781243009",
+          "oi": 910989,
+          "tvl": "61389526731"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": -40,
+          "idx": 116823,
+          "ppl": -467,
+          "sum": -71841,
+          "div": 100
+        }
+      },
+      {
+        "ver": 292,
+        "id": 40,
+        "instance_id": 1,
+        "perpetual_id": 40,
+        "symbol": "HYPE",
+        "name": "HYPE",
+        "size_units": "HYPE",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 4,
+          "size_decimals": 2,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 1,
+          "initial_margin": 1000,
+          "maintenance_margin": 2000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375151,
+            "t": 1791391578000
+          },
+          "orl": 880325,
+          "mrk": 880506,
+          "lst": 881376,
+          "mid": 881171,
+          "bid": 880773,
+          "ask": 881569,
+          "prv": 921428,
+          "dv": 252976,
+          "dva": "227742254389",
+          "oi": 62783,
+          "tvl": "23416841181"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 10,
+          "idx": 881522,
+          "ppl": 88,
+          "sum": 205406,
+          "div": 10
+        }
+      },
+      {
+        "ver": 292,
+        "id": 50,
+        "instance_id": 1,
+        "perpetual_id": 50,
+        "symbol": "ZEC",
+        "name": "ZEC",
+        "size_units": "ZEC",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 2,
+          "size_decimals": 4,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 1000,
+          "maintenance_margin": 1800,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375153,
+            "t": 1791391579000
+          },
+          "orl": 131885,
+          "mrk": 131986,
+          "lst": 132019,
+          "mid": 132015,
+          "bid": 131827,
+          "ask": 132204,
+          "prv": 135451,
+          "dv": 802889,
+          "dva": "105813430196",
+          "oi": 358686,
+          "tvl": "20837173781"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 10,
+          "idx": 132655,
+          "ppl": 132,
+          "sum": 114922,
+          "div": 100
+        }
+      },
+      {
+        "ver": 292,
+        "id": 60,
+        "instance_id": 1,
+        "perpetual_id": 60,
+        "symbol": "LIT",
+        "name": "LIT",
+        "size_units": "LIT",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 5,
+          "size_decimals": 1,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 1,
+          "initial_margin": 300,
+          "maintenance_margin": 1000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375152,
+            "t": 1791391578000
+          },
+          "orl": 351673,
+          "mrk": 352099,
+          "lst": 352061,
+          "mid": 352532,
+          "bid": 352025,
+          "ask": 353040,
+          "prv": 381610,
+          "dv": 718006,
+          "dva": "266181356020",
+          "oi": 51226,
+          "tvl": "14818499169"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 0,
+          "idx": 352871,
+          "ppl": 0,
+          "sum": -35013,
+          "div": 10
+        }
+      },
+      {
+        "ver": 292,
+        "id": 70,
+        "instance_id": 1,
+        "perpetual_id": 70,
+        "symbol": "VVV",
+        "name": "VVV",
+        "size_units": "VVV",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 4,
+          "size_decimals": 2,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 300,
+          "maintenance_margin": 1000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375152,
+            "t": 1791391578000
+          },
+          "orl": 256084,
+          "mrk": 256179,
+          "lst": 255804,
+          "mid": 256230,
+          "bid": 255974,
+          "ask": 256486,
+          "prv": 277511,
+          "dv": 611471,
+          "dva": "161475310122",
+          "oi": 45020,
+          "tvl": "8367042186"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 0,
+          "idx": 256055,
+          "ppl": 0,
+          "sum": 194653,
+          "div": 100
+        }
+      },
+      {
+        "ver": 292,
+        "id": 90,
+        "instance_id": 1,
+        "perpetual_id": 90,
+        "symbol": "PUMP",
+        "name": "PUMP",
+        "size_units": "PUMP",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 6,
+          "size_decimals": 0,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 500,
+          "maintenance_margin": 1000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375142,
+            "t": 1791391575000
+          },
+          "orl": 6191,
+          "mrk": 6196,
+          "lst": 6205,
+          "mid": 6203,
+          "bid": 6197,
+          "ask": 6209,
+          "prv": 6252,
+          "dv": 57037128,
+          "dva": "358556053271",
+          "oi": 11254527,
+          "tvl": "34877546574"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 20,
+          "idx": 6183,
+          "ppl": 12,
+          "sum": 5076,
+          "div": 100
+        }
+      },
+      {
+        "ver": 292,
+        "id": 100,
+        "instance_id": 1,
+        "perpetual_id": 100,
+        "symbol": "NEAR",
+        "name": "NEAR",
+        "size_units": "NEAR",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 4,
+          "size_decimals": 2,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 300,
+          "maintenance_margin": 1000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375152,
+            "t": 1791391578000
+          },
+          "orl": 51257,
+          "mrk": 51364,
+          "lst": 51356,
+          "mid": 51450,
+          "bid": 51295,
+          "ask": 51606,
+          "prv": 50844,
+          "dv": 6967958,
+          "dva": "353395794327",
+          "oi": 161516,
+          "tvl": "5594945771"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 40,
+          "idx": 50545,
+          "ppl": 202,
+          "sum": -4686,
+          "div": 100
+        }
+      },
+      {
+        "ver": 292,
+        "id": 110,
+        "instance_id": 1,
+        "perpetual_id": 110,
+        "symbol": "UNI",
+        "name": "UNI",
+        "size_units": "UNI",
+        "icon": "",
+        "funding_interval_sec": 2580,
+        "funding_interval_blocks": 8571,
+        "order_ttl_blocks": 20,
+        "order_retry_blocks": 22,
+        "order_max_market_slippage_bps": 100,
+        "order_max_neg_pnl_collat_bps": 300,
+        "config": {
+          "at": {
+            "b": 111281280,
+            "t": 1791363233000
+          },
+          "is_open": true,
+          "price_decimals": 4,
+          "size_decimals": 2,
+          "min_posting_amount": "0",
+          "min_settle_amount": "0",
+          "funding_sum_scaling_exp": 2,
+          "initial_margin": 300,
+          "maintenance_margin": 1000,
+          "maker_fee": 45,
+          "taker_fee": 345,
+          "maker_fees": [45, 25, 15, 0, 0, 0, 0, 0],
+          "taker_fees": [345, 300, 250, 210, 175, 150, 125, 0],
+          "recycle_fee": "0",
+          "contract_version": [1, 7, 5]
+        },
+        "state": {
+          "at": {
+            "b": 111375152,
+            "t": 1791391578000
+          },
+          "orl": 78466,
+          "mrk": 78596,
+          "lst": 78735,
+          "mid": 78716,
+          "bid": 78641,
+          "ask": 78792,
+          "prv": 86751,
+          "dv": 12226716,
+          "dva": "1013729478329",
+          "oi": 141900,
+          "tvl": "7746499741"
+        },
+        "funding": {
+          "at": {
+            "b": 111371574,
+            "t": 1791390498000
+          },
+          "feb": 111371574,
+          "rate": 40,
+          "idx": 78496,
+          "ppl": 313,
+          "sum": 1548,
+          "div": 100
+        }
+      }
+    ],
+    "features": {
+      "animatedFooterTicker": "on",
+      "apiKeysEnabled": "on",
+      "bagEnabled": "off",
+      "builderApplyUrl": "https://docs.google.com/forms/d/e/1FAIpQLSfpuNGEpvEzfUJK3lM7bAmvinEFQnsnPP50rx2I9Nlg3vEqMg/viewform",
+      "changelogEnabled": "on",
+      "collectUsersFeedback": "off",
+      "customSlippageEnabled": "on",
+      "discordUrl": "https://discord.gg/perpl",
+      "docsUrl": "https://docs.perpl.xyz/",
+      "duneDashboardUrl": "https://dune.com/perpl/perpl-dex",
+      "feeTiersEnabled": "on",
+      "flipPositionEnabled": "on",
+      "funBridgeEnabled": "on",
+      "fundingRatesEnabled": "on",
+      "globalAnnouncement": "",
+      "languageSelection": "on",
+      "leaderboardEnabled": "on",
+      "mainLogoLabel": "Beta",
+      "marketBoostLabels": "",
+      "marketOrderImpactWarnPct": "",
+      "phantomDeprecationEnabled": "on",
+      "pointsEnabled": "on",
+      "portfolioEnabled": "on",
+      "privacyPolicyUrl": "https://perpl.xyz/privacy-policy",
+      "refVolumeEnabled": "on",
+      "referralDashboardEnabled": "on",
+      "referralsEnabled": "on",
+      "rescueEnabled": "on",
+      "rewardsEnabled": "on",
+      "showBuildersFundingHistory": "on",
+      "showLeverageTooltip": "on",
+      "showMillionBanner": "off",
+      "showRealPoints": "on",
+      "stopLossTakeProfit": "on",
+      "stopLossTakeProfitPositions": "on",
+      "termsOfUseUrl": "https://perpl.xyz/terms-of-use",
+      "tournamentEnabled": "on",
+      "tpSlOrdersUseIoc": "on",
+      "tpSlTriggerOnMarkPrice": "on",
+      "twitterUrl": "https://x.com/perpltrade",
+      "useStoredNewOrderId": "on",
+      "waitlistUrl": "https://waitlist.perpl.xyz/"
+    },
+    "geo_block": ["BY", "CU", "GB", "IR", "KP", "RU", "SY", "UA", "US"],
+    "rewards": {
+      "ver": 292,
+      "active_referral_min_volume": "10000000000",
+      "active_referral_max_age_days": 3652,
+      "invite_volume_threshold": "10000000000",
+      "invites_per_threshold": 100,
+      "ref_code_renew_ttl_sec": 3600,
+      "referrer_1st_reward_share_bps": 1000,
+      "referrer_2nd_reward_share_bps": 500,
+      "partner_min_volume": "15000000000000",
+      "rewards_epoch_duration_sec": 604800,
+      "rewards_epoch_starts_at": 1777852800000,
+      "points_epoch_duration_sec": 604800,
+      "points_epoch_starts_at": 1781107200000,
+      "points_per_epoch": "50000000000",
+      "referrer_points_share_bps": 500,
+      "referral_points_share_bps": 500,
+      "mpoints_epoch_duration_sec": 604800,
+      "mpoints_epoch_starts_at": 1783526400000,
+      "mpoints_num_epochs": 16,
+      "mpoints_pool_size": 1000000,
+      "mpoints_pool_amount": "1000000000000"
+    },
+    "competitions": [
+      {
+        "ver": 292,
+        "slug": "tour001",
+        "name": "Trading Tournament #1",
+        "starts_at": 1781712000000,
+        "ends_at": 1782921600000,
+        "vol_min_volume": "100000000000",
+        "roi_min_volume": "100000000000",
+        "pnl_min_volume": "0",
+        "psv_min_volume": "0",
+        "pool_amount": "50000000000",
+        "vol_pool_distribution_bps": [1400, 840, 600, 500, 400, 350, 300, 250, 200, 160],
+        "roi_pool_distribution_bps": [2000, 1000, 600, 400, 300, 200, 160, 140, 120, 80],
+        "results_finalized": true
+      },
+      {
+        "ver": 292,
+        "slug": "mc-cup",
+        "name": "Monad Cards Invitational",
+        "starts_at": 1784221200000,
+        "ends_at": 1786640400000,
+        "vol_min_volume": "250000000000",
+        "roi_min_volume": "0",
+        "pnl_min_volume": "0",
+        "psv_min_volume": "250000000000",
+        "pool_amount": "100000000000",
+        "vol_pool_distribution_bps": [380, 250, 200, 150, 120, 100, 90, 80, 70, 60],
+        "psv_pool_distribution_bps": [
+          2500, 1500, 1000, 750, 500, 250, 250, 250, 250, 250, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100
+        ],
+        "results_finalized": true
+      }
+    ],
+    "incentive_tokens": [
+      {
+        "address": "0x0000ca12d5c07085022ebc74867157449919fd67",
+        "kind": "nft"
+      }
+    ]
+  },
+  "funding": {
+    "mt": 13,
+    "sn": 111371574,
+    "at": {
+      "b": 111371574,
+      "t": 1791390498000
+    },
+    "m": 1,
+    "d": [
+      {
+        "at": {
+          "b": 111097302,
+          "t": 1791307646000
+        },
+        "feb": 111097302,
+        "rate": 40,
+        "idx": 856095,
+        "ppl": 34,
+        "sum": -35649,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111105873,
+          "t": 1791310240000
+        },
+        "feb": 111105873,
+        "rate": 30,
+        "idx": 857436,
+        "ppl": 25,
+        "sum": -35624,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111114444,
+          "t": 1791312837000
+        },
+        "feb": 111114444,
+        "rate": 40,
+        "idx": 855562,
+        "ppl": 34,
+        "sum": -35590,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111123015,
+          "t": 1791315440000
+        },
+        "feb": 111123015,
+        "rate": 10,
+        "idx": 855223,
+        "ppl": 8,
+        "sum": -35582,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111131586,
+          "t": 1791318037000
+        },
+        "feb": 111131586,
+        "rate": 0,
+        "idx": 856307,
+        "ppl": 0,
+        "sum": -35582,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111140157,
+          "t": 1791320626000
+        },
+        "feb": 111140157,
+        "rate": 40,
+        "idx": 855456,
+        "ppl": 34,
+        "sum": -35548,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111148728,
+          "t": 1791323213000
+        },
+        "feb": 111148728,
+        "rate": 40,
+        "idx": 855802,
+        "ppl": 34,
+        "sum": -35514,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111157299,
+          "t": 1791325800000
+        },
+        "feb": 111157299,
+        "rate": 30,
+        "idx": 854805,
+        "ppl": 25,
+        "sum": -35489,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111165870,
+          "t": 1791328388000
+        },
+        "feb": 111165870,
+        "rate": 40,
+        "idx": 855200,
+        "ppl": 34,
+        "sum": -35455,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111174441,
+          "t": 1791330975000
+        },
+        "feb": 111174441,
+        "rate": 10,
+        "idx": 855720,
+        "ppl": 8,
+        "sum": -35447,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111183012,
+          "t": 1791333562000
+        },
+        "feb": 111183012,
+        "rate": 0,
+        "idx": 854863,
+        "ppl": 0,
+        "sum": -35447,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111191583,
+          "t": 1791336149000
+        },
+        "feb": 111191583,
+        "rate": 40,
+        "idx": 853573,
+        "ppl": 34,
+        "sum": -35413,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111200154,
+          "t": 1791338738000
+        },
+        "feb": 111200154,
+        "rate": 40,
+        "idx": 837653,
+        "ppl": 33,
+        "sum": -35380,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111208725,
+          "t": 1791341327000
+        },
+        "feb": 111208725,
+        "rate": 30,
+        "idx": 838663,
+        "ppl": 25,
+        "sum": -35355,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111217296,
+          "t": 1791343915000
+        },
+        "feb": 111217296,
+        "rate": 40,
+        "idx": 839950,
+        "ppl": 33,
+        "sum": -35322,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111225867,
+          "t": 1791346503000
+        },
+        "feb": 111225867,
+        "rate": 10,
+        "idx": 841200,
+        "ppl": 8,
+        "sum": -35314,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111234438,
+          "t": 1791349090000
+        },
+        "feb": 111234438,
+        "rate": 0,
+        "idx": 840796,
+        "ppl": 0,
+        "sum": -35314,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111243009,
+          "t": 1791351677000
+        },
+        "feb": 111243009,
+        "rate": 40,
+        "idx": 841897,
+        "ppl": 33,
+        "sum": -35281,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111251580,
+          "t": 1791354264000
+        },
+        "feb": 111251580,
+        "rate": 40,
+        "idx": 841594,
+        "ppl": 33,
+        "sum": -35248,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111260151,
+          "t": 1791356854000
+        },
+        "feb": 111260151,
+        "rate": 30,
+        "idx": 841525,
+        "ppl": 25,
+        "sum": -35223,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111268722,
+          "t": 1791359442000
+        },
+        "feb": 111268722,
+        "rate": 40,
+        "idx": 842149,
+        "ppl": 33,
+        "sum": -35190,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111277293,
+          "t": 1791362030000
+        },
+        "feb": 111277293,
+        "rate": 10,
+        "idx": 840345,
+        "ppl": 8,
+        "sum": -35182,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111285864,
+          "t": 1791364618000
+        },
+        "feb": 111285864,
+        "rate": 0,
+        "idx": 839151,
+        "ppl": 0,
+        "sum": -35182,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111294435,
+          "t": 1791367206000
+        },
+        "feb": 111294435,
+        "rate": 30,
+        "idx": 837806,
+        "ppl": 25,
+        "sum": -35157,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111303006,
+          "t": 1791369793000
+        },
+        "feb": 111303006,
+        "rate": 0,
+        "idx": 836457,
+        "ppl": 0,
+        "sum": -35157,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111311577,
+          "t": 1791372381000
+        },
+        "feb": 111311577,
+        "rate": 40,
+        "idx": 836711,
+        "ppl": 33,
+        "sum": -35124,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111320148,
+          "t": 1791374968000
+        },
+        "feb": 111320148,
+        "rate": 40,
+        "idx": 836404,
+        "ppl": 33,
+        "sum": -35091,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111328719,
+          "t": 1791377556000
+        },
+        "feb": 111328719,
+        "rate": 40,
+        "idx": 834107,
+        "ppl": 33,
+        "sum": -35058,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111337290,
+          "t": 1791380144000
+        },
+        "feb": 111337290,
+        "rate": 10,
+        "idx": 832393,
+        "ppl": 8,
+        "sum": -35050,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111345861,
+          "t": 1791382735000
+        },
+        "feb": 111345861,
+        "rate": 30,
+        "idx": 830247,
+        "ppl": 24,
+        "sum": -35026,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111354432,
+          "t": 1791385323000
+        },
+        "feb": 111354432,
+        "rate": 0,
+        "idx": 828858,
+        "ppl": 0,
+        "sum": -35026,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111363003,
+          "t": 1791387910000
+        },
+        "feb": 111363003,
+        "rate": 40,
+        "idx": 832849,
+        "ppl": 33,
+        "sum": -34993,
+        "div": 1
+      },
+      {
+        "at": {
+          "b": 111371574,
+          "t": 1791390498000
+        },
+        "feb": 111371574,
+        "rate": 40,
+        "idx": 834696,
+        "ppl": 33,
+        "sum": -34960,
+        "div": 1
+      }
+    ]
+  },
+  "candles": {
+    "mt": 12,
+    "sn": 111365948,
+    "at": {
+      "b": 111365948,
+      "t": 1791388800000
+    },
+    "r": 3600,
+    "d": [
+      {
+        "t": 1791302400000,
+        "o": 857297,
+        "c": 856079,
+        "h": 858339,
+        "l": 855726,
+        "v": "310257585571",
+        "n": 1699
+      },
+      {
+        "t": 1791306000000,
+        "o": 856079,
+        "c": 857020,
+        "h": 857269,
+        "l": 855075,
+        "v": "182250990610",
+        "n": 958
+      },
+      {
+        "t": 1791309600000,
+        "o": 857020,
+        "c": 855244,
+        "h": 858115,
+        "l": 855239,
+        "v": "354614342470",
+        "n": 736
+      },
+      {
+        "t": 1791313200000,
+        "o": 855244,
+        "c": 856407,
+        "h": 857012,
+        "l": 854359,
+        "v": "340657986486",
+        "n": 1281
+      },
+      {
+        "t": 1791316800000,
+        "o": 856407,
+        "c": 856244,
+        "h": 856910,
+        "l": 856011,
+        "v": "210923413947",
+        "n": 477
+      },
+      {
+        "t": 1791320400000,
+        "o": 856244,
+        "c": 856290,
+        "h": 856290,
+        "l": 854957,
+        "v": "189178320056",
+        "n": 483
+      },
+      {
+        "t": 1791324000000,
+        "o": 856290,
+        "c": 855408,
+        "h": 856724,
+        "l": 854987,
+        "v": "197513699301",
+        "n": 478
+      },
+      {
+        "t": 1791327600000,
+        "o": 855408,
+        "c": 855688,
+        "h": 856230,
+        "l": 853507,
+        "v": "484226715802",
+        "n": 857
+      },
+      {
+        "t": 1791331200000,
+        "o": 855688,
+        "c": 855454,
+        "h": 856047,
+        "l": 854158,
+        "v": "330673923927",
+        "n": 638
+      },
+      {
+        "t": 1791334800000,
+        "o": 855454,
+        "c": 844096,
+        "h": 855471,
+        "l": 843957,
+        "v": "611377318610",
+        "n": 1297
+      },
+      {
+        "t": 1791338400000,
+        "o": 844096,
+        "c": 838688,
+        "h": 845104,
+        "l": 835289,
+        "v": "1407900499904",
+        "n": 2717
+      },
+      {
+        "t": 1791342000000,
+        "o": 838688,
+        "c": 841404,
+        "h": 842467,
+        "l": 838555,
+        "v": "186610943373",
+        "n": 657
+      },
+      {
+        "t": 1791345600000,
+        "o": 841404,
+        "c": 840824,
+        "h": 841945,
+        "l": 840261,
+        "v": "254458004455",
+        "n": 972
+      },
+      {
+        "t": 1791349200000,
+        "o": 840824,
+        "c": 843455,
+        "h": 843525,
+        "l": 840730,
+        "v": "361153503158",
+        "n": 1039
+      },
+      {
+        "t": 1791352800000,
+        "o": 843455,
+        "c": 842268,
+        "h": 843765,
+        "l": 841309,
+        "v": "313160730242",
+        "n": 1637
+      },
+      {
+        "t": 1791356400000,
+        "o": 842268,
+        "c": 841019,
+        "h": 842888,
+        "l": 840714,
+        "v": "440296814017",
+        "n": 1566
+      },
+      {
+        "t": 1791360000000,
+        "o": 841019,
+        "c": 839299,
+        "h": 841616,
+        "l": 839052,
+        "v": "781718145792",
+        "n": 1973
+      },
+      {
+        "t": 1791363600000,
+        "o": 839299,
+        "c": 837851,
+        "h": 839933,
+        "l": 835966,
+        "v": "807594678416",
+        "n": 2062
+      },
+      {
+        "t": 1791367200000,
+        "o": 837851,
+        "c": 837228,
+        "h": 839652,
+        "l": 832806,
+        "v": "827559840325",
+        "n": 2134
+      },
+      {
+        "t": 1791370800000,
+        "o": 837228,
+        "c": 837327,
+        "h": 838245,
+        "l": 835281,
+        "v": "414340760963",
+        "n": 1332
+      },
+      {
+        "t": 1791374400000,
+        "o": 837327,
+        "c": 834810,
+        "h": 837482,
+        "l": 834103,
+        "v": "531116036306",
+        "n": 1746
+      },
+      {
+        "t": 1791378000000,
+        "o": 834810,
+        "c": 831564,
+        "h": 835576,
+        "l": 827381,
+        "v": "1044657022932",
+        "n": 2596
+      },
+      {
+        "t": 1791381600000,
+        "o": 831564,
+        "c": 829973,
+        "h": 832747,
+        "l": 829053,
+        "v": "486880831654",
+        "n": 1862
+      },
+      {
+        "t": 1791385200000,
+        "o": 829973,
+        "c": 834150,
+        "h": 834150,
+        "l": 827931,
+        "v": "445579212127",
+        "n": 1498
+      },
+      {
+        "t": 1791388800000,
+        "o": 834150,
+        "c": 834537,
+        "h": 836573,
+        "l": 833135,
+        "v": "377761341306",
+        "n": 1045
+      }
+    ]
+  }
+}

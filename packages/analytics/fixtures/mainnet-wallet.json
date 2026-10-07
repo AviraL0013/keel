@@ -1,0 +1,35 @@
+{
+  "capturedAt": "2026-10-07T16:53:19.283Z",
+  "blockNumber": "111376536",
+  "account": {
+    "accountId": "25",
+    "balanceCNS": "1412227132218",
+    "lockedBalanceCNS": "366352546064",
+    "frozen": 0,
+    "accountAddr": "0x5D8FfA5F7c6A42470B4eC61a8CdAbB799fd3765A",
+    "positions": {
+      "bank1": "1299343103175156167583619269788674",
+      "bank2": "0",
+      "bank3": "0",
+      "bank4": "0"
+    }
+  },
+  "position": [
+    {
+      "accountId": "25",
+      "nextNodeId": "4704",
+      "prevNodeId": "4703",
+      "positionType": 1,
+      "depositCNS": "639466338",
+      "pricePNS": "51529",
+      "lotLNS": "37114",
+      "entryBlock": "111376310",
+      "pnlCNS": "-1609876",
+      "deltaPnlCNS": "-1609876",
+      "premiumPnlCNS": "0",
+      "priceResiduePNSQ16": "40859"
+    },
+    "51573",
+    true
+  ]
+}
