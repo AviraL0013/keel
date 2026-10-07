@@ -20,6 +20,11 @@ final fixture =
 
 enum ViewState { loading, empty, error, stale, loaded }
 
+// Flutter's native font/icon rasterizers differ on Windows and Linux. Keep
+// exact comparisons against reviewed baselines produced on the same host OS.
+String goldenPath(String name) =>
+    'goldens/${Platform.isLinux ? 'linux/' : ''}$name.png';
+
 class StateRepository implements AnalyticsRepository {
   StateRepository(this.state);
   final ViewState state;
@@ -29,8 +34,29 @@ class StateRepository implements AnalyticsRepository {
   Future<List<String>> search(String query) async =>
       [address].where((item) => item.startsWith(query)).toList();
 
-  Map<String, dynamic> _copy() =>
-      jsonDecode(jsonEncode(fixture)) as Map<String, dynamic>;
+  Map<String, dynamic> _copy() {
+    final copy = jsonDecode(jsonEncode(fixture)) as Map<String, dynamic>;
+    // Freeze fixture wall-clock labels without changing production local-time
+    // formatting. An 11:59 event renders at 11:59 on either CI or this laptop.
+    void localize(Object? value) {
+      if (value is List) {
+        value.forEach(localize);
+      } else if (value is Map<String, dynamic>) {
+        final at = value['at'];
+        if (at is String) {
+          final time = DateTime.parse(at);
+          value['at'] = DateTime(time.year, time.month, time.day, time.hour,
+                  time.minute, time.second)
+              .toUtc()
+              .toIso8601String();
+        }
+        value.values.forEach(localize);
+      }
+    }
+
+    localize(copy);
+    return copy;
+  }
 
   Future<T> _result<T>(T Function(Map<String, dynamic>) build) async {
     if (state == ViewState.loading) await pending.future;
@@ -323,6 +349,19 @@ void main() {
     expect(find.text(r'-$12.3'), findsOneWidget);
   });
 
+  testWidgets('screenshot fixtures keep a fixed local liquidation clock',
+      (tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await mount(
+        tester,
+        const Size(1280, 860),
+        const AnalyticsMarketScreen(symbol: 'BTC-PERP'),
+        StateRepository(ViewState.loaded),
+        MemoryAnalyticsLocalStore());
+    expect(find.textContaining('7/10 11:59 AM'), findsOneWidget);
+  });
+
   for (final width in [360.0, 1280.0]) {
     for (final screen in ['protocol', 'market', 'wallet', 'watchlist']) {
       testWidgets('$screen ${width.toInt()}dp screenshot', (tester) async {
@@ -345,7 +384,7 @@ void main() {
             StateRepository(ViewState.loaded), store);
         await tester.pumpAndSettle();
         await expectLater(find.byType(MaterialApp),
-            matchesGoldenFile('goldens/$screen-${width.toInt()}.png'));
+            matchesGoldenFile(goldenPath('$screen-${width.toInt()}')));
       });
     }
   }
@@ -360,7 +399,7 @@ void main() {
           StateRepository(ViewState.loaded), MemoryAnalyticsLocalStore());
       await tester.pumpAndSettle();
       await expectLater(
-          find.byType(MaterialApp), matchesGoldenFile('goldens/$name-360.png'));
+          find.byType(MaterialApp), matchesGoldenFile(goldenPath('$name-360')));
     });
   }
 }
