@@ -11,6 +11,13 @@
       ]
     },
     {
+      "source": "/.well-known/assetlinks.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    },
+    {
       "source": "/(index.html|flutter_bootstrap.js|flutter_service_worker.js|flutter.js|main.dart.js|manifest.json)",
       "headers": [
         { "key": "Cache-Control", "value": "no-store, max-age=0" },
