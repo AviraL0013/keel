@@ -11,6 +11,12 @@ export interface Envelope<T> {
   block: number | null // latest finalized Monad block represented
   source: Source
   stale: boolean
+  coverage?: {
+    from: string | null // earliest indexed event/block time; null before backfill
+    through: string | null // most recent indexed block time
+    completeHistory: boolean // true only when starting from the configured deployment block and caught up
+    label: string // display label, for example "Since 2026-10-01"
+  }
   data: T
 }
 
