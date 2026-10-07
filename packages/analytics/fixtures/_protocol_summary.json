@@ -1,0 +1,49 @@
+{
+  "asOf": "2026-10-07T12:00:00.000Z",
+  "block": 35000000,
+  "source": "derived",
+  "stale": false,
+  "data": {
+    "window": "24h",
+    "volume": {
+      "value": "1200000.000000",
+      "previous": "1000000.000000",
+      "changePct": "20.00"
+    },
+    "fees": {
+      "value": "1200.000000",
+      "previous": "1000.000000",
+      "changePct": "20.00"
+    },
+    "revenue": {
+      "value": "1200.000000",
+      "previous": "1000.000000",
+      "changePct": "20.00"
+    },
+    "activeUsers": {
+      "value": "120",
+      "previous": "100",
+      "changePct": "20.00"
+    },
+    "liquidations": {
+      "value": "6",
+      "previous": "5",
+      "changePct": "20.00"
+    },
+    "openInterest": {
+      "value": "3100000.000000",
+      "previous": "3000000.000000",
+      "changePct": "3.33"
+    },
+    "tvl": {
+      "value": "1500000.000000",
+      "previous": "1450000.000000",
+      "changePct": "3.45"
+    },
+    "netFlows": {
+      "value": "60000.000000",
+      "previous": "50000.000000",
+      "changePct": "20.00"
+    }
+  }
+}
