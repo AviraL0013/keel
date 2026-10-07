@@ -3,6 +3,7 @@ import type pg from 'pg'
 import { getAddress, isAddress } from 'viem'
 import { formatMoney, moneyMicros } from '../../../../../packages/ausd/src/money.js'
 import { notionalMicros, signedMoney, sumMicros } from '../../../../../packages/analytics/src/aggregate.js'
+import { EXCHANGE_DEPLOYMENT_BLOCK } from '../../../../../packages/analytics/src/decoder.js'
 import {
   calculateWalletPerformance,
   type PositionEpisodeEvent,
@@ -68,6 +69,7 @@ type DbMeta = {
   completeFrom: Date | null
   through: Date | null
   completeHistory: boolean
+  revision: string
 }
 async function dbMeta(pool: pg.Pool | null, publicBlock: number | null): Promise<DbMeta> {
   if (!pool)
@@ -78,10 +80,12 @@ async function dbMeta(pool: pg.Pool | null, publicBlock: number | null): Promise
       completeFrom: null,
       through: null,
       completeHistory: false,
+      revision: 'unindexed',
     }
-  const result = await pool.query(`SELECT c.next_block,c.start_block,c.history_verified,c.updated_at,
+  const result = await pool.query(`SELECT c.next_block::text,c.start_block::text,c.history_verified,c.updated_at,
+    c.updated_at::text AS checkpoint_revision,last_block.block_hash AS block_hash,
     first_block.occurred_at AS first_time,last_block.occurred_at AS last_time,
-    first_block.block_number AS first_block
+    first_block.block_number::text AS first_block
     FROM analytics_checkpoint c
     LEFT JOIN LATERAL (SELECT block_number,occurred_at FROM analytics_blocks ORDER BY block_number LIMIT 1) first_block ON true
     LEFT JOIN analytics_blocks last_block ON last_block.block_number=c.next_block-1
@@ -95,6 +99,8 @@ async function dbMeta(pool: pg.Pool | null, publicBlock: number | null): Promise
         first_time: Date | null
         last_time: Date | null
         first_block: string | null
+        checkpoint_revision: string
+        block_hash: string | null
       }
     | undefined
   if (!row)
@@ -105,17 +111,45 @@ async function dbMeta(pool: pg.Pool | null, publicBlock: number | null): Promise
       completeFrom: null,
       through: null,
       completeHistory: false,
+      revision: 'unindexed',
     }
   const block = Number(BigInt(row.next_block) - 1n)
-  const stale = Date.now() - row.updated_at.getTime() > 30_000 || (publicBlock !== null && publicBlock - block > 100)
+  const stale =
+    !row.last_time ||
+    Date.now() - row.last_time.getTime() > 30_000 ||
+    Date.now() - row.updated_at.getTime() > 30_000 ||
+    (publicBlock !== null && publicBlock - block > 100)
+  const completeHistory =
+    !stale &&
+    row.history_verified &&
+    row.start_block === EXCHANGE_DEPLOYMENT_BLOCK.toString() &&
+    row.first_block === row.start_block
   return {
     asOf: row.updated_at.toISOString(),
     block,
     stale,
     completeFrom: row.first_time,
     through: row.last_time,
-    completeHistory: !stale && row.history_verified && row.first_block !== null && row.first_block === row.start_block,
+    revision: JSON.stringify([
+      row.start_block,
+      row.next_block,
+      row.history_verified,
+      row.checkpoint_revision,
+      row.block_hash,
+      row.first_block,
+      row.first_time?.toISOString(),
+      row.last_time?.toISOString(),
+      stale,
+      completeHistory,
+    ]),
+    completeHistory,
   }
+}
+async function assertHistoryUnchanged(pool: pg.Pool | null, publicBlock: number | null, meta: DbMeta): Promise<void> {
+  // A rewind can commit between metadata, ownership checks and settlement reads.
+  // Never return a value calculated from mixed revisions. Cached results stay
+  // under their original revision and cannot become complete after a replay.
+  if ((await dbMeta(pool, publicBlock)).revision !== meta.revision) throw fail('ANALYTICS_HISTORY_CHANGED', 503)
 }
 const coverage = (meta: DbMeta): NonNullable<Envelope<unknown>['coverage']> => ({
   from: meta.completeFrom?.toISOString() ?? null,
@@ -182,7 +216,10 @@ export function registerAnalyticsRoutes(
         const unavailable = /HTTP_(401|403|429|5\d\d)|RPC_|PERPL_/.test(typed.message)
         const code =
           typed.statusCode || /^[A-Z][A-Z0-9_]+$/.test(typed.message) ? typed.message : 'ANALYTICS_UPSTREAM_UNAVAILABLE'
-        return reply.code(typed.statusCode ?? (unavailable ? 503 : 500)).send({ error: code, message: code })
+        return reply
+          .header('Cache-Control', 'no-store')
+          .code(typed.statusCode ?? (unavailable ? 503 : 500))
+          .send({ error: code, message: code })
       })
 
       routes.get<{ Querystring: { window?: string } }>('/protocol/summary', routeConfig, async (request, reply) => {
@@ -340,11 +377,13 @@ export function registerAnalyticsRoutes(
 
       routes.get('/markets', routeConfig, async (_request, reply) => {
         reply.header('Cache-Control', 'public, max-age=15')
-        return cache.get('markets', 15_000, async () => {
-          const ctx = await publicData.context()
-          const meta = await dbMeta(pool, ctx.block)
+        const ctx = await publicData.context()
+        const meta = await dbMeta(pool, ctx.block)
+        const result = await cache.get(`markets:${meta.revision}`, 15_000, async () => {
           const skew =
-            pool && meta.completeHistory ? await marketSkew(pool) : new Map<number, { long: bigint; short: bigint }>()
+            pool && meta.completeHistory
+              ? await marketSkew(pool, meta.block!, ctx.value.markets)
+              : new Map<number, { long: bigint; short: bigint }>()
           return wrap(
             {
               items: ctx.value.markets.map((market) =>
@@ -357,6 +396,8 @@ export function registerAnalyticsRoutes(
             ctx.stale || !meta.completeHistory,
           )
         })
+        await assertHistoryUnchanged(pool, ctx.block, meta)
+        return result
       })
       routes.get<{ Params: { id: string } }>('/markets/:id', routeConfig, async (request, reply) => {
         const id = numberParam(request.params.id, 0, 1, 2_147_483_647)
@@ -365,7 +406,10 @@ export function registerAnalyticsRoutes(
         if (!market) throw fail('MARKET_NOT_FOUND', 404)
         const meta = await dbMeta(pool, ctx.block)
         const skew =
-          pool && meta.completeHistory ? await marketSkew(pool) : new Map<number, { long: bigint; short: bigint }>()
+          pool && meta.completeHistory
+            ? await marketSkew(pool, meta.block!, ctx.value.markets)
+            : new Map<number, { long: bigint; short: bigint }>()
+        await assertHistoryUnchanged(pool, ctx.block, meta)
         reply.header('Cache-Control', 'public, max-age=15')
         return wrap(
           { ...marketDetail(market), ...withSkew(marketSummary(market), market, skew, meta.completeHistory) },
@@ -515,9 +559,12 @@ export function registerAnalyticsRoutes(
         const meta = await dbMeta(pool, ctx.block)
         const wallets = await Promise.all(
           addresses.map((address) =>
-            cache.get(`performance:${address}`, 15_000, () => performance(db(), address, meta.completeHistory)),
+            cache.get(`performance:${address}:${meta.revision}`, 15_000, () =>
+              performance(db(), address, meta.completeHistory, meta.block),
+            ),
           ),
         )
+        await assertHistoryUnchanged(pool, ctx.block, meta)
         reply.header('Cache-Control', 'public, max-age=15')
         return wrap({ wallets }, 'derived', meta.asOf, meta.block, true, coverage(meta))
       })
@@ -602,15 +649,12 @@ export function registerAnalyticsRoutes(
           const address = addressParam(request.params.address)
           const ctx = await publicData.context()
           const meta = await dbMeta(pool, ctx.block)
-          reply.header('Cache-Control', 'public, max-age=15')
-          return wrap(
-            await cache.get(`performance:${address}`, 15_000, () => performance(db(), address, meta.completeHistory)),
-            'derived',
-            meta.asOf,
-            meta.block,
-            true,
-            coverage(meta),
+          const result = await cache.get(`performance:${address}:${meta.revision}`, 15_000, () =>
+            performance(db(), address, meta.completeHistory, meta.block),
           )
+          await assertHistoryUnchanged(pool, ctx.block, meta)
+          reply.header('Cache-Control', 'public, max-age=15')
+          return wrap(result, 'derived', meta.asOf, meta.block, true, coverage(meta))
         },
       )
     },
@@ -644,27 +688,57 @@ function cursorFor(row: Record<string, unknown>): string {
   ).toString('base64url')
 }
 
-async function marketSkew(pool: pg.Pool): Promise<Map<number, { long: bigint; short: bigint }>> {
-  const result = await pool.query(`SELECT market_id,side,sum(size_raw) AS size_raw FROM (
+const unsupportedSettlements = ['PositionDeleveraged', 'PositionDeleveragedV2', 'PositionUnwound', 'PositionUnwoundV2']
+
+async function marketSkew(
+  pool: pg.Pool,
+  throughBlock: number,
+  markets: PublicMarket[],
+): Promise<Map<number, { long: bigint; short: bigint } | null>> {
+  const result = await pool.query(
+    `SELECT market_id,side,sum(size_raw) AS size_raw FROM (
     SELECT DISTINCT ON (e.account_id,e.market_id) e.market_id,e.side,e.size_raw
     FROM analytics_position_events e JOIN analytics_raw_events r USING(block_number,transaction_hash,log_index)
+    WHERE e.block_number <= $1
     ORDER BY e.account_id,e.market_id,e.block_number DESC,r.transaction_index DESC,e.log_index DESC
-  ) latest WHERE size_raw > 0 GROUP BY market_id,side`)
-  const skew = new Map<number, { long: bigint; short: bigint }>()
+  ) latest WHERE size_raw > 0 GROUP BY market_id,side`,
+    [throughBlock],
+  )
+  const skew = new Map<number, { long: bigint; short: bigint } | null>()
   for (const row of result.rows as Array<{ market_id: number; side: 'long' | 'short'; size_raw: string }>) {
     const value = skew.get(row.market_id) ?? { long: 0n, short: 0n }
     value[row.side] = BigInt(row.size_raw)
     skew.set(row.market_id, value)
+  }
+  const unsupported = await pool.query(
+    `SELECT DISTINCT args->>'perpId' AS market_id FROM analytics_raw_events
+    WHERE event_name=ANY($1::text[]) AND block_number <= $2`,
+    [unsupportedSettlements, throughBlock],
+  )
+  for (const row of unsupported.rows as Array<{ market_id: string | null }>) {
+    const perpetualId = Number(row.market_id)
+    const matches = markets.filter((market) => market.perpetual_id === perpetualId)
+    if (
+      !row.market_id ||
+      !/^\d+$/.test(row.market_id) ||
+      !Number.isSafeInteger(perpetualId) ||
+      perpetualId <= 0 ||
+      matches.length !== 1 ||
+      !Number.isSafeInteger(matches[0].id) ||
+      matches[0].id <= 0
+    )
+      throw fail('ANALYTICS_SETTLEMENT_CONTEXT_UNAVAILABLE', 503)
+    skew.set(matches[0].id, null)
   }
   return skew
 }
 function withSkew(
   summary: MarketSummary,
   market: PublicMarket,
-  skew: Map<number, { long: bigint; short: bigint }>,
+  skew: Map<number, { long: bigint; short: bigint } | null>,
   available: boolean,
 ): MarketSummary {
-  if (!available) return summary
+  if (!available || skew.get(market.id) === null) return summary
   const { long, short } = skew.get(market.id) ?? { long: 0n, short: 0n }
   const mark = BigInt(market.state.mrk)
   const money = (size: bigint) =>
@@ -677,14 +751,40 @@ function withSkew(
   }
 }
 
-async function performance(pool: pg.Pool, address: string, completeHistory: boolean): Promise<WalletPerformance> {
-  if (completeHistory) {
+async function performance(
+  pool: pg.Pool,
+  address: string,
+  completeHistory: boolean,
+  throughBlock: number | null,
+): Promise<WalletPerformance> {
+  let complete = completeHistory && throughBlock !== null
+  if (complete) {
+    // An unmapped account could belong to this wallet. Do not let an inner join
+    // silently remove its settlements and publish a partial or zero PnL.
+    // Raw-history coverage is separate from support for every settlement type.
+    const missing = await pool.query(
+      `SELECT EXISTS(
+        SELECT 1 FROM (
+          SELECT account_id,block_number FROM analytics_position_events
+          UNION ALL SELECT account_id,block_number FROM analytics_fills
+        ) e LEFT JOIN analytics_accounts a ON a.account_id=e.account_id
+        WHERE e.block_number <= $1 AND a.account_id IS NULL
+      ) OR EXISTS(
+        SELECT 1 FROM analytics_raw_events r LEFT JOIN analytics_accounts a ON a.account_id::text=r.args->>'accountId'
+        WHERE r.block_number <= $1 AND r.event_name=ANY($2::text[])
+          AND (a.account_id IS NULL OR a.address=$3)
+      ) AS incomplete`,
+      [throughBlock, unsupportedSettlements, address.toLowerCase()],
+    )
+    complete = missing.rows[0]?.incomplete === false
+  }
+  if (complete) {
     const rows = await pool.query(
       `SELECT e.account_id,e.market_id,e.action,e.realized_pnl_micros,e.occurred_at
       FROM analytics_position_events e JOIN analytics_accounts a ON a.account_id=e.account_id
       JOIN analytics_raw_events r USING(block_number,transaction_hash,log_index)
-      WHERE a.address=$1 ORDER BY e.block_number,r.transaction_index,e.log_index`,
-      [address.toLowerCase()],
+      WHERE a.address=$1 AND e.block_number <= $2 ORDER BY e.block_number,r.transaction_index,e.log_index`,
+      [address.toLowerCase(), throughBlock],
     )
     const events: PositionEpisodeEvent[] = rows.rows.map((row: Record<string, unknown>) => ({
       accountId: String(row.account_id),

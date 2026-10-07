@@ -8,7 +8,7 @@ Every response is `{ "asOf": ISO8601, "block": number|null, "source": string, "s
 
 Time values use UTC ISO 8601. `window` accepts `24h`, `7d`, `30d`, `all`. For `all`, prior window and change percentage are null. For other windows, `previous` is equal-length immediately preceding period. `changePct` is null when previous is zero or unavailable. `from` is inclusive, `to` exclusive. Maximum timeseries span: 90 days for `1h`, 2 years for `1d`; maximum 2,160 points. Missing points have `value: null` rather than invented zero. `interval` accepts `1h` or `1d`.
 
-Public routes use 60 requests/minute per IP. Responses carry `Cache-Control`; target TTL is 15 seconds for live snapshots, 60 seconds for historical series, 5 minutes for completed daily buckets. CORS allows `https://app.eyeler.xyz` and a configured future analytics origin. Errors use `{ "error": "CODE", "message": "..." }`; invalid query/path returns 400, unknown market or unindexed wallet returns 404, unavailable source returns 503 with `Retry-After`. Target p95: under 250 ms from local database/cache, excluding internet latency. No partial successful response may masquerade as complete.
+Public routes use 60 requests/minute per IP. Responses carry `Cache-Control`; target TTL is 15 seconds for live snapshots, 60 seconds for historical series, 5 minutes for completed daily buckets. CORS allows `https://app.eyeler.xyz` and a configured future analytics origin. Errors use `{ "error": "CODE", "message": "..." }`; invalid query/path returns 400, unknown market or unindexed wallet returns 404, unavailable source returns 503. Errors carry `Cache-Control: no-store`. Target p95: under 250 ms from local database/cache, excluding internet latency. No partial successful response may masquerade as complete.
 
 ## Protocol
 
@@ -45,5 +45,8 @@ Perpl public REST provides context, market snapshots, candles and funding. Its a
 
 ## CHANGELOG
 
+- 2026-10-08: Performance and market skew now reject incomplete ownership or unsupported settlement reconstruction. Cached values include checkpoint and coverage revision; concurrent rewind during these reads returns `ANALYTICS_HISTORY_CHANGED` (503). Unknown contract-to-market mappings return `ANALYTICS_SETTLEMENT_CONTEXT_UNAVAILABLE` (503). No response fields or paths changed.
+
+- 2026-10-08: Tightened coverage proof to the verified deployment start and included block timestamps. Fully covered chart buckets remain visible; uncovered tails and incomplete performance totals are unavailable. Flutter serializes query boundaries as UTC ISO strings with exactly three fractional digits. Public mobile dashboard and GET-only transport are documented in [`operations.md`](../analytics/operations.md).
 - 2026-10-07: Added optional `coverage` envelope metadata for indexed responses. Existing fields and endpoint paths are unchanged.
 - 2026-10-07: Initial v1 contract and synthetic endpoint fixtures.
