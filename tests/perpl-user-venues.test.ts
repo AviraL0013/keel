@@ -37,6 +37,7 @@ async function fixture(maxConnections = 64, cache = {}) {
       ready: () => true,
       refresh: vi.fn(async () => {}),
       submit: vi.fn(),
+      submitOpening: vi.fn(async () => ({ venueReference: '642:102', status: 'SUBMITTED' as const })),
       reconcile: vi.fn(),
       listPositions: vi.fn(async () => []),
     }
@@ -48,6 +49,46 @@ async function fixture(maxConnections = 64, cache = {}) {
 }
 
 describe('per-user Perpl runtime ownership', () => {
+  it('serializes a Book action and an opening on one account before either reaches the raw venue', async () => {
+    const f = await fixture()
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    try {
+      const connection = await f.add(f.a, 642)
+      const bookId = (
+        await f.db.query(
+          `INSERT INTO books(user_id,market,market_id,venue_account_id,venue_position_id,side,stance,liquidation_floor,defense_cap,time_limit_ms,perpl_connection_id)
+        VALUES($1,'BTC',16,642,7,'LONG','DEFEND',5,5,1000,$2) RETURNING id`,
+          [f.a, connection],
+        )
+      ).rows[0].id
+      await f.registry.start()
+      const venue = (await f.registry.forUser(f.a))!
+      vi.mocked(f.created[0].submit).mockImplementationOnce(async () => {
+        await held
+        return { venueReference: '642:101', status: 'SUBMITTED' }
+      })
+      const book = venue.submit({ id: randomUUID(), bookId } as Action)
+      await vi.waitFor(() => expect(f.created[0].submit).toHaveBeenCalledOnce())
+      const opening = venue.submitOpening!(
+        'opening-1',
+        { mkt: 16, acc: 642, t: 1, s: 100, p: 101, lv: 500, orderTtlBlocks: 10 },
+        async () => {},
+      )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(f.created[0].submitOpening).not.toHaveBeenCalled()
+      release()
+      await book
+      await opening
+      expect(f.created[0].submitOpening).toHaveBeenCalledOnce()
+    } finally {
+      release?.()
+      await f.registry.close()
+      await f.db.close()
+    }
+  }, 20000)
   it('reclaims idle capacity and prevents an evicted handle from using or closing its replacement', async () => {
     let now = 1000
     const f = await fixture(1, { idleTimeoutMs: 1000, now: () => now })

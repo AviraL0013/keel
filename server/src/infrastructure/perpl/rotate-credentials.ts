@@ -8,7 +8,7 @@ type Row = {
   sealed_api_token: string | null
   sealed_mac: string | null
 }
-type Rewrapper = { rotate(sealed: string, context: CredentialContext): Promise<string> }
+type Rewrapper = { rotate(sealed: string, context: CredentialContext): Promise<string>; envelopePrefix?: string }
 
 /** Maintenance only. Compare-and-swap avoids resurrecting revoked or replaced credentials. */
 export async function rotateCredentialBatch(
@@ -28,7 +28,8 @@ export async function rotateCredentialBatch(
   for (const row of found.rows) {
     if (!options.apply) continue
     const original = [row.sealed_private_key, row.sealed_api_token, row.sealed_mac]
-    if (original.some((value) => value !== null && !value.startsWith('kms-v1:')))
+    const prefix = custody.envelopePrefix ?? 'kms-v1:'
+    if (original.some((value) => value !== null && !value.startsWith(prefix)))
       throw new Error('LEGACY_CREDENTIAL_REENROLLMENT_REQUIRED')
     const next = [...original]
     const fields = ['private_key', 'api_token', 'mac'] as const

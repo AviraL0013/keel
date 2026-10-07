@@ -1,6 +1,32 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PerplHistory } from '../packages/perpl/src/history.js'
 describe('Perpl signed history adapter', () => {
+  it('collects opening evidence by request ID without needing a position ID', async () => {
+    const transport = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify({
+            d: url.includes('order-history')
+              ? [{ acc: 12, mkt: 7, rq: '45', oid: 9, t: 1, st: 3, at: { b: 110 } }]
+              : url.includes('fills')
+                ? [{ acc: 12, mkt: 7, oid: 9, t: 1, s: 40, at: { b: 110 } }]
+                : url.includes('position-history')
+                  ? [{ acc: 12, mkt: 7, rq: '45', oid: 9, pid: 98, at: { b: 110 } }]
+                  : [],
+          }),
+          { status: 200 },
+        ),
+    )
+    const history = new PerplHistory(
+      'https://testnet.perpl.xyz/api',
+      { apiKey: 'fake', sign: async () => 'fake' },
+      transport,
+    )
+    const result = await history.openingEvidence(12, '45', 7, 100)
+    expect(result.orders).toHaveLength(1)
+    expect(result.fills).toHaveLength(1)
+    expect(result.positions).toMatchObject([{ pid: 98 }])
+  })
   it('reads the current wallet snapshot with its state block', async () => {
     const sign = vi.fn().mockResolvedValue('sig')
     const transport = vi.fn().mockResolvedValue(

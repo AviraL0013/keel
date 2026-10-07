@@ -7,6 +7,9 @@ class EyelerException implements Exception {
     if (statusCode == 401) {
       return 'Your EYELER session expired. Connect your wallet again.';
     }
+    if (message == 'OPENING_DISABLED') {
+      return 'Opening trades are not enabled for this account.';
+    }
     if (message == 'PERPL_ORDER_FORWARDING_DISABLED') {
       return 'Perpl order forwarding is disabled for this account. Enable it in Perpl before submitting actions.';
     }

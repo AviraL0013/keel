@@ -43,14 +43,14 @@ describe('exact opening trade previews', () => {
       referencePrice: '100000.1',
       limitPrice: '100500.1',
       limitPriceRaw: 1005001,
-      estimatedNotional: '100.000100',
-      estimatedMargin: '20.000020',
-      estimatedTradingFee: '0.050001',
+      estimatedNotional: '100.500100',
+      estimatedMargin: '20.100020',
+      estimatedTradingFee: '0.050251',
       recycleFee: '0.001000',
-      estimatedRequiredBalance: '20.051021',
+      estimatedRequiredBalance: '20.151271',
       negativePnlCollateralBps: 0,
       builderFeePer100K: 0,
-      expiresAt: now + 5000,
+      expiresAt: now + 15000,
       orderTtlBlocks: 10,
     })
     expect(quote).not.toHaveProperty('requestId')
@@ -90,7 +90,7 @@ describe('exact opening trade previews', () => {
       { leverage: '0.99' },
       { leverage: '5.001' },
       { slippageBps: 0 },
-      { slippageBps: 1001 },
+      { slippageBps: 201 },
       { side: 'BUY' },
     ])
       expect(() => previewOpeningTrade({ ...input, ...change } as never, snapshot, now)).toThrow(
@@ -102,7 +102,7 @@ describe('exact opening trade previews', () => {
     expect(() =>
       previewOpeningTrade(input, { ...snapshot, freeBalance: quote.estimatedRequiredBalance }, now),
     ).not.toThrow()
-    expect(() => previewOpeningTrade(input, { ...snapshot, freeBalance: '20.051020' }, now)).toThrow(
+    expect(() => previewOpeningTrade(input, { ...snapshot, freeBalance: '20.151270' }, now)).toThrow(
       'PERPL_FREE_BALANCE_INSUFFICIENT',
     )
     for (const freeBalance of ['NaN', '-1', '', 'Infinity', '1e3', '1.0000001'])
@@ -122,5 +122,14 @@ describe('exact opening trade previews', () => {
     expect(quote.accountId).toBe(642)
     expect(quote.environment).toBe('mainnet')
     expect(quote.builderFeePer100K).toBe(0)
+  })
+  it('defaults to 50 bps, rejects slippage above 200 bps, and budgets worst-case long collateral', () => {
+    const quote = previewOpeningTrade({ side: 'LONG', size: '0.00100', leverage: '5.00' }, snapshot, now)
+    expect(quote.slippageBps).toBe(50)
+    expect(quote.estimatedNotional).toBe('100.500100')
+    expect(quote.estimatedMargin).toBe('20.100020')
+    expect(quote.estimatedTradingFee).toBe('0.050251')
+    expect(() => previewOpeningTrade({ ...input, slippageBps: 201 }, snapshot, now)).toThrow('PERPL_OPEN_INPUT_INVALID')
+    expect(() => previewOpeningTrade({ ...input, slippageBps: 200 }, snapshot, now)).not.toThrow()
   })
 })

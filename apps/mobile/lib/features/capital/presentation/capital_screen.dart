@@ -6,6 +6,21 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/eyeler_widgets.dart';
 import '../data/capital_repository.dart';
 import '../domain/capital_snapshot.dart';
+import '../../auth/data/auth_repository.dart';
+import 'receive_screen.dart';
+import 'mon_balance.dart';
+import 'package:http/http.dart' as http;
+import '../../../core/wallet/mera_transaction.dart';
+import '../../activation/activate_perpl_route.dart';
+
+final mainnetMonBalanceProvider =
+    FutureProvider.autoDispose<String>((ref) async {
+  final address = ref.watch(authProvider.select((state) => state.address));
+  if (address == null) throw StateError('Wallet unavailable.');
+  final client = http.Client();
+  ref.onDispose(client.close);
+  return readMainnetMonBalance(MonadMainnetRpc(client), address);
+});
 
 class CapitalScreen extends ConsumerWidget {
   const CapitalScreen({super.key});
@@ -13,6 +28,9 @@ class CapitalScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final capital = ref.watch(capitalProvider);
+    final walletAddress = ref.watch(authProvider).address;
+    final meraWallet =
+        ref.watch(walletConnectorProvider).supportsAccountCreation;
     final agoraActivity = ref.watch(agoraActivityProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Capital'), actions: [
@@ -29,6 +47,30 @@ class CapitalScreen extends ConsumerWidget {
           children: [
             const Text('Your capital across different sources',
                 style: EyelerTypography.body),
+            if (const String.fromEnvironment('EYELER_DEPLOYMENT') ==
+                    'mainnet' &&
+                walletAddress != null) ...[
+              const SizedBox(height: EyelerSpacing.sm),
+              OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ReceiveScreen(address: walletAddress))),
+                  icon: const Icon(Icons.qr_code),
+                  label: const Text('RECEIVE MON OR AUSD')),
+              if (meraWallet)
+                OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const ActivatePerplRoute())),
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: const Text('ACTIVATE PERPL')),
+              const SizedBox(height: EyelerSpacing.sm),
+              ref.watch(mainnetMonBalanceProvider).when(
+                  data: (amount) =>
+                      MonBalanceTile(amount: amount, lowForGas: amount == '0'),
+                  loading: () => const Text('Checking MON for network fees...'),
+                  error: (_, __) => const Text(
+                      'MON balance unavailable. Check Monad mainnet connection.')),
+            ],
             const SizedBox(height: EyelerSpacing.xs),
             capital.when(
               loading: () => const Padding(

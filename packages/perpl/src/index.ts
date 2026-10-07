@@ -56,6 +56,7 @@ export type PerplContext = {
     id: number
     symbol: string
     instance_id?: number
+    order_ttl_blocks?: number
     funding_interval_blocks?: number
     config: Record<string, unknown>
     state: Record<string, unknown>

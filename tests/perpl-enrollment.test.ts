@@ -29,8 +29,18 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
   const config = loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: origin }, loadConfig({ EYELER_ENV: 'test' }))
   const requests: Array<{ path: string; headers: Headers; body: Record<string, unknown> }> = []
   let onEnroll: (() => Promise<void>) | undefined
+  let walletStatus = 200
+  let walletFrozen = false
   const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(input)).pathname
+    if (path.endsWith('/v1/trading/wallet')) {
+      if (walletStatus !== 200) return Response.json({ error: 'fake refusal' }, { status: walletStatus })
+      return Response.json({
+        addr: wallet.address,
+        at: { b: 123 },
+        as: [{ id: 7, b: '10000000', lb: '0', fw: false, fr: walletFrozen }],
+      })
+    }
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>
     requests.push({ path, headers: new Headers(init?.headers), body })
     if (path.endsWith('/payload')) {
@@ -81,7 +91,14 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
     open: vi.fn(async (value, context) => custody.open(value, context)),
     shred: () => null,
   }
-  const service = new PerplEnrollmentService(store, config, asyncCustody ? asyncProvider : custody, client, now)
+  const service = new PerplEnrollmentService(
+    store,
+    config,
+    asyncCustody ? asyncProvider : custody,
+    client,
+    now,
+    fetcher,
+  )
   const sign = async (typedData: unknown) =>
     wallet.signTypedData(typedData as Parameters<typeof wallet.signTypedData>[0])
   return {
@@ -99,9 +116,50 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
     setOnEnroll: (callback: () => Promise<void>) => {
       onEnroll = callback
     },
+    setWalletStatus: (status: number) => {
+      walletStatus = status
+    },
+    setWalletFrozen: (frozen: boolean) => {
+      walletFrozen = frozen
+    },
     close: () => db.close(),
   }
 }
+
+describe('authenticated forwarding state', () => {
+  it('reads fresh signed wallet state only for active owner, and never retries 403', async () => {
+    const value = await fixture()
+    try {
+      expect(await value.service.accountState(value.userId, wallet.address)).toEqual({ status: 'NOT_CONNECTED' })
+      const pending = await value.service.start(value.userId, wallet.address)
+      await value.service.complete(
+        value.userId,
+        wallet.address,
+        pending.connectionId,
+        await value.sign(pending.typedData),
+      )
+      expect(await value.service.accountState(value.userId, wallet.address)).toEqual({
+        status: 'AVAILABLE',
+        accountId: 7,
+        forwardingEnabled: false,
+      })
+      value.setWalletFrozen(true)
+      await expect(value.service.accountState(value.userId, wallet.address)).rejects.toThrow(
+        'PERPL_ACCOUNT_TRADING_UNAVAILABLE',
+      )
+      value.setWalletFrozen(false)
+      expect(await value.service.accountState('00000000-0000-4000-8000-000000000002', wallet.address)).toEqual({
+        status: 'NOT_CONNECTED',
+      })
+      value.setWalletStatus(403)
+      const before = value.fetcher.mock.calls.length
+      await expect(value.service.accountState(value.userId, wallet.address)).rejects.toThrow('PERPL_WALLET_HTTP_403')
+      expect(value.fetcher.mock.calls.length).toBe(before + 1)
+    } finally {
+      await value.close()
+    }
+  }, 20_000)
+})
 
 describe('development Perpl enrollment foundation', () => {
   it('awaits asynchronous custody and binds all sealed fields to the authenticated owner and credential', async () => {

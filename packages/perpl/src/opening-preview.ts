@@ -2,7 +2,7 @@ import Decimal from 'decimal.js'
 
 const Exact = Decimal.clone({ precision: 80, rounding: Decimal.ROUND_UP })
 const MAX_AGE_MS = 5000
-export type OpeningInput = { side: 'LONG' | 'SHORT'; size: string; leverage: string; slippageBps: number }
+export type OpeningInput = { side: 'LONG' | 'SHORT'; size: string; leverage: string; slippageBps?: number }
 export type OpeningMarketSnapshot = {
   environment: 'mainnet' | 'testnet'
   accountId: number
@@ -37,7 +37,13 @@ function fixed(value: unknown, decimals: number, code: string) {
 }
 
 /** Read-only estimates, not executable orders or authorizations. Confirmation must revalidate and persist intent. */
-export function previewOpeningTrade(input: OpeningInput, snapshot: OpeningMarketSnapshot, now = Date.now()) {
+export function previewOpeningTrade(
+  input: OpeningInput,
+  snapshot: OpeningMarketSnapshot,
+  now = Date.now(),
+  ttlMs = 15_000,
+) {
+  if (!Number.isSafeInteger(ttlMs) || ttlMs < 1000 || ttlMs > 60_000) throw new Error('PERPL_OPEN_INPUT_INVALID')
   if (
     !['mainnet', 'testnet'].includes(snapshot.environment) ||
     !uint(snapshot.accountId) ||
@@ -74,12 +80,13 @@ export function previewOpeningTrade(input: OpeningInput, snapshot: OpeningMarket
     throw new Error('PERPL_OPEN_MARKET_STALE')
   if (!fresh(snapshot.balanceObservedAt)) throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
   const balance = fixed(snapshot.freeBalance, snapshot.collateralDecimals, 'PERPL_FREE_BALANCE_UNAVAILABLE')
+  const slippageBps = input?.slippageBps ?? 50
   if (
     !input ||
     !['LONG', 'SHORT'].includes(input.side) ||
-    !Number.isSafeInteger(input.slippageBps) ||
-    input.slippageBps < 1 ||
-    input.slippageBps > 1000
+    !Number.isSafeInteger(slippageBps) ||
+    slippageBps < 1 ||
+    slippageBps > 200
   )
     throw new Error('PERPL_OPEN_INPUT_INVALID')
   const size = fixed(input.size, snapshot.sizeDecimals, 'PERPL_OPEN_INPUT_INVALID')
@@ -97,13 +104,13 @@ export function previewOpeningTrade(input: OpeningInput, snapshot: OpeningMarket
   const priceScale = new Exact(10).pow(snapshot.priceDecimals)
   // Inward rounding preserves the caller's maximum slippage, even with coarse price ticks.
   const limitRaw = referenceRaw
-    .mul(10000 + (buy ? 1 : -1) * input.slippageBps)
+    .mul(10000 + (buy ? 1 : -1) * slippageBps)
     .div(10000)
     .toDecimalPlaces(0, buy ? Decimal.ROUND_FLOOR : Decimal.ROUND_CEIL)
   if (limitRaw.lte(0) || limitRaw.gt(Number.MAX_SAFE_INTEGER)) throw new Error('PERPL_OPEN_INPUT_INVALID')
   const referencePrice = referenceRaw.div(priceScale)
   const collateralScale = new Exact(10).pow(snapshot.collateralDecimals)
-  const notional = size.mul(referencePrice)
+  const notional = size.mul(Exact.max(referenceRaw, limitRaw).div(priceScale))
   if (notional.mul(collateralScale).lt(snapshot.minimumNotionalRaw)) throw new Error('PERPL_OPEN_BELOW_MINIMUM')
   const round = (value: Decimal) => value.toDecimalPlaces(snapshot.collateralDecimals, Decimal.ROUND_CEIL)
   const margin = round(notional.div(leverage))
@@ -127,7 +134,7 @@ export function previewOpeningTrade(input: OpeningInput, snapshot: OpeningMarket
     referencePrice: referencePrice.toFixed(snapshot.priceDecimals),
     limitPrice: limitRaw.div(priceScale).toFixed(snapshot.priceDecimals),
     limitPriceRaw: limitRaw.toNumber(),
-    slippageBps: input.slippageBps,
+    slippageBps,
     estimatedNotional: money(round(notional)),
     estimatedMargin: money(margin),
     estimatedTradingFee: money(fee),
@@ -137,6 +144,6 @@ export function previewOpeningTrade(input: OpeningInput, snapshot: OpeningMarket
     builderFeePer100K: 0,
     observedBlock: snapshot.marketBlock,
     orderTtlBlocks: snapshot.orderTtlBlocks,
-    expiresAt: Math.min(snapshot.marketObservedAt, snapshot.balanceObservedAt, snapshot.headObservedAt) + MAX_AGE_MS,
+    expiresAt: now + ttlMs,
   }
 }

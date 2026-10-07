@@ -378,6 +378,46 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
     }
   })
 
+  it('persists an opening request ID and exact lb before sending IOC OpenLong through a fake socket', async () => {
+    server = new WebSocketServer({ port: 0 })
+    let durable: { reference: string; lb: number } | undefined
+    let sent: Record<string, unknown> | undefined
+    let persistedBeforeSend = false
+    server.on('connection', (socket) =>
+      socket.on('message', (raw) => {
+        const frame = JSON.parse(String(raw)) as { mt: number; sn: number }
+        if (frame.mt === 29) snapshots(socket)
+        if (frame.mt === 22) {
+          sent = frame as unknown as Record<string, unknown>
+          persistedBeforeSend = durable?.reference === `642:${String(sent.rq)}` && durable.lb === sent.lb
+          socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 400, error: 'fake rejection' } }))
+        }
+      }),
+    )
+    const client = new PerplTradingClient(
+      config(await listen(server)),
+      signer,
+      () => undefined,
+      localAllocator,
+      currentBaseline,
+    )
+    try {
+      await client.connect()
+      const result = await client.submitOpening(
+        'opening-1',
+        { mkt: 16, acc: 642, t: 1, s: 100, p: 101, lv: 500, orderTtlBlocks: 20 },
+        async (reference, lb) => {
+          durable = { reference, lb }
+        },
+      )
+      expect(persistedBeforeSend).toBe(true)
+      expect(sent).toMatchObject({ mt: 22, t: 1, fl: 4, mkt: 16, acc: 642, s: 100, p: 101, lv: 500, lb: 120 })
+      expect(result).toMatchObject({ status: 'FAILED', venueReference: '642:45' })
+    } finally {
+      client.close()
+    }
+  })
+
   it('keeps admission separate from order status when an accepted request goes silent', async () => {
     server = new WebSocketServer({ port: 0 })
     let peer: import('ws').WebSocket | undefined

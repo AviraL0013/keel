@@ -11,10 +11,12 @@ import {
 } from '../../../../packages/perpl/src/index.js'
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
+import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
 import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
 import { PerplRequestIdAllocator } from './request-id-allocator.js'
+import { listOpeningMarkets, openingMarketSnapshot } from '../../../../packages/perpl/src/opening-market.js'
 import {
   buildTelemetryFreshness,
   defaultFreshnessThresholds,
@@ -483,6 +485,38 @@ export function createPerplRuntime(
   )
   return {
     accountId: Number(env.PERPL_ACCOUNT_ID),
+    async listOpeningMarkets() {
+      if (!trading.isReady()) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
+      return listOpeningMarkets(await adapter.getProtocolContext())
+    },
+    async openingMarketSnapshot(marketId) {
+      if (!trading.isReady()) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
+      const accountId = Number(env.PERPL_ACCOUNT_ID)
+      const account = trading.stateSnapshot().accounts.find((item) => item.id === accountId)
+      const heartbeat = trading.heartbeat()
+      const observedAt = trading.heartbeatObservedAt()
+      if (!account || !heartbeat || !observedAt || !account.fw || account.fr)
+        throw new Error('PERPL_ACCOUNT_STATE_UNAVAILABLE')
+      const [protocol, balance] = await Promise.all([adapter.getProtocolContext(), adapter.getBalance(accountId)])
+      return openingMarketSnapshot(
+        protocol,
+        marketId,
+        accountId,
+        environment,
+        balance,
+        { head: heartbeat.head, observedAt },
+        account.ft,
+      )
+    },
+    async reconcileOpening(intent) {
+      if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
+      const [historyRows, operations, account] = await Promise.all([
+        history.openingEvidence(intent.accountId, intent.requestId, intent.marketId),
+        history.verifiedRequestOperations(intent.accountId, intent.requestId),
+        trading.accountRequestState(intent.accountId).catch(() => undefined),
+      ])
+      return reconcileOpening(intent, { ...historyRows, operations, account })
+    },
     async validate() {
       try {
         const context = await adapter.getProtocolContext()
@@ -630,6 +664,9 @@ export function createPerplRuntime(
     },
     async submit(action) {
       return live.submit(action)
+    },
+    async submitOpening(openingId, order, beforeSend, verifyBeforeSend) {
+      return trading.submitOpening(openingId, order, beforeSend, verifyBeforeSend)
     },
     async reconcile(action) {
       return live.reconcile(action)

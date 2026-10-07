@@ -3,9 +3,28 @@ import { nextForwardedRequestId, requestId } from '../../../../packages/perpl/sr
 
 /** PostgreSQL row lock serializes reservations for one Perpl account across workers. */
 export class PerplRequestIdAllocator {
+  private static readonly localTails = new Map<number, Promise<void>>()
   constructor(private readonly pool: Pool) {}
 
   async allocate(accountId: number, venueLfr: string, rejectedForwardedRq = '0'): Promise<string> {
+    const prior = PerplRequestIdAllocator.localTails.get(accountId) ?? Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const tail = prior.then(() => current)
+    PerplRequestIdAllocator.localTails.set(accountId, tail)
+    await prior
+    try {
+      return await this.allocateLocked(accountId, venueLfr, rejectedForwardedRq)
+    } finally {
+      release()
+      if (PerplRequestIdAllocator.localTails.get(accountId) === tail)
+        PerplRequestIdAllocator.localTails.delete(accountId)
+    }
+  }
+
+  private async allocateLocked(accountId: number, venueLfr: string, rejectedForwardedRq: string): Promise<string> {
     const lfr = requestId(venueLfr)
     const rejected = requestId(rejectedForwardedRq)
     const client = await this.pool.connect()
@@ -20,6 +39,10 @@ export class PerplRequestIdAllocator {
       const actions = await client.query('SELECT venue_reference FROM actions WHERE venue_reference LIKE $1', [
         `${accountId}:%`,
       ])
+      const openings = await client.query(
+        'SELECT request_id FROM opening_orders WHERE account_id=$1 AND request_id IS NOT NULL',
+        [accountId],
+      )
       let highest = lfr
       // Preserve a known forwarded rejection even after a local database reset.
       // Direct/on-chain order-history IDs are never used as an API high-water mark.
@@ -30,6 +53,10 @@ export class PerplRequestIdAllocator {
         const rq = row.venue_reference.split(':')[1]
         if (!rq) continue
         const prior = requestId(rq)
+        if (prior > highest) highest = prior
+      }
+      for (const row of openings.rows as Array<{ request_id: string }>) {
+        const prior = requestId(String(row.request_id))
         if (prior > highest) highest = prior
       }
       const selected = nextForwardedRequestId(lfr.toString(), highest.toString())

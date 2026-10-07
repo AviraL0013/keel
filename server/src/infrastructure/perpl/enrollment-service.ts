@@ -10,6 +10,8 @@ import { configuredKeyCustody } from './configured-key-custody.js'
 import { loadKeyCustodyConfig } from '../../../../packages/shared/src/key-custody-config.js'
 import { PerplEnrollmentClient, type EnrollmentPayloadRequest, type EnrolledKey } from './enrollment-client.js'
 import { validateEnrollmentPayload } from './enrollment-payload.js'
+import { PerplHistory } from '../../../../packages/perpl/src/history.js'
+import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 
 export type EnrollmentConfig = {
   chainId: number
@@ -93,7 +95,44 @@ export class PerplEnrollmentService {
     private readonly custody: KeyCustody,
     private readonly client: PerplEnrollmentClient,
     private readonly now: () => number = Date.now,
+    private readonly walletFetcher: typeof fetch = fetch,
   ) {}
+
+  async accountState(userId: string, walletAddress: string) {
+    const result = await this.store.pool.query<{
+      id: string
+      sealed_private_key: string
+      sealed_api_token: string
+    }>(
+      `SELECT id,sealed_private_key,sealed_api_token FROM perpl_connections
+       WHERE user_id=$1 AND lower(wallet_address)=lower($2) AND environment=$3
+       AND status='ACTIVE' AND revoked_at IS NULL AND expires_at>now() AND scope_mask=3
+       AND sealed_private_key IS NOT NULL AND sealed_api_token IS NOT NULL LIMIT 2`,
+      [userId, walletAddress, this.config.environment],
+    )
+    if (!result.rows.length) return { status: 'NOT_CONNECTED' as const }
+    if (result.rows.length !== 1) throw new ConflictError('PERPL_ACCOUNT_SELECTION_REQUIRED')
+    const row = result.rows[0]!
+    const privateKey = await this.custody.open(row.sealed_private_key, credentialContext(userId, row.id, 'private_key'))
+    const apiKey = await this.custody.open(row.sealed_api_token, credentialContext(userId, row.id, 'api_token'))
+    const signer = new Ed25519PerplSigner(apiKey, privateKey, this.config.chainId)
+    const wallet = (await new PerplHistory(
+      `https://${this.config.environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz/api`,
+      signer,
+      this.walletFetcher,
+    ).wallet()) as { addr?: string; at: { b?: number }; as: Array<{ id: number; fw?: boolean; fr?: boolean }> }
+    if (wallet.addr?.toLowerCase() !== walletAddress.toLowerCase() || !Number.isSafeInteger(wallet.at.b))
+      throw new InfrastructureError('PERPL_WALLET_SNAPSHOT_INVALID')
+    if (wallet.as.length === 0) return { status: 'NO_ACCOUNT' as const }
+    if (wallet.as.length !== 1 || !Number.isSafeInteger(wallet.as[0]?.id) || typeof wallet.as[0]?.fw !== 'boolean')
+      throw new InfrastructureError('PERPL_WALLET_SNAPSHOT_INVALID')
+    if (wallet.as[0]?.fr !== false) throw new InfrastructureError('PERPL_ACCOUNT_TRADING_UNAVAILABLE')
+    return {
+      status: 'AVAILABLE' as const,
+      accountId: wallet.as[0]!.id,
+      forwardingEnabled: wallet.as[0]!.fw!,
+    }
+  }
 
   capabilities() {
     return {
@@ -370,5 +409,7 @@ export function createPerplEnrollmentService(
     settings,
     custody,
     new PerplEnrollmentClient(config.perplRestUrl, settings.origin, fetcher),
+    Date.now,
+    fetcher,
   )
 }

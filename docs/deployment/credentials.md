@@ -12,9 +12,13 @@ These values activate external services; none belong in mobile bundles. Check th
 - `PERPL_WS_URL=wss://testnet.perpl.xyz` — public endpoint.
 - `PERPL_CHAIN_ID=10143` — public network value.
 
-Optional development/testnet per-user enrollment (backend foundation only; Books still use the server-wide key):
+Per-user testnet enrollment (only when `EYELER_PERPL_ACCOUNT_MODE=per-user`):
 
-- `EYELER_KEY_ENCRYPTION_KEY` — 32-byte hex AES-256-GCM key. Setting this enables the enrollment endpoints outside mainnet; keep it server-side.
+- `EYELER_KEY_CUSTODY=railway-testnet` selects the testnet-only versioned envelope provider. Mainnet rejects it.
+- `EYELER_TESTNET_CUSTODY_KEYS` is a Railway secret containing a JSON map of version IDs to independent 32-byte hex wrapping keys. Keep old versions until existing rows have been rotated and verified. Never put this value in Git or a Flutter build.
+- `EYELER_TESTNET_CUSTODY_ACTIVE_VERSION` is the version ID for new wraps. Run the credential rotation maintenance command before removing an old key.
+- `EYELER_KEY_ENCRYPTION_KEY` is for local development/test only. A deployed environment rejects it.
+
 - `PERPL_ENROLLMENT_ORIGIN` — exact HTTPS origin allowlisted by Perpl for payload/enroll requests.
 - `EYELER_KEY_TTL_DAYS` — enrolled key lifetime, default 90.
 - `EYELER_EGRESS_CIDRS` — optional comma-separated CIDRs, at most four.

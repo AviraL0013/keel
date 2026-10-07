@@ -118,6 +118,9 @@ export class PerplStateStore {
       return undefined
     return { head: this.heartbeatHead, sequence: this.heartbeatSequence }
   }
+  heartbeatObservedAt(now = Date.now()) {
+    return this.heartbeat(now) ? this.lastHeartbeatAt : undefined
+  }
   snapshotsReady() {
     return [19, 23, 26].every((type) => this.snapshots.has(type))
   }
