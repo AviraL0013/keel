@@ -77,7 +77,7 @@ async function fixture() {
   const venues = {
     forUser: async (owner: string, id?: string) => (owner === user && id === connection ? scoped : undefined),
   } as RuntimeVenue
-  const options = { enabled: true, accountMode: 'per-user' as const, executionDisabled: false }
+  const options = { enabled: true, liveEnabled: true, accountMode: 'per-user' as const, executionDisabled: false }
   const service = () => new StrategyOrders(store, venues, 'testnet', options, verify)
   const input = {
     idempotencyKey: randomUUID(),
@@ -244,11 +244,16 @@ it('persists the exact intent before one fake write and never resends duplicate 
   }
 }, 30_000)
 
-it('refuses foreign ownership and all opening gates before reaching the fake transport', async () => {
+it('refuses foreign ownership and all strategy gates before reaching the fake transport', async () => {
   const f = await fixture()
   try {
     await expect(f.service().submit(f.other, f.strategy, f.input)).rejects.toThrow('STRATEGY_NOT_FOUND')
-    for (const change of [{ enabled: false }, { accountMode: 'operator' as const }, { executionDisabled: true }]) {
+    for (const change of [
+      { enabled: false },
+      { liveEnabled: false },
+      { accountMode: 'operator' as const },
+      { executionDisabled: true },
+    ]) {
       const service = new StrategyOrders(f.store, undefined, 'testnet', { ...f.options, ...change }, f.verify)
       await expect(service.submit(f.user, f.strategy, f.input)).rejects.toThrow('STRATEGY_SUBMISSION_DISABLED')
     }
@@ -261,6 +266,40 @@ it('refuses foreign ownership and all opening gates before reaching the fake tra
     await f.db.query("UPDATE perpl_connections SET status='REVOKED' WHERE id=$1", [f.connection])
     await expect(f.service().submit(f.user, f.strategy, f.input)).rejects.toThrow('STRATEGY_CONNECTION_UNAVAILABLE')
     expect(f.submit).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30_000)
+
+it('requires all live flags, explicit confirmation and verified ownership in every combination', async () => {
+  const f = await fixture()
+  try {
+    for (let mask = 0; mask < 32; mask++) {
+      f.options.enabled = !!(mask & 1)
+      f.options.liveEnabled = !!(mask & 2)
+      f.options.executionDisabled = !(mask & 4)
+      const confirmed = !!(mask & 8)
+      const owned = !!(mask & 16)
+      await f.db.query('UPDATE strategies SET live_confirmed_at=$2 WHERE id=$1', [
+        f.strategy,
+        confirmed ? new Date() : null,
+      ])
+      await f.db.query("DELETE FROM perpl_account_owners WHERE environment='testnet' AND account_id=642")
+      if (owned)
+        await f.db.query("INSERT INTO perpl_account_owners(environment,account_id,user_id) VALUES('testnet',642,$1)", [
+          f.user,
+        ])
+      const run = f.service().submit(f.user, f.strategy, { ...f.input, idempotencyKey: randomUUID() })
+      if (mask === 31) {
+        expect((await run).status).toBe('UNKNOWN')
+      } else {
+        await expect(run).rejects.toThrow(
+          mask % 8 !== 7 ? 'STRATEGY_SUBMISSION_DISABLED' : 'STRATEGY_CONNECTION_UNAVAILABLE',
+        )
+        expect(f.wire).not.toHaveBeenCalled()
+      }
+    }
+    expect(f.wire).toHaveBeenCalledOnce()
   } finally {
     await f.db.close()
   }

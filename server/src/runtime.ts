@@ -153,7 +153,7 @@ export class EyelerRuntime {
   ) {
     this.repository = new PostgresExecutionRepository(store)
     this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000, () => undefined, now)
-    if (openingEnvironment) {
+    if (openingEnvironment && process.env.EYELER_STRATEGIES_ENABLED === 'true') {
       this.strategyWorker = new StrategyWorker(
         new StrategyStore(store.pool, openingEnvironment),
         new PerplPaperFeed(openingEnvironment),

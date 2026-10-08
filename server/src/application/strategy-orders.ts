@@ -59,7 +59,12 @@ type StrategyBinding = {
   builder_id: number | null
   builder_fee_ceiling: number | null
 }
-type Options = { enabled: boolean; executionDisabled: boolean; accountMode: 'operator' | 'per-user' }
+type Options = {
+  enabled: boolean
+  liveEnabled: boolean
+  executionDisabled: boolean
+  accountMode: 'operator' | 'per-user'
+}
 
 /** Internal, fake-tested submission seam. Not mounted in HTTP or the worker.
  * LIVE startup remains blocked until capital isolation, verified cleanup and confirmation are implemented.
@@ -76,7 +81,12 @@ export class StrategyOrders {
   }
 
   private assertEnabled() {
-    if (!this.options.enabled || this.options.executionDisabled || this.options.accountMode !== 'per-user')
+    if (
+      !this.options.enabled ||
+      !this.options.liveEnabled ||
+      this.options.executionDisabled ||
+      this.options.accountMode !== 'per-user'
+    )
       throw new Error('STRATEGY_SUBMISSION_DISABLED')
   }
 
