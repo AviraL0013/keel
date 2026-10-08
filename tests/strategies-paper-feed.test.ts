@@ -48,7 +48,7 @@ const setup = () => {
 it('paper feed requests a bounded unsigned history window and keeps raw interval identity', async () => {
   const { adapter, feed } = setup()
   const sample = await feed.sample(1)
-  expect(adapter.getFundingHistory).toHaveBeenCalledExactlyOnceWith(1, now - 1_800_000, now)
+  expect(adapter.getFundingHistory).toHaveBeenCalledExactlyOnceWith(1, now - 300_000_000, now)
   expect(sample.funding?.events[0]?.ppl).toBe(17)
   expect(sample.funding?.head).toEqual({ block: 105, at: now })
   expect(sample.funding?.marketId).toBe(1)

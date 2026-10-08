@@ -42,9 +42,11 @@ export class PerplPaperFeed implements StrategyMarketFeed {
     const intervalSeconds = market.funding_interval_sec
     if (!Number.isSafeInteger(intervalSeconds) || intervalSeconds! <= 0 || intervalSeconds! > 86400)
       throw Error('STRATEGY_PAPER_FUNDING_UNAVAILABLE')
+    // Perpl caps one request at 1024 intervals. Keep paper sampling within the
+    // same 500-interval bound used by the recorder; no unbounded history fetch.
     const series = (await this.adapter.getFundingHistory(
       marketId,
-      Math.max(0, now - intervalSeconds! * 3000),
+      Math.max(0, now - intervalSeconds! * 1000 * 500),
       now,
     )) as { m?: number; d?: PaperFundingEvent[] }
     const head = (context.chain as { gas?: { h?: number; at?: { t?: unknown } } })?.gas

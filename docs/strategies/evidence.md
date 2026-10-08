@@ -15,7 +15,7 @@ Two hypothetical execution scenarios are evaluated:
 - Moderate: 1% volume participation, 25 AUSD queue ahead, 5 bps penetration and 5 bps adverse-selection cost.
 - Severe: 0.1% participation, 100 AUSD queue ahead, 20 bps penetration and 20 bps adverse-selection cost.
 
-The queue and adverse-selection assumptions are stress parameters, not observed queue positions. Sizes round down to the venue precision. Quotes are formed only after a candle closes, and can fill only during a later candle. Ambiguous two-sided bars are skipped. All simulated quotes expire at the next close. Adverse-selection cost is reported separately from venue fees.
+The queue and adverse-selection assumptions are stress parameters, not observed queue positions. Sizes round down to the venue precision. Quotes are formed only after a candle closes, and can fill only during a later candle. Ambiguous two-sided bars are skipped. All simulated quotes expire at the next close. Adverse-selection cost is reported separately from venue fees. Paper feed requests stay at 500 funding intervals, below Perpl's 1024-interval request cap; longer forward windows must paginate and deduplicate before projection.
 
 Funding uses the recorded rounded payment per lot, once per `feb`, with timestamp updates replacing the prior observation. Conflicting financial terms fail. Only `div=1` is supported; other divider semantics are unverified and refused. Funding applies to pre-bar inventory before hypothetical close-time fills. Intrabar funding exposure remains unknown. This simulator uses floating-point paper state and is not the exact LIVE financial ledger.
 

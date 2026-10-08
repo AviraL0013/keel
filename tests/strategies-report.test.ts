@@ -32,7 +32,7 @@ it('labels simulated fills and reports PnL, risk and observed uptime without inv
     )
     await db.query(
       `INSERT INTO strategy_equity_points(strategy_id,observed_at,equity,inventory) VALUES
-      ($1,'2026-10-05T00:00:00Z',1000,0),($1,'2026-10-05T00:59:00Z',1001,0.1)`,
+      ($1,'2026-10-05T00:00:00Z',1000,0),($1,'2026-10-05T00:59:00Z',1001,0.1),($1,'2026-10-05T01:00:00Z',999,0)`,
       [strategy],
     )
     await db.query(

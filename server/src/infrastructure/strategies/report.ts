@@ -55,7 +55,7 @@ export async function buildStrategyRunReport(
     const [equity, ticks, funding, fills, risks] = await Promise.all([
       pool.query<{ equity: string }>(
         `SELECT equity::text FROM strategy_equity_points
-        WHERE strategy_id=$1 AND observed_at>=$2 AND observed_at<=$3 ORDER BY observed_at`,
+        WHERE strategy_id=$1 AND observed_at>=$2 AND observed_at<$3 ORDER BY observed_at`,
         [row.id, from, to],
       ),
       pool.query<{ count: number }>(
