@@ -3,7 +3,11 @@ import {
   reconcileStrategyIntent,
   type StrategyOrderResolution,
 } from '../../../../packages/strategies/src/order-reconciliation.js'
-import { strategyIntentHash } from '../../../../packages/strategies/src/order-intent.js'
+import {
+  strategyIntentHash,
+  validStrategyBuilderTerms,
+  type StrategyBuilderTerms,
+} from '../../../../packages/strategies/src/order-intent.js'
 import type { PerplOrder } from '../../../../packages/perpl/src/trading.js'
 import type { VerifiedStrategyOperation } from '../../../../packages/perpl/src/strategy-receipts.js'
 import type { RuntimeVenue } from '../../runtime.js'
@@ -22,7 +26,7 @@ type PendingOrder = {
   created_at: Date
   idempotency_key: string | null
   wire_order: PerplOrder | null
-  market_terms: { priceDecimals: number; sizeDecimals: number } | null
+  market_terms: ({ priceDecimals: number; sizeDecimals: number } & StrategyBuilderTerms) | null
   payload_hash: string | null
   target_order_id: string | null
   last_execution_block: string | null
@@ -59,6 +63,7 @@ export class StrategyOrderRecovery {
           row.idempotency_key &&
           row.wire_order &&
           terms &&
+          validStrategyBuilderTerms(terms) &&
           row.payload_hash &&
           Number.isSafeInteger(lb) &&
           lb > 0 &&
@@ -87,6 +92,9 @@ export class StrategyOrderRecovery {
           // positive command proof. Keep it unresolved until lifecycle proof.
           hasPersistedAdmission: row.venue_progress?.strategyAdmission !== undefined,
           previousAdmission: row.venue_progress?.strategyAdmission as VerifiedStrategyOperation | undefined,
+          ...(Object.hasOwn(terms!, 'builderId')
+            ? { builderId: terms!.builderId, builderFeePer100K: terms!.builderFeePer100K }
+            : {}),
           ...(row.venue_order_id ? { venueOrderId: Number(row.venue_order_id) } : {}),
         }
         const evidence = await scoped.strategyOrderEvidence(intent)

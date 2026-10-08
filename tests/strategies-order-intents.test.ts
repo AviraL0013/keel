@@ -110,6 +110,91 @@ async function fixture() {
   }
 }
 
+it('derives and persists zero-fee builder attribution only from the enrolled connection', async () => {
+  const f = await fixture()
+  try {
+    await f.db.query('UPDATE perpl_connections SET builder_id=25,builder_fee_ceiling=0 WHERE id=$1', [f.connection])
+    const row = await f.service().submit(f.user, f.strategy, {
+      ...f.input,
+      marketTerms: { ...f.input.marketTerms, builderId: 99, builderFeePer100K: 100 },
+    } as typeof f.input)
+    expect(row.market_terms).toMatchObject({ builderId: 25, builderFeePer100K: 0 })
+    expect(f.wire).toHaveBeenCalledOnce()
+    expect(f.submit.mock.calls[0][1]).not.toHaveProperty('bf')
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it.each([
+  [null, 0],
+  [25, null],
+  [0, 0],
+  [256, 0],
+  [25, -1],
+])(
+  'refuses malformed enrolled builder terms %s / %s before dispatch',
+  async (builder, ceiling) => {
+    const f = await fixture()
+    try {
+      await f.db.query('UPDATE perpl_connections SET builder_id=$2,builder_fee_ceiling=$3 WHERE id=$1', [
+        f.connection,
+        builder,
+        ceiling,
+      ])
+      await expect(f.service().submit(f.user, f.strategy, f.input)).rejects.toThrow('STRATEGY_BUILDER_TERMS_INVALID')
+      expect(f.submit).not.toHaveBeenCalled()
+    } finally {
+      await f.db.close()
+    }
+  },
+  30000,
+)
+
+it('refuses builder or connection rebinding while fresh admission is awaited', async () => {
+  const f = await fixture()
+  try {
+    await f.db.query('UPDATE perpl_connections SET builder_id=25,builder_fee_ceiling=0 WHERE id=$1', [f.connection])
+    f.verify.mockImplementationOnce(async () => {
+      await f.db.query('UPDATE perpl_connections SET builder_id=26 WHERE id=$1', [f.connection])
+    })
+    const changed = await f.service().submit(f.user, f.strategy, f.input)
+    expect(changed.status).toBe('FAILED')
+    expect(changed.error).toBe('STRATEGY_BUILDER_TERMS_CHANGED')
+    expect(f.wire).not.toHaveBeenCalled()
+    const other = randomUUID()
+    await f.db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,expires_at,
+      builder_id,builder_fee_ceiling) VALUES($1,$2,'testnet','trade','fixture','ACTIVE',now()+interval '1 day',26,0)`,
+      [other, f.user],
+    )
+    await f.db.query(
+      'INSERT INTO perpl_accounts(connection_id,account_id,forwarding,frozen) VALUES($1,642,true,false)',
+      [other],
+    )
+    f.verify.mockImplementationOnce(async () => {
+      await f.db.query('UPDATE strategies SET connection_id=$2 WHERE id=$1', [f.strategy, other])
+    })
+    f.submit.mockImplementationOnce(async (_id, _order, beforeSend, verify) => {
+      await beforeSend('642:46', 120)
+      try {
+        await verify?.()
+      } catch (error) {
+        throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PRE_SEND_FAILED')
+      }
+      f.wire()
+      return { venueReference: '642:46', status: 'SUBMITTED' }
+    })
+    const rebound = await f.service().submit(f.user, f.strategy, { ...f.input, idempotencyKey: randomUUID() })
+    expect(rebound.status).toBe('FAILED')
+    expect(rebound.error).toBe('STRATEGY_CONNECTION_UNAVAILABLE')
+    expect(f.verify).toHaveBeenCalledTimes(2)
+    expect(f.wire).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
 it('keeps a failed mt:24 recoverable and never resends it as a fresh intent', async () => {
   const f = await fixture()
   try {
@@ -189,9 +274,9 @@ it('accepts the canonical PostgreSQL bigint string before the fake socket write'
       // node-postgres int8 is text; PGlite's numeric result hid this defect.
       const query = vi
         .spyOn(f.store.pool, 'query')
-        .mockResolvedValueOnce({ rows: [{ allowed: 1 }] } as never)
+        .mockResolvedValueOnce({ rows: [{ builder_id: null, builder_fee_ceiling: null }] } as never)
         .mockResolvedValueOnce({ rows: [{ ...saved, last_execution_block: '120' }] } as never)
-        .mockResolvedValueOnce({ rows: [{ allowed: 1 }] } as never)
+        .mockResolvedValueOnce({ rows: [{ builder_id: null, builder_fee_ceiling: null }] } as never)
         .mockResolvedValueOnce({ rows: [{ ...saved, last_execution_block: '120' }] } as never)
       try {
         await verify?.()

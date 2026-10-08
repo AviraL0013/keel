@@ -1,4 +1,4 @@
-import { decodeEventLog, decodeFunctionData, parseAbi } from 'viem'
+import { decodeAbiParameters, encodeAbiParameters, decodeEventLog, decodeFunctionData, parseAbi } from 'viem'
 
 export const forwardedOrderAbi = parseAbi([
   'function execFwdPositionOpsV2((uint256 accountId,uint256 feePer100K,(uint256 orderDescId,uint256 perpId,uint8 orderType,uint256 orderId,uint256 pricePNS,uint256 lotLNS,uint256 expiryBlock,bool postOnly,bool fillOrKill,bool immediateOrCancel,uint256 maxMatches,uint256 leverageHdths,uint256 lastExecutionBlock,uint256 amountCNS,uint256 maxNegPnlCollatBPS) orderDesc,bool execTriggerOrder,uint256 triggerPricePNS,uint8 triggerPriceCondition,uint256 triggerRequestId,uint256 triggerPositionId)[] forwardedOrders,bytes[] extensions)',
@@ -30,6 +30,9 @@ export type VerifiedStrategyOperation = {
   amountRaw: string
   maxNegPnlCollatBps: string
   feePer100K: string
+  /** Absent only for an empty extension. Builder zero is a distinct envelope. */
+  builderId?: number
+  builderFeePer100K?: string
   lastExecutionBlock: number
   block: number
   txHash: string
@@ -40,6 +43,19 @@ export type VerifiedStrategyOperation = {
   rejectionReason?: string
 }
 const hashPattern = /^0x[0-9a-f]{64}$/i
+function builderAttribution(extension: `0x${string}`): { builderId: number; builderFeePer100K: string } | undefined {
+  if (extension === '0x') return undefined
+  // Pinned official SDK extension.rs: v1, uint8 builder, <=1% Per100K fee,
+  // <=256 bytes. Only the canonical 160-byte subset is supported here.
+  if (!/^0x[0-9a-f]{320}$/i.test(extension)) throw new Error('STRATEGY_EXTENSION_UNVERIFIED')
+  const [version, payload] = decodeAbiParameters([{ type: 'uint16' }, { type: 'bytes' }], extension)
+  const [builder, fee] = decodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], payload)
+  if (version !== 1 || builder > 255n || fee > 1000n) throw new Error('STRATEGY_EXTENSION_UNVERIFIED')
+  const canonicalPayload = encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [builder, fee])
+  const canonical = encodeAbiParameters([{ type: 'uint16' }, { type: 'bytes' }], [version, canonicalPayload])
+  if (canonical !== extension.toLowerCase()) throw new Error('STRATEGY_EXTENSION_UNVERIFIED')
+  return { builderId: Number(builder), builderFeePer100K: fee.toString() }
+}
 function integer(value: unknown): number | undefined {
   if (!['string', 'number', 'bigint'].includes(typeof value) || !/^(?:0x[0-9a-f]+|[0-9]+)$/i.test(String(value)))
     return undefined
@@ -55,7 +71,8 @@ function integer(value: unknown): number | undefined {
  * The contract may skip an individual command while its transaction succeeds.
  * The official SDK replaces context on each request and clears it at batch end.
  * Match complete calldata; skipped descriptors must not shift outcome ownership.
- * Nonempty extensions and trigger execution remain unsupported.
+ * Builder attribution is bound to calldata and V2 context. Triggers and
+ * noncanonical or unsupported extension versions remain unverified.
  */
 export function verifyStrategyCommandReceipt(
   exchange: string,
@@ -82,13 +99,17 @@ export function verifyStrategyCommandReceipt(
     if (
       decoded.functionName !== 'execFwdPositionOpsV2' ||
       !decoded.args[0].length ||
-      (decoded.args[1].length !== 0 && decoded.args[1].length !== decoded.args[0].length) ||
-      decoded.args[1].some((extension) => extension !== '0x')
+      (decoded.args[1].length !== 0 && decoded.args[1].length !== decoded.args[0].length)
     )
       return []
     const envelopes = decoded.args[0]
-    const commands = new Map<string, (typeof envelopes)[number]>()
-    for (const envelope of envelopes) {
+    type Command = {
+      envelope: (typeof envelopes)[number]
+      extension: `0x${string}`
+      attribution: ReturnType<typeof builderAttribution>
+    }
+    const commands = new Map<string, Command>()
+    for (const [index, envelope] of envelopes.entries()) {
       const command = envelope.orderDesc
       const key = `${envelope.accountId}:${command.orderDescId}`
       if (
@@ -105,7 +126,8 @@ export function verifyStrategyCommandReceipt(
         envelope.triggerPositionId !== 0n
       )
         return []
-      commands.set(key, envelope)
+      const extension = decoded.args[1][index] ?? '0x'
+      commands.set(key, { envelope, extension, attribution: builderAttribution(extension) })
     }
     const indices = new Set<number>()
     const logs: Array<{ name: string; args: Record<string, unknown>; index: number }> = []
@@ -137,23 +159,25 @@ export function verifyStrategyCommandReceipt(
       }
     }
     type Log = (typeof logs)[number]
-    type Segment = { envelope: (typeof envelopes)[number]; context: Log; logs: Log[] }
+    type Segment = Command & { context: Log; logs: Log[] }
     const segments: Segment[] = []
     const seen = new Set<string>()
     let current: Segment | undefined
     for (const log of logs.sort((a, b) => a.index - b.index)) {
       if (['OrderRequest', 'OrderRequestV2'].includes(log.name)) {
         const key = `${log.args.accountId}:${log.args.orderDescId}`
-        const envelope = commands.get(key)
+        const command = commands.get(key)
         if (
-          !envelope ||
+          !command ||
           seen.has(key) ||
-          Object.entries(envelope.orderDesc).some(([key, value]) => log.args[key] !== value) ||
-          (log.name === 'OrderRequestV2' && log.args.extension !== '0x')
+          Object.entries(command.envelope.orderDesc).some(([key, value]) => log.args[key] !== value) ||
+          (log.name === 'OrderRequestV2'
+            ? String(log.args.extension).toLowerCase() !== command.extension.toLowerCase()
+            : command.extension !== '0x')
         )
           return []
         seen.add(key)
-        current = { envelope, context: log, logs: [] }
+        current = { ...command, context: log, logs: [] }
         segments.push(current)
       } else if (log.name === 'OrderBatchCompleted') {
         current = undefined
@@ -161,7 +185,7 @@ export function verifyStrategyCommandReceipt(
         current?.logs.push(log)
       }
     }
-    return segments.map(({ envelope, context, logs }): VerifiedStrategyOperation => {
+    return segments.map(({ envelope, attribution, context, logs }): VerifiedStrategyOperation => {
       const command = envelope.orderDesc
       const operation: VerifiedStrategyOperation = {
         accountId: integer(envelope.accountId)!,
@@ -179,6 +203,7 @@ export function verifyStrategyCommandReceipt(
         amountRaw: command.amountCNS.toString(),
         maxNegPnlCollatBps: command.maxNegPnlCollatBPS.toString(),
         feePer100K: envelope.feePer100K.toString(),
+        ...attribution,
         lastExecutionBlock: integer(command.lastExecutionBlock)!,
         block,
         txHash: hash.toLowerCase(),

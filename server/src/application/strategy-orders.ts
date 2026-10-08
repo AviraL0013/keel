@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto'
 import Decimal from 'decimal.js'
 import { requestId } from '../../../packages/perpl/src/request-id.js'
 import { PerplPreSubmissionError, type PerplOrder } from '../../../packages/perpl/src/trading.js'
-import { strategyIntentHash as hash } from '../../../packages/strategies/src/order-intent.js'
+import { strategyIntentHash as hash, type StrategyBuilderTerms } from '../../../packages/strategies/src/order-intent.js'
 import type { PostgresStore } from '../infrastructure/database/postgres-store.js'
 import type { RuntimeVenue } from '../runtime.js'
 
 const Exact = Decimal.clone({ precision: 80 })
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-type Terms = { priceDecimals: number; sizeDecimals: number }
+type Terms = { priceDecimals: number; sizeDecimals: number } & StrategyBuilderTerms
 export type StrategyIntentInput = {
   idempotencyKey: string
   order: PerplOrder
@@ -37,7 +37,15 @@ export type StrategyOrderRecord = {
   price: string | null
   error: string | null
 }
-type StrategyBinding = { id: string; connection_id: string; account_id: string; market_id: number; mode: string }
+type StrategyBinding = {
+  id: string
+  connection_id: string
+  account_id: string
+  market_id: number
+  mode: string
+  builder_id: number | null
+  builder_fee_ceiling: number | null
+}
 type Options = { enabled: boolean; executionDisabled: boolean; accountMode: 'operator' | 'per-user' }
 
 /** Internal, fake-tested submission seam. Not mounted in HTTP or the worker.
@@ -61,26 +69,44 @@ export class StrategyOrders {
 
   private async binding(userId: string, strategyId: string): Promise<StrategyBinding> {
     const result = await this.store.pool.query<StrategyBinding>(
-      'SELECT id,connection_id,account_id::text,market_id,mode FROM strategies WHERE id=$1 AND user_id=$2 AND environment=$3',
+      `SELECT s.id,s.connection_id,s.account_id::text,s.market_id,s.mode,c.builder_id,c.builder_fee_ceiling
+       FROM strategies s JOIN perpl_connections c ON c.id=s.connection_id AND c.user_id=s.user_id
+       WHERE s.id=$1 AND s.user_id=$2 AND s.environment=$3`,
       [strategyId, userId, this.environment],
     )
     if (!result.rows[0]) throw new Error('STRATEGY_NOT_FOUND')
     return result.rows[0]
   }
 
-  private async authorize(userId: string, binding: StrategyBinding) {
+  private builderTerms(binding: Pick<StrategyBinding, 'builder_id' | 'builder_fee_ceiling'>): StrategyBuilderTerms {
+    if (binding.builder_id === null && binding.builder_fee_ceiling === null)
+      return { builderId: null, builderFeePer100K: 0 }
+    if (
+      !Number.isSafeInteger(binding.builder_id) ||
+      binding.builder_id! < 1 ||
+      binding.builder_id! > 255 ||
+      !Number.isSafeInteger(binding.builder_fee_ceiling) ||
+      binding.builder_fee_ceiling! < 0
+    )
+      throw new Error('STRATEGY_BUILDER_TERMS_INVALID')
+    return { builderId: binding.builder_id, builderFeePer100K: 0 }
+  }
+
+  private async authorize(userId: string, binding: StrategyBinding, terms: Terms) {
     this.assertEnabled()
     const allowed = await this.store.pool.query(
-      `SELECT 1 FROM strategies s JOIN perpl_connections c ON c.id=s.connection_id AND c.user_id=s.user_id
+      `SELECT c.builder_id,c.builder_fee_ceiling FROM strategies s JOIN perpl_connections c ON c.id=s.connection_id AND c.user_id=s.user_id
        JOIN perpl_accounts a ON a.connection_id=c.id AND a.account_id=s.account_id
        JOIN perpl_account_owners o ON o.environment=s.environment AND o.account_id=s.account_id AND o.user_id=s.user_id
-       WHERE s.id=$1 AND s.user_id=$2 AND s.environment=$3 AND s.mode='LIVE' AND s.status='RUNNING'
+       WHERE s.id=$1 AND s.user_id=$2 AND s.environment=$3 AND s.connection_id=$4::uuid AND s.mode='LIVE' AND s.status='RUNNING'
          AND s.live_confirmed_at IS NOT NULL AND c.environment=s.environment AND c.status='ACTIVE'
          AND c.revoked_at IS NULL AND c.expires_at>now() AND c.scope='trade' AND a.forwarding=true AND a.frozen=false
          AND NOT EXISTS(SELECT 1 FROM strategy_user_controls u WHERE u.user_id=s.user_id AND u.killed=true)`,
-      [binding.id, userId, this.environment],
+      [binding.id, userId, this.environment, binding.connection_id],
     )
     if (!allowed.rows.length) throw new Error('STRATEGY_CONNECTION_UNAVAILABLE')
+    if (this.builderTerms(allowed.rows[0]).builderId !== terms.builderId || terms.builderFeePer100K !== 0)
+      throw new Error('STRATEGY_BUILDER_TERMS_CHANGED')
     const venue = await this.venues?.forUser?.(userId, binding.connection_id)
     if (
       !venue?.submitStrategy ||
@@ -93,7 +119,11 @@ export class StrategyOrders {
 
   private async payload(binding: StrategyBinding, input: StrategyIntentInput) {
     const raw = input.order
-    const terms = { priceDecimals: input.marketTerms?.priceDecimals, sizeDecimals: input.marketTerms?.sizeDecimals }
+    const terms = {
+      priceDecimals: input.marketTerms?.priceDecimals,
+      sizeDecimals: input.marketTerms?.sizeDecimals,
+      ...this.builderTerms(binding),
+    }
     const positive = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
     if (
       !uuid.test(input.idempotencyKey) ||
@@ -175,7 +205,7 @@ export class StrategyOrders {
     }
     const prior = await existing()
     if (prior) return prior
-    await this.authorize(userId, binding)
+    await this.authorize(userId, binding, payload.terms)
     const price =
       payload.order.p === undefined
         ? null
@@ -235,7 +265,7 @@ export class StrategyOrders {
     let ownedRequest: string | null = null
     let ownedExpiry: number | null = null
     try {
-      const venue = await this.authorize(userId, binding)
+      const venue = await this.authorize(userId, binding, intent.market_terms)
       const result = await venue.submitStrategy!(
         intent.id,
         intent.wire_order,
@@ -267,7 +297,7 @@ export class StrategyOrders {
         },
         async () => {
           const verifyIdentity = async () => {
-            await this.authorize(userId, binding)
+            await this.authorize(userId, binding, intent.market_terms)
             const saved = await current()
             if (
               saved.status !== 'SUBMITTING' ||

@@ -81,6 +81,26 @@ async function fixture() {
   return { db, store, id, evidence, read, sent, venues, recovery, row, hash, order }
 }
 
+it('recovers persisted builder attribution without inferring terms from a renewed credential', async () => {
+  const f = await fixture()
+  try {
+    const terms = { priceDecimals: 1, sizeDecimals: 3, builderId: 25, builderFeePer100K: 0 }
+    await f.db.query('UPDATE strategy_orders SET market_terms=$2,payload_hash=$3 WHERE id=$1', [
+      f.id,
+      JSON.stringify(terms),
+      strategyIntentHash(f.order, terms, null),
+    ])
+    await f.db.query('UPDATE perpl_connections SET builder_id=26,builder_fee_ceiling=0')
+    f.evidence.operations = [{ ...f.evidence.operations![0], builderId: 25, builderFeePer100K: '0' }]
+    await f.recovery().recover()
+    expect(f.read).toHaveBeenCalledWith(expect.objectContaining({ builderId: 25, builderFeePer100K: 0 }))
+    expect(await f.row()).toMatchObject({ status: 'OPEN', venue_progress: { strategyAdmission: { builderId: 25 } } })
+    expect(f.sent).not.toHaveBeenCalled()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
 it('recovers exact durable payload and stores admission before tracking later lifecycle, without resending', async () => {
   const f = await fixture()
   try {

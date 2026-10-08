@@ -47,6 +47,72 @@ const evidence = (): StrategyOrderEvidence => ({
 })
 
 describe('durable strategy command proof', () => {
+  it('never accepts malformed null builder observation as empty or saved admission', () => {
+    const malformed = { ...operation, builderId: null, builderFeePer100K: '0' } as unknown as VerifiedStrategyOperation
+    const value = evidence()
+    value.operations = [malformed]
+    expect(reconcileStrategyIntent(intent, value, 200000)).toMatchObject({
+      status: 'FAILED',
+      error: 'PERPL_REQUEST_ID_SUPERSEDED',
+    })
+    value.operations = []
+    expect(reconcileStrategyIntent({ ...intent, previousAdmission: malformed }, value, 200000)).toMatchObject({
+      status: 'UNKNOWN',
+      error: 'STRATEGY_SAVED_PROOF_UNVERIFIED',
+    })
+  })
+  it('matches builder attribution to immutable terms and distinguishes empty from builder zero', () => {
+    const attributedIntent = { ...intent, builderId: 25, builderFeePer100K: 0 }
+    const value = evidence()
+    value.operations = [{ ...operation, builderId: 25, builderFeePer100K: '0' }]
+    expect(reconcileStrategyIntent(attributedIntent, value, 2000)).toMatchObject({ status: 'OPEN' })
+    expect(reconcileStrategyIntent(intent, value, 2000)).toMatchObject({
+      status: 'FAILED',
+      error: 'PERPL_REQUEST_ID_SUPERSEDED',
+    })
+    for (const observed of [
+      operation,
+      { ...operation, builderId: 26, builderFeePer100K: '0' },
+      { ...operation, builderId: 25, builderFeePer100K: '1' },
+      { ...operation, builderId: 25 },
+    ]) {
+      value.operations = [observed]
+      expect(reconcileStrategyIntent(attributedIntent, value, 2000)).toMatchObject({
+        status: 'FAILED',
+        error: 'PERPL_REQUEST_ID_SUPERSEDED',
+      })
+    }
+    value.operations = [{ ...operation, builderId: 0, builderFeePer100K: '0' }]
+    expect(reconcileStrategyIntent(intent, value, 2000).status).toBe('FAILED')
+  })
+  it('does not treat partially present or malformed immutable builder terms as no-builder', () => {
+    for (const terms of [
+      { builderId: 25 },
+      { builderFeePer100K: 0 },
+      { builderId: 0, builderFeePer100K: 0 },
+      { builderId: 25, builderFeePer100K: 1 },
+    ]) {
+      expect(reconcileStrategyIntent({ ...intent, ...terms }, evidence(), 200000)).toMatchObject({
+        status: 'UNKNOWN',
+        error: 'STRATEGY_INTENT_UNVERIFIED',
+      })
+    }
+  })
+  it('retains saved admission when later builder attribution conflicts', () => {
+    const attributedIntent = {
+      ...intent,
+      builderId: 25,
+      builderFeePer100K: 0,
+      previousAdmission: { ...operation, builderId: 25, builderFeePer100K: '0' },
+    }
+    const value = evidence()
+    value.operations = [{ ...operation, builderId: 26, builderFeePer100K: '0' }]
+    expect(reconcileStrategyIntent(attributedIntent, value, 200000)).toMatchObject({
+      status: 'UNKNOWN',
+      error: 'STRATEGY_ADMISSION_CONFLICT',
+      admission: { builderId: 25 },
+    })
+  })
   it('requires receipt-backed placement before trusting an OPEN or PARTIAL snapshot', () => {
     expect(reconcileStrategyIntent(intent, evidence(), 2000)).toMatchObject({
       status: 'OPEN',

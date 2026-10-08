@@ -2,6 +2,7 @@ import type { WireOrder } from '../../perpl/src/decoder.js'
 import type { PerplOrder } from '../../perpl/src/trading.js'
 import type { VerifiedStrategyOperation } from '../../perpl/src/strategy-receipts.js'
 import { forwardedRequestProcessed } from '../../perpl/src/request-id.js'
+import { validStrategyBuilderTerms, type StrategyBuilderTerms } from './order-intent.js'
 
 export type StrategyOrderState = 'OPEN' | 'PARTIAL' | 'FILLED' | 'CANCELED' | 'EXPIRED' | 'FAILED' | 'UNKNOWN'
 export type StrategyOrderIntent = {
@@ -29,14 +30,15 @@ export type StrategyOrderResolution = {
   error?: string
 }
 
-export type StrategyCommandIntent = StrategyOrderIntent & {
-  order: PerplOrder
-  lastExecutionBlock: number
-  submittedAt: number
-  /** Set only by durable recovery after reading previously saved command proof. */
-  hasPersistedAdmission?: boolean
-  previousAdmission?: VerifiedStrategyOperation
-}
+export type StrategyCommandIntent = StrategyOrderIntent &
+  StrategyBuilderTerms & {
+    order: PerplOrder
+    lastExecutionBlock: number
+    submittedAt: number
+    /** Set only by durable recovery after reading previously saved command proof. */
+    hasPersistedAdmission?: boolean
+    previousAdmission?: VerifiedStrategyOperation
+  }
 
 const compareStamp = (a: WireOrder, b: WireOrder) => {
   for (const key of ['b', 'tx', 'l', 't'] as const) {
@@ -66,6 +68,7 @@ export function reconcileStrategyIntent(
   const order = intent.order
   if (
     !order ||
+    !validStrategyBuilderTerms(intent) ||
     order.acc !== intent.accountId ||
     order.mkt !== intent.marketId ||
     !Number.isSafeInteger(intent.lastExecutionBlock) ||
@@ -79,6 +82,20 @@ export function reconcileStrategyIntent(
   const operations = (evidence.operations ?? []).filter(
     (item) => item.accountId === intent.accountId && item.requestId === intent.requestId,
   )
+  const matchesBuilder = (item: VerifiedStrategyOperation) => {
+    const hasBuilder = Object.hasOwn(item, 'builderId'),
+      hasFee = Object.hasOwn(item, 'builderFeePer100K')
+    if (!hasBuilder && !hasFee) return intent.builderId == null
+    return (
+      hasBuilder &&
+      hasFee &&
+      Number.isSafeInteger(item.builderId) &&
+      item.builderId! >= 0 &&
+      item.builderId! <= 255 &&
+      item.builderId === intent.builderId &&
+      item.builderFeePer100K === '0'
+    )
+  }
   const matches = (item: VerifiedStrategyOperation) =>
     item.accountId === intent.accountId &&
     item.requestId === intent.requestId &&
@@ -96,6 +113,7 @@ export function reconcileStrategyIntent(
       item.amountRaw !== '0' ||
       item.maxNegPnlCollatBps !== '0' ||
       item.feePer100K !== '0' ||
+      !matchesBuilder(item) ||
       item.lastExecutionBlock !== intent.lastExecutionBlock ||
       !Number.isSafeInteger(item.block) ||
       item.block <= 0 ||

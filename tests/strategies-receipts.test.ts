@@ -155,7 +155,7 @@ function log(name: string, values: unknown[], index: number) {
     removed: false,
   }
 }
-function request(order = descriptor, name = 'OrderRequest', index = 0, accountId = 642n) {
+function request(order = descriptor, name = 'OrderRequest', index = 0, accountId = 642n, extension = '0x') {
   const values = [
     order.perpId,
     accountId,
@@ -175,7 +175,7 @@ function request(order = descriptor, name = 'OrderRequest', index = 0, accountId
     order.maxNegPnlCollatBPS,
     1000n,
   ]
-  return log(name, name === 'OrderRequestV2' ? [...values, '0x'] : values, index)
+  return log(name, name === 'OrderRequestV2' ? [...values, extension] : values, index)
 }
 function receipt(order = descriptor, outcome = log('OrderPlaced', [75n, 100n, 1n, -1n, 99n], 1)) {
   const tx = {
@@ -426,7 +426,73 @@ describe('forwarded batch strategy command attribution', () => {
     ])
   })
 
-  it('keeps nonempty extensions, triggered envelopes and unrelated calldata unverified', () => {
+  // Independent manual ABI words from the pinned official extension.rs example:
+  // uint16 version, bytes offset, bytes length, uint256 builder, uint256 fee.
+  const builderExtension = (builder = 25n, fee = 0n, version = 1n) =>
+    `0x${[version, 64n, 64n, builder, fee].map((word) => word.toString(16).padStart(64, '0')).join('')}` as `0x${string}`
+  const attributed = (extension: `0x${string}`, eventExtension = extension, name = 'OrderRequestV2') => {
+    const value = batch([envelope()], [request(descriptor, name, 0, 642n, eventExtension), placed(75n, 1)])
+    value.tx.input = encodeFunctionData({
+      abi,
+      functionName: 'execFwdPositionOpsV2',
+      args: [[envelope()], [extension]],
+    })
+    return value
+  }
+  it('proves builder 25 attribution even when its fee is zero', () => {
+    expect(verify(attributed(builderExtension()))).toMatchObject([
+      { outcome: 'PLACED', builderId: 25, builderFeePer100K: '0' },
+    ])
+    expect(verify(attributed(builderExtension(0n)))).toMatchObject([
+      { outcome: 'PLACED', builderId: 0, builderFeePer100K: '0' },
+    ])
+    expect(verify(attributed(builderExtension(255n, 1000n)))).toMatchObject([
+      { builderId: 255, builderFeePer100K: '1000' },
+    ])
+  })
+  it('binds distinct builder envelopes by command array index without ordinal log pairing', () => {
+    const first = builderExtension(),
+      second = builderExtension(26n)
+    const value = batch(
+      [envelope(), envelope(change)],
+      [
+        request(descriptor, 'OrderRequestV2', 0, 642n, first),
+        placed(75n, 1),
+        request(change, 'OrderRequestV2', 2, 642n, second),
+        changed(3),
+      ],
+    )
+    value.tx.input = encodeFunctionData({
+      abi,
+      functionName: 'execFwdPositionOpsV2',
+      args: [
+        [envelope(), envelope(change)],
+        [first, second],
+      ],
+    })
+    expect(verify(value)).toMatchObject([
+      { requestId: '45', builderId: 25, outcome: 'PLACED' },
+      { requestId: '46', builderId: 26, outcome: 'CHANGED' },
+    ])
+    value.result.logs[2] = request(change, 'OrderRequestV2', 2, 642n, first)
+    expect(verify(value)).toEqual([])
+  })
+  it('rejects mismatched, missing, unsupported and noncanonical builder extensions', () => {
+    for (const extension of [
+      '0x01',
+      builderExtension(256n),
+      builderExtension(25n, 1001n),
+      builderExtension(25n, 0n, 2n),
+      `${builderExtension()}${'00'.repeat(32)}`,
+      `0x${'00'.repeat(257)}`,
+    ] as `0x${string}`[])
+      expect(verify(attributed(extension))).toEqual([])
+    expect(verify(attributed(builderExtension(), builderExtension(26n)))).toEqual([])
+    expect(verify(attributed(builderExtension(), '0x'))).toEqual([])
+    expect(verify(attributed(builderExtension(), builderExtension(), 'OrderRequest'))).toEqual([])
+  })
+
+  it('keeps malformed extensions, triggered envelopes and unrelated calldata unverified', () => {
     const value = batch([envelope()], [request(), placed(75n, 1)])
     value.tx.input = encodeFunctionData({ abi, functionName: 'execFwdPositionOpsV2', args: [[envelope()], ['0x01']] })
     expect(verify(value)).toEqual([])
