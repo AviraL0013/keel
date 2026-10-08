@@ -473,7 +473,7 @@ async function proveStrategyRecovery(db: pg.Pool, observer: pg.Pool) {
   const f = await seed(observer, 707),
     id = randomUUID()
   const order = { acc: 707, mkt: 16, t: 1, s: 100, p: 990, lv: 100, fl: 1 as const, orderTtlBlocks: 20 }
-  const terms = { priceDecimals: 1, sizeDecimals: 3 }
+  const terms = { priceDecimals: 1, sizeDecimals: 3, contractMarketId: 16 }
   const strategy = (
     await observer.query<{ id: string }>(
       `INSERT INTO strategies(user_id,connection_id,environment,
@@ -492,7 +492,22 @@ async function proveStrategyRecovery(db: pg.Pool, observer: pg.Pool) {
     historyComplete: true,
     history: [],
     snapshotReady: true,
-    snapshot: [{ acc: 707, mkt: 16, rq: '45', oid: 75, st: 2, t: 1, sr: 0, os: 100, fs: 0, at: { b: 110 } }],
+    snapshot: [
+      {
+        acc: 707,
+        mkt: 16,
+        rq: '45',
+        oid: 75,
+        scid: 75,
+        st: 2,
+        t: 1,
+        sr: 0,
+        os: 100,
+        fs: 0,
+        c: { b: 110, tx: 0, txid: 'a'.repeat(64) },
+        at: { b: 110 },
+      },
+    ],
     operations: [
       {
         accountId: 707,
@@ -517,6 +532,22 @@ async function proveStrategyRecovery(db: pg.Pool, observer: pg.Pool) {
         outcomeLogIndex: 1,
         outcome: 'PLACED',
         venueOrderId: 75,
+        contractOrderId: 75,
+        transactionIndex: 0,
+        requestTransactionLogIndex: 0,
+        outcomeTransactionLogIndex: 1,
+        identity: {
+          accountId: 707,
+          marketId: 16,
+          contractMarketId: 16,
+          venueOrderId: 75,
+          contractOrderId: 75,
+          placementRequestId: '45',
+          type: 1,
+          creationBlock: 110,
+          creationTransactionIndex: 0,
+          creationTxHash: `0x${'a'.repeat(64)}`,
+        },
       },
     ],
   }

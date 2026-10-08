@@ -6,6 +6,7 @@ const hash = `0x${'a'.repeat(64)}`
 const intent = {
   accountId: 642,
   marketId: 16,
+  contractMarketId: 16,
   requestId: '45',
   kind: 'POST' as const,
   lastExecutionBlock: 120,
@@ -35,8 +36,37 @@ const operation: VerifiedStrategyOperation = {
   outcomeLogIndex: 1,
   outcome: 'PLACED',
   venueOrderId: 75,
+  contractOrderId: 75,
+  transactionIndex: 0,
+  requestTransactionLogIndex: 0,
+  outcomeTransactionLogIndex: 1,
+  identity: {
+    accountId: 642,
+    marketId: 16,
+    contractMarketId: 16,
+    venueOrderId: 75,
+    contractOrderId: 75,
+    placementRequestId: '45',
+    type: 1,
+    creationBlock: 110,
+    creationTransactionIndex: 0,
+    creationTxHash: hash,
+  },
 }
-const open = { acc: 642, mkt: 16, oid: 75, rq: '45', st: 2, sr: 0, t: 1, os: 100, fs: 0, at: { b: 110, tx: 0, l: 1 } }
+const open = {
+  acc: 642,
+  mkt: 16,
+  oid: 75,
+  scid: 75,
+  rq: '45',
+  st: 2,
+  sr: 0,
+  t: 1,
+  os: 100,
+  fs: 0,
+  c: { b: 110, tx: 0, txid: hash.slice(2) },
+  at: { b: 110, tx: 0, l: 1 },
+}
 const evidence = (): StrategyOrderEvidence => ({
   snapshotReady: true,
   snapshot: [open],
@@ -47,6 +77,11 @@ const evidence = (): StrategyOrderEvidence => ({
 })
 
 describe('durable strategy command proof', () => {
+  it('never accepts an API order borrowing a reused contract slot from another placement lifetime', () => {
+    const value = evidence()
+    value.snapshot = [{ ...open, rq: '99', c: { b: 111, tx: 0, txid: 'b'.repeat(64) }, scid: 75 }]
+    expect(reconcileStrategyIntent(intent, value, 200000)).toMatchObject({ status: 'UNKNOWN' })
+  })
   it('never accepts malformed null builder observation as empty or saved admission', () => {
     const malformed = { ...operation, builderId: null, builderFeePer100K: '0' } as unknown as VerifiedStrategyOperation
     const value = evidence()
@@ -173,6 +208,7 @@ describe('durable strategy command proof', () => {
         ...intent,
         kind,
         venueOrderId: 75,
+        targetIdentity: operation.identity,
         order: {
           ...intent.order,
           t: kind === 'CANCEL' ? 5 : 7,

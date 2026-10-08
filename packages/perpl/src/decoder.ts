@@ -32,6 +32,10 @@ export type WireOrder = {
   acc: number
   mkt: number
   oid: number
+  /** Smart-contract slot; not the API oid. Optional only for older fixtures/frames. */
+  scid?: number
+  /** Placement transaction; update at can belong to a later fill/change. */
+  c?: Omit<Stamp, 'l'>
   rq: string | number
   st: number
   sr: number

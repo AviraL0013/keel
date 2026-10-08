@@ -3,6 +3,12 @@ import type { PerplOrder } from '../../perpl/src/trading.js'
 import type { VerifiedStrategyOperation } from '../../perpl/src/strategy-receipts.js'
 import { forwardedRequestProcessed } from '../../perpl/src/request-id.js'
 import { validStrategyBuilderTerms, type StrategyBuilderTerms } from './order-intent.js'
+import {
+  encodeStrategyOrderIdentity,
+  matchesStrategyOrderIdentity,
+  validStrategyOrderIdentity,
+  type StrategyOrderIdentity,
+} from '../../perpl/src/strategy-identity.js'
 
 export type StrategyOrderState = 'OPEN' | 'PARTIAL' | 'FILLED' | 'CANCELED' | 'EXPIRED' | 'FAILED' | 'UNKNOWN'
 export type StrategyOrderIntent = {
@@ -10,6 +16,10 @@ export type StrategyOrderIntent = {
   marketId: number
   requestId: string
   venueOrderId?: number
+  /** Contract mapping captured in immutable server-produced terms, not reconstructed from current metadata. */
+  contractMarketId?: number
+  targetIdentity?: StrategyOrderIdentity
+  previousIdentity?: StrategyOrderIdentity
   kind?: 'POST' | 'CHANGE' | 'CANCEL'
 }
 export type StrategyOrderEvidence = {
@@ -71,12 +81,21 @@ export function reconcileStrategyIntent(
     !validStrategyBuilderTerms(intent) ||
     order.acc !== intent.accountId ||
     order.mkt !== intent.marketId ||
+    !Number.isSafeInteger(intent.contractMarketId) ||
+    intent.contractMarketId! <= 0 ||
     !Number.isSafeInteger(intent.lastExecutionBlock) ||
     intent.lastExecutionBlock <= 0 ||
     !['POST', 'CHANGE', 'CANCEL'].includes(intent.kind ?? '') ||
     (intent.kind === 'POST'
       ? ![1, 2].includes(order.t) || order.fl !== 1
-      : order.t !== (intent.kind === 'CANCEL' ? 5 : 7) || order.fl !== 0 || order.oid !== intent.venueOrderId)
+      : order.t !== (intent.kind === 'CANCEL' ? 5 : 7) ||
+        order.fl !== 0 ||
+        order.oid !== intent.venueOrderId ||
+        !validStrategyOrderIdentity(intent.targetIdentity) ||
+        intent.targetIdentity.accountId !== intent.accountId ||
+        intent.targetIdentity.marketId !== intent.marketId ||
+        intent.targetIdentity.contractMarketId !== intent.contractMarketId ||
+        intent.targetIdentity.venueOrderId !== order.oid)
   )
     return pending('STRATEGY_INTENT_UNVERIFIED')
   const operations = (evidence.operations ?? []).filter(
@@ -100,9 +119,9 @@ export function reconcileStrategyIntent(
     item.accountId === intent.accountId &&
     item.requestId === intent.requestId &&
     !(
-      item.marketId !== intent.marketId ||
+      item.marketId !== intent.contractMarketId ||
       item.type !== order.t ||
-      item.orderId !== String(order.oid ?? 0) ||
+      item.orderId !== String(intent.kind === 'POST' ? 0 : intent.targetIdentity!.contractOrderId) ||
       item.sizeRaw !== String(order.s) ||
       item.priceRaw !== String(order.p ?? 0) ||
       item.leverageHundredths !== order.lv ||
@@ -119,16 +138,41 @@ export function reconcileStrategyIntent(
       item.block <= 0 ||
       item.block > intent.lastExecutionBlock
     )
+  const matchesIdentity = (item: VerifiedStrategyOperation) => {
+    const identity = item.identity
+    return (
+      validStrategyOrderIdentity(identity) &&
+      identity.accountId === intent.accountId &&
+      identity.marketId === intent.marketId &&
+      identity.contractMarketId === item.marketId &&
+      identity.contractOrderId === item.contractOrderId &&
+      identity.venueOrderId === item.venueOrderId &&
+      (intent.kind === 'POST'
+        ? identity.placementRequestId === intent.requestId &&
+          identity.type === order.t &&
+          identity.creationBlock === item.block &&
+          identity.creationTransactionIndex === item.transactionIndex &&
+          identity.creationTxHash === item.txHash
+        : encodeStrategyOrderIdentity(identity) === encodeStrategyOrderIdentity(intent.targetIdentity!))
+    )
+  }
   const prior = intent.previousAdmission
   if (prior) {
     const expectedOutcome = intent.kind === 'POST' ? 'PLACED' : intent.kind === 'CHANGE' ? 'CHANGED' : 'CANCELED'
     if (
       !matches(prior) ||
+      !matchesIdentity(prior) ||
       prior.outcome !== expectedOutcome ||
       !/^0x[0-9a-f]{64}$/i.test(prior.txHash) ||
       !Number.isSafeInteger(prior.requestLogIndex) ||
       !Number.isSafeInteger(prior.outcomeLogIndex) ||
       prior.outcomeLogIndex! <= prior.requestLogIndex ||
+      !Number.isSafeInteger(prior.transactionIndex) ||
+      prior.transactionIndex! < 0 ||
+      !Number.isSafeInteger(prior.requestTransactionLogIndex) ||
+      prior.requestTransactionLogIndex! < 0 ||
+      !Number.isSafeInteger(prior.outcomeTransactionLogIndex) ||
+      prior.outcomeTransactionLogIndex! <= prior.requestTransactionLogIndex! ||
       !Number.isSafeInteger(prior.venueOrderId) ||
       prior.venueOrderId! <= 0 ||
       (intent.venueOrderId !== undefined && prior.venueOrderId !== intent.venueOrderId)
@@ -143,7 +187,11 @@ export function reconcileStrategyIntent(
           item.block !== prior.block ||
           item.requestLogIndex !== prior.requestLogIndex ||
           item.outcomeLogIndex !== prior.outcomeLogIndex ||
-          item.venueOrderId !== prior.venueOrderId,
+          item.venueOrderId !== prior.venueOrderId ||
+          !matchesIdentity(item) ||
+          item.transactionIndex !== prior.transactionIndex ||
+          item.requestTransactionLogIndex !== prior.requestTransactionLogIndex ||
+          item.outcomeTransactionLogIndex !== prior.outcomeTransactionLogIndex,
       )
     )
       return pending('STRATEGY_ADMISSION_CONFLICT', prior)
@@ -156,12 +204,12 @@ export function reconcileStrategyIntent(
     return pending('STRATEGY_ADMISSION_CONFLICT')
   if (admission?.outcome === 'REJECTED')
     return { status: 'FAILED', error: 'VENUE_POST_REJECTED', admission, transactionHash: admission.txHash }
+  if (admission && !matchesIdentity(admission)) return pending('STRATEGY_ORDER_IDENTITY_UNVERIFIED')
   if (intent.kind === 'CANCEL' && admission?.outcome === 'CANCELED')
     return { status: 'CANCELED', venueOrderId: admission.venueOrderId, admission, transactionHash: admission.txHash }
   const expected = intent.kind === 'POST' ? 'PLACED' : 'CHANGED'
   if (admission?.outcome === expected && admission.venueOrderId) {
-    const own = (row: WireOrder) =>
-      row.acc === intent.accountId && row.mkt === intent.marketId && row.oid === admission.venueOrderId
+    const own = (row: WireOrder) => matchesStrategyOrderIdentity(row, admission.identity!)
     const current = evidence.snapshotReady
       ? newest(evidence.snapshot.filter((row) => own(row) && !row.r && [2, 3].includes(row.st)))
       : undefined

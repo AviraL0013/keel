@@ -11,6 +11,7 @@ import {
 import type { PerplOrder } from '../../../../packages/perpl/src/trading.js'
 import type { VerifiedStrategyOperation } from '../../../../packages/perpl/src/strategy-receipts.js'
 import type { RuntimeVenue } from '../../runtime.js'
+import { decodeStrategyOrderIdentity } from '../../../../packages/perpl/src/strategy-identity.js'
 
 type PendingOrder = {
   id: string
@@ -26,7 +27,14 @@ type PendingOrder = {
   created_at: Date
   idempotency_key: string | null
   wire_order: PerplOrder | null
-  market_terms: ({ priceDecimals: number; sizeDecimals: number } & StrategyBuilderTerms) | null
+  market_terms:
+    | ({
+        priceDecimals: number
+        sizeDecimals: number
+        contractMarketId?: number
+        targetIdentity?: string
+      } & StrategyBuilderTerms)
+    | null
   payload_hash: string | null
   target_order_id: string | null
   last_execution_block: string | null
@@ -64,6 +72,8 @@ export class StrategyOrderRecovery {
           row.wire_order &&
           terms &&
           validStrategyBuilderTerms(terms) &&
+          Number.isSafeInteger(terms.contractMarketId) &&
+          terms.contractMarketId! > 0 &&
           row.payload_hash &&
           Number.isSafeInteger(lb) &&
           lb > 0 &&
@@ -85,6 +95,9 @@ export class StrategyOrderRecovery {
           marketId: Number(row.market_id),
           requestId: row.request_id,
           kind: row.kind,
+          contractMarketId: terms!.contractMarketId,
+          targetIdentity: decodeStrategyOrderIdentity(terms!.targetIdentity),
+          previousIdentity: (row.venue_progress?.strategyAdmission as VerifiedStrategyOperation | undefined)?.identity,
           order: row.wire_order!,
           lastExecutionBlock: lb,
           submittedAt: row.submitted_at!.getTime(),

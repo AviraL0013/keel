@@ -39,7 +39,12 @@ const envelope = (orderDesc = descriptor) => ({
 })
 
 describe('signed strategy history and fake RPC', () => {
-  function historyFixture(order = descriptor, target = false, suppliedProof?: ReturnType<typeof receipt>) {
+  function historyFixture(
+    order = descriptor,
+    target = false,
+    suppliedProof?: ReturnType<typeof receipt>,
+    rows?: object[],
+  ) {
     const proof = suppliedProof ?? receipt(order, target ? log('OrderCancelled', [0n, 1n, 100n], 1) : undefined)
     let fail = false
     const transport = async (url: string | URL | Request, init?: RequestInit) => {
@@ -57,18 +62,20 @@ describe('signed strategy history and fake RPC', () => {
           String(url).includes('/wallet')
             ? { at: { b: 120 }, as: [{ id: 642, b: '100', lb: '0', lfr: order.orderDescId.toString() }] }
             : {
-                d: [
+                d: rows ?? [
                   {
                     acc: 642,
                     mkt: Number(order.perpId),
                     rq: target ? '44' : order.orderDescId.toString(),
                     oid: 75,
+                    scid: 75,
                     t: 1,
                     st: target ? 5 : 2,
                     sr: 0,
                     os: 100,
                     fs: 0,
-                    at: { b: 110, txid: hash.slice(2) },
+                    c: { b: target ? 109 : 110, tx: 0, txid: target ? 'b'.repeat(64) : hash.slice(2) },
+                    at: { b: 110, tx: 0, l: proof.result.logs.length - 1, txid: hash.slice(2) },
                   },
                 ],
               },
@@ -89,8 +96,131 @@ describe('signed strategy history and fake RPC', () => {
       },
     }
   }
+  it('bridges distinct API market/order IDs through signed creation identity, never from contract slot equality', async () => {
+    const row = {
+      acc: 642,
+      mkt: 116,
+      oid: 90075,
+      scid: 75,
+      rq: '45',
+      t: 1,
+      st: 2,
+      sr: 0,
+      os: 100,
+      fs: 0,
+      c: { b: 110, tx: 0, txid: hash.slice(2) },
+      at: { b: 110, tx: 0, l: 1, txid: hash.slice(2) },
+    }
+    const value = await historyFixture(descriptor, false, undefined, [row]).history.strategyCommandEvidence(
+      642,
+      '45',
+      116,
+      undefined,
+      undefined,
+      { contractMarketId: 16 },
+    )
+    expect(value.operations).toMatchObject([
+      {
+        marketId: 16,
+        contractOrderId: 75,
+        venueOrderId: 90075,
+        identity: {
+          accountId: 642,
+          marketId: 116,
+          contractMarketId: 16,
+          venueOrderId: 90075,
+          contractOrderId: 75,
+          creationBlock: 110,
+          creationTransactionIndex: 0,
+          creationTxHash: hash,
+          placementRequestId: '45',
+          type: 1,
+        },
+      },
+    ])
+    for (const change of [
+      { scid: 76 },
+      { c: { ...row.c, txid: 'b'.repeat(64) } },
+      { c: undefined },
+      { scid: undefined },
+    ]) {
+      const bad = await historyFixture(descriptor, false, undefined, [
+        { ...row, ...change },
+      ]).history.strategyCommandEvidence(642, '45', 116, undefined, undefined, { contractMarketId: 16 })
+      expect(bad.operations.every((op) => op.venueOrderId === undefined)).toBe(true)
+    }
+  })
+  it('does not fabricate market mapping when durable contract terms are absent', async () => {
+    expect((await historyFixture().history.strategyCommandEvidence(642, '45', 16)).operations).toEqual([])
+  })
+  it('binds CANCEL to the original API lifetime and transaction-local outcome, rejecting reused slots and global stamps', async () => {
+    const cancel = {
+      ...descriptor,
+      orderType: 4,
+      orderId: 75n,
+      orderDescId: 46n,
+      pricePNS: 0n,
+      lotLNS: 0n,
+      postOnly: false,
+      leverageHdths: 0n,
+    }
+    const proof = receipt(cancel)
+    proof.result.logs = [
+      { ...log('OrderBatchCompleted', [1n], 40), address: '0x0000000000000000000000000000000000000002' },
+      request(cancel, 'OrderRequest', 41),
+      log('OrderCancelled', [0n, 1n, 100n], 42),
+    ]
+    const targetIdentity = {
+      accountId: 642,
+      marketId: 116,
+      contractMarketId: 16,
+      venueOrderId: 90075,
+      contractOrderId: 75,
+      placementRequestId: '44',
+      type: 1,
+      creationBlock: 109,
+      creationTransactionIndex: 0,
+      creationTxHash: `0x${'b'.repeat(64)}`,
+    }
+    const row = {
+      acc: 642,
+      mkt: 116,
+      oid: 90075,
+      scid: 75,
+      rq: '44',
+      t: 1,
+      st: 5,
+      sr: 0,
+      os: 100,
+      fs: 0,
+      c: { b: 109, tx: 0, txid: 'b'.repeat(64) },
+      at: { b: 110, tx: 0, l: 2, txid: hash.slice(2) },
+    }
+    const read = (rows: object[]) =>
+      historyFixture(cancel, true, proof, rows).history.strategyCommandEvidence(642, '46', 116, 90075, undefined, {
+        contractMarketId: 16,
+        targetIdentity,
+      })
+    expect((await read([row])).operations).toMatchObject([
+      {
+        outcome: 'CANCELED',
+        contractOrderId: 75,
+        venueOrderId: 90075,
+        outcomeLogIndex: 42,
+        outcomeTransactionLogIndex: 2,
+        identity: targetIdentity,
+      },
+    ])
+    for (const change of [{ scid: 76 }, { c: { ...row.c, b: 108 } }, { at: { ...row.at, l: 42 } }, { oid: 90076 }]) {
+      expect((await read([{ ...row, ...change }])).operations.every((op) => op.venueOrderId === undefined)).toBe(true)
+    }
+  })
   it('reads OPEN history and a CANCEL target carrying its original request ID', async () => {
-    expect(await historyFixture().history.strategyCommandEvidence(642, '45', 16)).toMatchObject({
+    expect(
+      await historyFixture().history.strategyCommandEvidence(642, '45', 16, undefined, undefined, {
+        contractMarketId: 16,
+      }),
+    ).toMatchObject({
       historyComplete: true,
       operations: [{ outcome: 'PLACED' }],
       account: { lfr: '45', block: 120 },
@@ -105,18 +235,46 @@ describe('signed strategy history and fake RPC', () => {
       postOnly: false,
       leverageHdths: 0n,
     }
-    expect(await historyFixture(cancel, true).history.strategyCommandEvidence(642, '46', 16, 75)).toMatchObject({
+    const targetIdentity = {
+      accountId: 642,
+      marketId: 16,
+      contractMarketId: 16,
+      venueOrderId: 75,
+      contractOrderId: 75,
+      placementRequestId: '44',
+      type: 1,
+      creationBlock: 109,
+      creationTransactionIndex: 0,
+      creationTxHash: `0x${'b'.repeat(64)}`,
+    }
+    expect(
+      await historyFixture(cancel, true).history.strategyCommandEvidence(642, '46', 16, 75, undefined, {
+        contractMarketId: 16,
+        targetIdentity,
+      }),
+    ).toMatchObject({
       history: [{ rq: '44' }],
       operations: [{ requestId: '46', outcome: 'CANCELED' }],
     })
   })
   it('keeps another market visible for superseded request detection and fails closed on unavailable receipts', async () => {
     expect(
-      (await historyFixture({ ...descriptor, perpId: 17n }).history.strategyCommandEvidence(642, '45', 16)).operations,
+      (
+        await historyFixture({ ...descriptor, perpId: 17n }).history.strategyCommandEvidence(
+          642,
+          '45',
+          16,
+          undefined,
+          undefined,
+          { contractMarketId: 16 },
+        )
+      ).operations,
     ).toMatchObject([{ marketId: 17 }])
     const f = historyFixture()
     f.fail()
-    await expect(f.history.strategyCommandEvidence(642, '45', 16)).rejects.toThrow('PERPL_RECONCILIATION_RPC_INVALID')
+    await expect(
+      f.history.strategyCommandEvidence(642, '45', 16, undefined, undefined, { contractMarketId: 16 }),
+    ).rejects.toThrow('PERPL_RECONCILIATION_RPC_INVALID')
   })
   it('returns only the owned requested command from a mixed-account forwarded receipt', async () => {
     const proof = receipt()
@@ -131,7 +289,14 @@ describe('signed strategy history and fake RPC', () => {
       request(descriptor, 'OrderRequest', 2),
       log('OrderPlaced', [75n, 100n, 1n, -1n, 99n], 3),
     ]
-    const evidence = await historyFixture(descriptor, false, proof).history.strategyCommandEvidence(642, '45', 16)
+    const evidence = await historyFixture(descriptor, false, proof).history.strategyCommandEvidence(
+      642,
+      '45',
+      16,
+      undefined,
+      undefined,
+      { contractMarketId: 16 },
+    )
     expect(evidence.operations).toHaveLength(1)
     expect(evidence.operations[0]).toMatchObject({
       accountId: 642,
@@ -197,6 +362,28 @@ const verify = (value: ReturnType<typeof receipt>) =>
   verifyStrategyCommandReceipt(exchange, hash, value.tx, value.result)
 
 describe('receipt-backed strategy command vectors', () => {
+  it('keeps block-global indices separate from transaction ordinals including other emitters', () => {
+    const value = receipt()
+    const foreign = { ...log('OrderBatchCompleted', [1n], 40), address: '0x0000000000000000000000000000000000000002' }
+    value.result.logs = [
+      log('OrderPlaced', [75n, 100n, 1n, -1n, 99n], 42),
+      foreign,
+      request(descriptor, 'OrderRequest', 41),
+    ]
+    expect(verify(value)).toMatchObject([
+      {
+        requestLogIndex: 41,
+        outcomeLogIndex: 42,
+        requestTransactionLogIndex: 1,
+        outcomeTransactionLogIndex: 2,
+        transactionIndex: 0,
+        contractOrderId: 75,
+      },
+    ])
+    expect(verify(value)[0]).not.toHaveProperty('venueOrderId')
+    value.result.logs[0].logIndex = '0x29'
+    expect(verify(value)).toEqual([])
+  })
   it('proves a post-only POST only with matching request and placement events', () => {
     expect(verify(receipt())).toMatchObject([
       {
@@ -213,7 +400,7 @@ describe('receipt-backed strategy command vectors', () => {
         block: 110,
         txHash: hash,
         outcome: 'PLACED',
-        venueOrderId: 75,
+        contractOrderId: 75,
       },
     ])
     const v2 = receipt()
@@ -223,11 +410,11 @@ describe('receipt-backed strategy command vectors', () => {
   it('proves CHANGE and CANCEL against the exact request target, not its original rq', () => {
     const change = { ...descriptor, orderType: 6, orderId: 75n, postOnly: false, leverageHdths: 0n }
     expect(verify(receipt(change, log('OrderChanged', [75n, 990n, 100n, 0n, 1n, 99n], 1)))).toMatchObject([
-      { type: 7, outcome: 'CHANGED', venueOrderId: 75 },
+      { type: 7, outcome: 'CHANGED', contractOrderId: 75 },
     ])
     const cancel = { ...change, orderType: 4, lotLNS: 0n, pricePNS: 0n }
     expect(verify(receipt(cancel, log('OrderCancelled', [0n, 1n, 100n], 1)))).toMatchObject([
-      { type: 5, outcome: 'CANCELED', venueOrderId: 75 },
+      { type: 5, outcome: 'CANCELED', contractOrderId: 75 },
     ])
   })
   it('does not turn receipt success, a skipped command or a failed post into admission', () => {
@@ -265,7 +452,7 @@ describe('receipt-backed strategy command vectors', () => {
       functionName: 'execFwdPositionOpsV2',
       args: [[envelope(), envelope({ ...descriptor, orderDescId: 46n })], []],
     })
-    expect(verify(batch)).toMatchObject([{ requestId: '45', outcome: 'PLACED', venueOrderId: 75 }])
+    expect(verify(batch)).toMatchObject([{ requestId: '45', outcome: 'PLACED', contractOrderId: 75 }])
     const duplicate = receipt()
     duplicate.result.logs.push(request())
     expect(verify(duplicate)).toEqual([])
@@ -328,16 +515,16 @@ describe('forwarded batch strategy command attribution', () => {
       ].reverse(),
     )
     expect(verify(value)).toMatchObject([
-      { requestId: '45', outcome: 'PLACED', requestLogIndex: 0, outcomeLogIndex: 1, venueOrderId: 75 },
-      { requestId: '46', outcome: 'CHANGED', requestLogIndex: 2, outcomeLogIndex: 3, venueOrderId: 75 },
-      { requestId: '47', outcome: 'CANCELED', requestLogIndex: 4, outcomeLogIndex: 5, venueOrderId: 75 },
+      { requestId: '45', outcome: 'PLACED', requestLogIndex: 0, outcomeLogIndex: 1, contractOrderId: 75 },
+      { requestId: '46', outcome: 'CHANGED', requestLogIndex: 2, outcomeLogIndex: 3, contractOrderId: 75 },
+      { requestId: '47', outcome: 'CANCELED', requestLogIndex: 4, outcomeLogIndex: 5, contractOrderId: 75 },
     ])
   })
 
   it('matches complete calldata rather than pairing skipped descriptors by ordinal', () => {
     const own = { ...descriptor, orderDescId: 48n, perpId: 17n }
     expect(verify(batch([envelope(), envelope(own)], [request(own), placed(76n, 1)]))).toMatchObject([
-      { requestId: '48', marketId: 17, outcome: 'PLACED', venueOrderId: 76 },
+      { requestId: '48', marketId: 17, outcome: 'PLACED', contractOrderId: 76 },
     ])
     const forged = batch([envelope(), envelope(own)], [request({ ...own, maxMatches: 2n }), placed(76n, 1)])
     expect(verify(forged)).toEqual([])
@@ -350,12 +537,12 @@ describe('forwarded batch strategy command attribution', () => {
         verify(
           batch(
             [envelope(), envelope(next)],
-            [request(), ...failure, request(next, 'OrderRequest', 2), placed(76n, 3)],
+            [request(), ...failure, request(next, 'OrderRequest', failure.length + 1), placed(76n, failure.length + 2)],
           ),
         ),
       ).toMatchObject([
         { requestId: '45', outcome: failure.length ? 'REJECTED' : 'UNVERIFIED' },
-        { requestId: '48', outcome: 'PLACED', venueOrderId: 76 },
+        { requestId: '48', outcome: 'PLACED', contractOrderId: 76 },
       ])
     }
   })
@@ -374,7 +561,7 @@ describe('forwarded batch strategy command attribution', () => {
         ),
       ).toMatchObject([
         { requestId: '45', outcome: 'UNVERIFIED' },
-        { requestId: '48', outcome: 'PLACED', venueOrderId: 76 },
+        { requestId: '48', outcome: 'PLACED', contractOrderId: 76 },
       ])
     }
   })
@@ -395,7 +582,7 @@ describe('forwarded batch strategy command attribution', () => {
       ),
     ).toMatchObject([
       { requestId: '45', outcome: 'UNVERIFIED' },
-      { requestId: '47', outcome: 'CANCELED', venueOrderId: 75 },
+      { requestId: '47', outcome: 'CANCELED', contractOrderId: 75 },
     ])
     expect(verify(batch([envelope()], [placed(75n, 0), request(descriptor, 'OrderRequest', 1)]))).toMatchObject([
       { requestId: '45', outcome: 'UNVERIFIED' },
@@ -421,8 +608,8 @@ describe('forwarded batch strategy command attribution', () => {
         ),
       ),
     ).toMatchObject([
-      { accountId: 642, requestId: '45', venueOrderId: 75 },
-      { accountId: 643, requestId: '45', venueOrderId: 76 },
+      { accountId: 642, requestId: '45', contractOrderId: 75 },
+      { accountId: 643, requestId: '45', contractOrderId: 76 },
     ])
   })
 

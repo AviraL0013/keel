@@ -6,6 +6,7 @@ import { StrategyStore } from '../server/src/infrastructure/strategies/store.js'
 import { StrategyOrderRecovery } from '../server/src/infrastructure/strategies/order-recovery.js'
 import { PerplPreSubmissionError, type PerplOrder, type PerplSubmitResult } from '../packages/perpl/src/trading.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
+import { encodeStrategyOrderIdentity } from '../packages/perpl/src/strategy-identity.js'
 
 async function fixture() {
   const { db, store } = await databaseFixture()
@@ -81,7 +82,7 @@ async function fixture() {
   const input = {
     idempotencyKey: randomUUID(),
     order: { acc: 642, mkt: 16, t: 1, p: 990, s: 100, lv: 100, fl: 1 as const, orderTtlBlocks: 20 },
-    marketTerms: { priceDecimals: 1, sizeDecimals: 3 },
+    marketTerms: { priceDecimals: 1, sizeDecimals: 3, contractMarketId: 16 },
   }
   return {
     db,
@@ -461,8 +462,53 @@ it('rechecks revocation, kill and reference changes after asynchronous admission
 it('derives cancellation identity only from an owned real POST and rejects forged targets', async () => {
   const f = await fixture()
   try {
+    f.input.marketTerms.contractMarketId = 616
     const posted = await f.service().submit(f.user, f.strategy, f.input)
-    await f.db.query("UPDATE strategy_orders SET status='OPEN',venue_order_id=75 WHERE id=$1", [posted.id])
+    const identity = {
+      accountId: 642,
+      marketId: 16,
+      contractMarketId: 616,
+      venueOrderId: 90075,
+      contractOrderId: 75,
+      placementRequestId: '45',
+      type: 1,
+      creationBlock: 110,
+      creationTransactionIndex: 0,
+      creationTxHash: `0x${'a'.repeat(64)}`,
+    }
+    const admission = {
+      accountId: 642,
+      requestId: '45',
+      marketId: 616,
+      type: 1,
+      orderId: '0',
+      sizeRaw: '100',
+      priceRaw: '990',
+      leverageHundredths: 100,
+      postOnly: true,
+      fillOrKill: false,
+      immediateOrCancel: false,
+      expiryBlock: '0',
+      amountRaw: '0',
+      maxNegPnlCollatBps: '0',
+      feePer100K: '0',
+      lastExecutionBlock: 120,
+      block: 110,
+      txHash: identity.creationTxHash,
+      requestLogIndex: 0,
+      outcomeLogIndex: 1,
+      transactionIndex: 0,
+      requestTransactionLogIndex: 0,
+      outcomeTransactionLogIndex: 1,
+      outcome: 'PLACED',
+      venueOrderId: 90075,
+      contractOrderId: 75,
+      identity,
+    }
+    await f.db.query("UPDATE strategy_orders SET status='OPEN',venue_order_id=90075,venue_progress=$2 WHERE id=$1", [
+      posted.id,
+      JSON.stringify({ strategyAdmission: admission }),
+    ])
     const input = {
       idempotencyKey: randomUUID(),
       targetOrderId: posted.id,
@@ -482,11 +528,15 @@ it('derives cancellation identity only from an owned real POST and rejects forge
       'STRATEGY_ORDER_TARGET_INVALID',
     )
     f.submit.mockImplementationOnce(async (id, order, beforeSend, verify) => {
-      expect(order.oid).toBe(75)
+      expect(order.oid).toBe(90075)
       await beforeSend('642:46', 120)
       await verify?.()
       f.wire()
       expect((await f.row(id)).target_order_id).toBe(posted.id)
+      expect((await f.row(id)).market_terms).toMatchObject({
+        contractMarketId: 616,
+        targetIdentity: encodeStrategyOrderIdentity(identity),
+      })
       return { venueReference: '642:46', status: 'CANCELED' }
     })
     const canceled = await f.service().submit(f.user, f.strategy, input)
@@ -503,8 +553,29 @@ it('derives cancellation identity only from an owned real POST and rejects forge
     } as unknown as RuntimeVenue
     await new StrategyOrderRecovery(f.store.pool, recoveryVenue, 'testnet').recover()
     expect((await f.row(canceled.id)).status).toBe('UNKNOWN') // Target history alone does not prove our CANCEL.
+    await f.db.query("UPDATE strategy_orders SET status='UNKNOWN' WHERE id=$1", [posted.id])
+    expect(await f.service().submit(f.user, f.strategy, input)).toMatchObject({ id: canceled.id })
     expect(f.wire).toHaveBeenCalledTimes(2)
   } finally {
     await f.db.close()
   }
 }, 30_000)
+
+it('refuses a cancellation target with an API ID but no verified placement bridge', async () => {
+  const f = await fixture()
+  try {
+    const posted = await f.service().submit(f.user, f.strategy, f.input)
+    await f.db.query("UPDATE strategy_orders SET status='OPEN',venue_order_id=90075 WHERE id=$1", [posted.id])
+    await expect(
+      f.service().prepare(f.user, f.strategy, {
+        idempotencyKey: randomUUID(),
+        targetOrderId: posted.id,
+        order: { acc: 642, mkt: 16, t: 5, s: 0, lv: 0, fl: 0, orderTtlBlocks: 20 },
+        marketTerms: f.input.marketTerms,
+      }),
+    ).rejects.toThrow('STRATEGY_ORDER_TARGET_INVALID')
+    expect(f.wire).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)

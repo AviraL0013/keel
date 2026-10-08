@@ -1,4 +1,5 @@
 import { decodeAbiParameters, encodeAbiParameters, decodeEventLog, decodeFunctionData, parseAbi } from 'viem'
+import type { StrategyOrderIdentity } from './strategy-identity.js'
 
 export const forwardedOrderAbi = parseAbi([
   'function execFwdPositionOpsV2((uint256 accountId,uint256 feePer100K,(uint256 orderDescId,uint256 perpId,uint8 orderType,uint256 orderId,uint256 pricePNS,uint256 lotLNS,uint256 expiryBlock,bool postOnly,bool fillOrKill,bool immediateOrCancel,uint256 maxMatches,uint256 leverageHdths,uint256 lastExecutionBlock,uint256 amountCNS,uint256 maxNegPnlCollatBPS) orderDesc,bool execTriggerOrder,uint256 triggerPricePNS,uint8 triggerPriceCondition,uint256 triggerRequestId,uint256 triggerPositionId)[] forwardedOrders,bytes[] extensions)',
@@ -37,9 +38,15 @@ export type VerifiedStrategyOperation = {
   block: number
   txHash: string
   requestLogIndex: number
+  transactionIndex?: number
+  requestTransactionLogIndex?: number
   outcome: 'PLACED' | 'CHANGED' | 'CANCELED' | 'REJECTED' | 'UNVERIFIED'
   venueOrderId?: number
+  contractOrderId?: number
+  /** Set only after joining signed API history to the verified placement lifetime. */
+  identity?: StrategyOrderIdentity
   outcomeLogIndex?: number
+  outcomeTransactionLogIndex?: number
   rejectionReason?: string
 }
 const hashPattern = /^0x[0-9a-f]{64}$/i
@@ -130,11 +137,11 @@ export function verifyStrategyCommandReceipt(
       commands.set(key, { envelope, extension, attribution: builderAttribution(extension) })
     }
     const indices = new Set<number>()
-    const logs: Array<{ name: string; args: Record<string, unknown>; index: number }> = []
+    const logs: Array<{ name: string; args: Record<string, unknown>; index: number; localIndex: number }> = []
+    const allLogs: Array<{ log: Record<string, unknown>; index: number }> = []
     for (const raw of receipt.logs) {
       if (!raw || typeof raw !== 'object') return []
       const log = raw as Record<string, unknown>
-      if (String(log.address).toLowerCase() !== exchange.toLowerCase()) continue
       const index = integer(log.logIndex)
       if (
         index === undefined ||
@@ -146,6 +153,14 @@ export function verifyStrategyCommandReceipt(
       )
         return []
       indices.add(index)
+      allLogs.push({ log, index })
+    }
+    // RPC logIndex is block-global; Perpl at.l is transaction-local. Include
+    // every emitter before deriving ordinals. Never sort a filtered subset.
+    allLogs.sort((a, b) => a.index - b.index)
+    if (allLogs.some((entry, i) => i > 0 && entry.index !== allLogs[i - 1].index + 1)) return []
+    for (const [localIndex, { log, index }] of allLogs.entries()) {
+      if (String(log.address).toLowerCase() !== exchange.toLowerCase()) continue
       try {
         const event = decodeEventLog({
           abi: events,
@@ -153,9 +168,9 @@ export function verifyStrategyCommandReceipt(
           topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
           strict: true,
         })
-        logs.push({ name: event.eventName, args: event.args, index })
+        logs.push({ name: event.eventName, args: event.args, index, localIndex })
       } catch {
-        logs.push({ name: 'UNRECOGNIZED', args: {}, index })
+        logs.push({ name: 'UNRECOGNIZED', args: {}, index, localIndex })
       }
     }
     type Log = (typeof logs)[number]
@@ -208,6 +223,8 @@ export function verifyStrategyCommandReceipt(
         block,
         txHash: hash.toLowerCase(),
         requestLogIndex: context.index,
+        transactionIndex,
+        requestTransactionLogIndex: context.localIndex,
         outcome: 'UNVERIFIED',
       }
       const name = [0, 1].includes(command.orderType)
@@ -225,12 +242,14 @@ export function verifyStrategyCommandReceipt(
           outcome: 'REJECTED',
           rejectionReason: String(outcome.args.reason),
           outcomeLogIndex: outcome.index,
+          outcomeTransactionLogIndex: outcome.localIndex,
         }
       }
       if (outcome.name !== name) return operation
       const oid = integer(name === 'OrderCancelled' ? command.orderId : outcome.args.orderId)
       if (
         !oid ||
+        oid > 65535 ||
         (name !== 'OrderPlaced' && BigInt(oid) !== command.orderId) ||
         (name !== 'OrderCancelled' && outcome.args.lotLNS !== command.lotLNS) ||
         (name === 'OrderChanged' &&
@@ -240,8 +259,9 @@ export function verifyStrategyCommandReceipt(
       return {
         ...operation,
         outcome: name === 'OrderPlaced' ? 'PLACED' : name === 'OrderChanged' ? 'CHANGED' : 'CANCELED',
-        venueOrderId: oid,
+        contractOrderId: oid,
         outcomeLogIndex: outcome.index,
+        outcomeTransactionLogIndex: outcome.localIndex,
       }
     })
   } catch {

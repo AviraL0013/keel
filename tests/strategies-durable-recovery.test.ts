@@ -5,6 +5,7 @@ import { StrategyOrderRecovery } from '../server/src/infrastructure/strategies/o
 import { strategyIntentHash } from '../packages/strategies/src/order-intent.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import type { StrategyOrderEvidence, StrategyCommandIntent } from '../packages/strategies/src/order-reconciliation.js'
+import { encodeStrategyOrderIdentity } from '../packages/perpl/src/strategy-identity.js'
 
 async function fixture() {
   const { db, store } = await databaseFixture()
@@ -24,7 +25,7 @@ async function fixture() {
     )
   ).rows[0].id
   const order = { acc: 642, mkt: 16, t: 1, p: 990, s: 100, lv: 100, fl: 1 as const, orderTtlBlocks: 20 }
-  const terms = { priceDecimals: 1, sizeDecimals: 3 }
+  const terms = { priceDecimals: 1, sizeDecimals: 3, contractMarketId: 16 }
   const id = randomUUID(),
     hash = strategyIntentHash(order, terms, null)
   await db.query(
@@ -36,7 +37,22 @@ async function fixture() {
   const txHash = `0x${'a'.repeat(64)}`
   const evidence: StrategyOrderEvidence = {
     snapshotReady: true,
-    snapshot: [{ acc: 642, mkt: 16, oid: 75, rq: '45', t: 1, st: 2, sr: 0, os: 100, fs: 0, at: { b: 110 } }],
+    snapshot: [
+      {
+        acc: 642,
+        mkt: 16,
+        oid: 75,
+        scid: 75,
+        rq: '45',
+        t: 1,
+        st: 2,
+        sr: 0,
+        os: 100,
+        fs: 0,
+        c: { b: 110, tx: 0, txid: txHash.slice(2) },
+        at: { b: 110 },
+      },
+    ],
     history: [],
     historyComplete: true,
     operations: [
@@ -63,6 +79,22 @@ async function fixture() {
         outcomeLogIndex: 1,
         outcome: 'PLACED',
         venueOrderId: 75,
+        contractOrderId: 75,
+        transactionIndex: 0,
+        requestTransactionLogIndex: 0,
+        outcomeTransactionLogIndex: 1,
+        identity: {
+          accountId: 642,
+          marketId: 16,
+          contractMarketId: 16,
+          venueOrderId: 75,
+          contractOrderId: 75,
+          placementRequestId: '45',
+          type: 1,
+          creationBlock: 110,
+          creationTransactionIndex: 0,
+          creationTxHash: txHash,
+        },
       },
     ],
   }
@@ -84,7 +116,7 @@ async function fixture() {
 it('recovers persisted builder attribution without inferring terms from a renewed credential', async () => {
   const f = await fixture()
   try {
-    const terms = { priceDecimals: 1, sizeDecimals: 3, builderId: 25, builderFeePer100K: 0 }
+    const terms = { priceDecimals: 1, sizeDecimals: 3, contractMarketId: 16, builderId: 25, builderFeePer100K: 0 }
     await f.db.query('UPDATE strategy_orders SET market_terms=$2,payload_hash=$3 WHERE id=$1', [
       f.id,
       JSON.stringify(terms),
@@ -217,7 +249,12 @@ it('settles an owned CANCEL only after receipt proof for its new request, despit
     const posted = await f.row(),
       id = randomUUID()
     const order = { acc: 642, mkt: 16, t: 5, oid: 75, s: 0, lv: 0, fl: 0 as const, orderTtlBlocks: 20 }
-    const terms = { priceDecimals: 1, sizeDecimals: 3 }
+    const terms = {
+      priceDecimals: 1,
+      sizeDecimals: 3,
+      contractMarketId: 16,
+      targetIdentity: encodeStrategyOrderIdentity(f.evidence.operations![0].identity!),
+    }
     await f.db.query(
       `INSERT INTO strategy_orders(id,strategy_id,environment,account_id,market_id,kind,status,
       idempotency_key,wire_order,market_terms,payload_hash,target_order_id,venue_order_id,request_id,last_execution_block,submitted_at)

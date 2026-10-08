@@ -5,10 +5,22 @@ import { PerplPreSubmissionError, type PerplOrder } from '../../../packages/perp
 import { strategyIntentHash as hash, type StrategyBuilderTerms } from '../../../packages/strategies/src/order-intent.js'
 import type { PostgresStore } from '../infrastructure/database/postgres-store.js'
 import type { RuntimeVenue } from '../runtime.js'
+import {
+  decodeStrategyOrderIdentity,
+  encodeStrategyOrderIdentity,
+  type StrategyOrderIdentity,
+} from '../../../packages/perpl/src/strategy-identity.js'
+import { reconcileStrategyIntent } from '../../../packages/strategies/src/order-reconciliation.js'
+import type { VerifiedStrategyOperation } from '../../../packages/perpl/src/strategy-receipts.js'
 
 const Exact = Decimal.clone({ precision: 80 })
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-type Terms = { priceDecimals: number; sizeDecimals: number } & StrategyBuilderTerms
+type Terms = {
+  priceDecimals: number
+  sizeDecimals: number
+  contractMarketId?: number
+  targetIdentity?: string
+} & StrategyBuilderTerms
 export type StrategyIntentInput = {
   idempotencyKey: string
   order: PerplOrder
@@ -36,6 +48,7 @@ export type StrategyOrderRecord = {
   size: string | null
   price: string | null
   error: string | null
+  venue_progress?: Record<string, unknown> | null
 }
 type StrategyBinding = {
   id: string
@@ -117,12 +130,17 @@ export class StrategyOrders {
     return venue
   }
 
-  private async payload(binding: StrategyBinding, input: StrategyIntentInput) {
+  private async payload(binding: StrategyBinding, input: StrategyIntentInput, prior?: StrategyOrderRecord | null) {
     const raw = input.order
-    const terms = {
+    const terms: Terms = {
       priceDecimals: input.marketTerms?.priceDecimals,
       sizeDecimals: input.marketTerms?.sizeDecimals,
-      ...this.builderTerms(binding),
+      contractMarketId: input.marketTerms?.contractMarketId,
+      ...(prior
+        ? Object.hasOwn(prior.market_terms, 'builderId')
+          ? { builderId: prior.market_terms.builderId, builderFeePer100K: prior.market_terms.builderFeePer100K }
+          : {}
+        : this.builderTerms(binding)),
     }
     const positive = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
     if (
@@ -130,6 +148,7 @@ export class StrategyOrders {
       !raw ||
       ![1, 2, 5, 7].includes(raw.t) ||
       !positive(raw.orderTtlBlocks) ||
+      !positive(terms.contractMarketId) ||
       ![terms.priceDecimals, terms.sizeDecimals].every((n) => Number.isSafeInteger(n) && n >= 0 && n <= 18) ||
       Object.keys(raw).some((key) => !['acc', 'mkt', 't', 's', 'p', 'lv', 'fl', 'oid', 'orderTtlBlocks'].includes(key))
     )
@@ -168,43 +187,92 @@ export class StrategyOrders {
         (kind === 'CANCEL' ? raw.s !== 0 || raw.p !== undefined : !positive(raw.s) || !positive(raw.p))
       )
         throw new Error('STRATEGY_ORDER_TARGET_INVALID')
-      const result = await this.store.pool.query<{ venue_order_id: number; market_terms: Terms | null }>(
-        `SELECT venue_order_id,market_terms FROM strategy_orders WHERE id=$1 AND strategy_id=$2
-          AND environment=$3 AND account_id=$4 AND market_id=$5 AND kind='POST' AND simulated=false
-          AND venue_order_id IS NOT NULL`,
-        [target, binding.id, this.environment, binding.account_id, binding.market_id],
-      )
-      const owned = result.rows[0]
-      const oid = Number(owned?.venue_order_id)
-      if (
-        !owned ||
-        !positive(oid) ||
-        (raw.oid !== undefined && raw.oid !== oid) ||
-        !owned.market_terms ||
-        owned.market_terms.priceDecimals !== terms.priceDecimals ||
-        owned.market_terms.sizeDecimals !== terms.sizeDecimals
-      )
-        throw new Error('STRATEGY_ORDER_TARGET_INVALID')
+      const identity = prior
+        ? decodeStrategyOrderIdentity(prior.market_terms.targetIdentity)
+        : await this.targetIdentity(binding, target, terms)
+      if (!identity) throw new Error('STRATEGY_ORDER_TARGET_INVALID')
+      const oid = identity.venueOrderId
+      if (raw.oid !== undefined && raw.oid !== oid) throw new Error('STRATEGY_ORDER_TARGET_INVALID')
+      terms.targetIdentity = encodeStrategyOrderIdentity(identity)
       order.oid = oid
       if (kind === 'CHANGE') order.p = raw.p
     }
     return { order, terms, target, kind, payloadHash: hash(order, terms, target) }
   }
 
+  private async targetIdentity(binding: StrategyBinding, target: string, terms: Terms): Promise<StrategyOrderIdentity> {
+    const result = await this.store.pool.query<StrategyOrderRecord>(
+      `SELECT * FROM strategy_orders WHERE id=$1 AND strategy_id=$2
+       AND environment=$3 AND account_id=$4 AND market_id=$5 AND kind='POST' AND simulated=false
+       AND status IN ('OPEN','PARTIAL') AND venue_order_id IS NOT NULL`,
+      [target, binding.id, this.environment, binding.account_id, binding.market_id],
+    )
+    const owned = result.rows[0]
+    if (
+      !owned?.wire_order ||
+      !owned.market_terms ||
+      !owned.request_id ||
+      !owned.submitted_at ||
+      owned.market_terms.priceDecimals !== terms.priceDecimals ||
+      owned.market_terms.sizeDecimals !== terms.sizeDecimals ||
+      owned.market_terms.contractMarketId !== terms.contractMarketId ||
+      owned.target_order_id !== null ||
+      owned.payload_hash !== hash(owned.wire_order, owned.market_terms, null)
+    )
+      throw new Error('STRATEGY_ORDER_TARGET_INVALID')
+    const resolution = reconcileStrategyIntent(
+      {
+        accountId: Number(binding.account_id),
+        marketId: binding.market_id,
+        contractMarketId: owned.market_terms.contractMarketId,
+        requestId: String(owned.request_id),
+        kind: 'POST',
+        order: owned.wire_order,
+        lastExecutionBlock: Number(owned.last_execution_block),
+        submittedAt: owned.submitted_at.getTime(),
+        venueOrderId: Number(owned.venue_order_id),
+        previousAdmission: owned.venue_progress?.strategyAdmission as VerifiedStrategyOperation | undefined,
+        ...(Object.hasOwn(owned.market_terms, 'builderId')
+          ? { builderId: owned.market_terms.builderId, builderFeePer100K: owned.market_terms.builderFeePer100K }
+          : {}),
+      },
+      { snapshotReady: false, snapshot: [], history: [], operations: [] },
+    )
+    if (!resolution.admission?.identity) throw new Error('STRATEGY_ORDER_TARGET_INVALID')
+    return resolution.admission.identity
+  }
+
   async prepare(userId: string, strategyId: string, input: StrategyIntentInput) {
     const binding = await this.binding(userId, strategyId)
-    const payload = await this.payload(binding, input)
-    const existing = async () => {
+    if (!uuid.test(input.idempotencyKey)) throw new Error('STRATEGY_ORDER_INVALID')
+    const findExisting = async () => {
       const found = await this.store.pool.query<StrategyOrderRecord>(
         'SELECT * FROM strategy_orders WHERE strategy_id=$1 AND idempotency_key=$2',
         [strategyId, input.idempotencyKey],
       )
       const row = found.rows[0]
+      if (
+        row &&
+        (!row.wire_order ||
+          !row.market_terms ||
+          row.payload_hash !== hash(row.wire_order, row.market_terms, row.target_order_id))
+      )
+        throw new Error('STRATEGY_INTENT_CHANGED')
+      return row ?? null
+    }
+    // Replay uses the durable identity even after its target has settled.
+    // Only a new intent or its final send requires current target eligibility.
+    const prior = await findExisting()
+    const payload = await this.payload(binding, input, prior)
+    const existing = async () => {
+      const row = await findExisting()
       if (row && row.payload_hash !== payload.payloadHash) throw new Error('STRATEGY_IDEMPOTENCY_CONFLICT')
       return row ? { ...row, createdNow: false } : null
     }
-    const prior = await existing()
-    if (prior) return prior
+    if (prior) {
+      if (prior.payload_hash !== payload.payloadHash) throw new Error('STRATEGY_IDEMPOTENCY_CONFLICT')
+      return { ...prior, createdNow: false }
+    }
     await this.authorize(userId, binding, payload.terms)
     const price =
       payload.order.p === undefined
@@ -308,6 +376,14 @@ export class StrategyOrders {
               saved.payload_hash !== intent.payload_hash
             )
               throw new Error('STRATEGY_INTENT_CHANGED')
+            if (
+              saved.target_order_id &&
+              saved.market_terms.targetIdentity !==
+                encodeStrategyOrderIdentity(
+                  await this.targetIdentity(binding, saved.target_order_id, saved.market_terms),
+                )
+            )
+              throw new Error('STRATEGY_ORDER_TARGET_INVALID')
             return saved
           }
           const saved = await verifyIdentity()

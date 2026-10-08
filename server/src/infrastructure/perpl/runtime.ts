@@ -713,6 +713,12 @@ export function createPerplRuntime(
         intent.requestId,
         intent.marketId,
         intent.venueOrderId,
+        undefined,
+        {
+          contractMarketId: intent.contractMarketId,
+          targetIdentity: intent.targetIdentity,
+          previousIdentity: intent.previousIdentity,
+        },
       )
       const snapshotReady = trading.isReady()
       const snapshot = snapshotReady
