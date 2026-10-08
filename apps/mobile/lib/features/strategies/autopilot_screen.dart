@@ -514,6 +514,7 @@ class _StrategyDashboardScreenState
         repo.orders(widget.id),
         repo.fills(widget.id),
         repo.riskEvents(widget.id),
+        repo.verifiedAccounting(widget.id),
       ]);
     });
   }
@@ -561,6 +562,7 @@ class _StrategyDashboardScreenState
             final orders = snapshot.data![2] as List<Map<String, dynamic>>;
             final fills = snapshot.data![3] as List<Map<String, dynamic>>;
             final risks = snapshot.data![4] as List<Map<String, dynamic>>;
+            final accounting = snapshot.data![5] as List<StrategyAccountingRow>;
             final mode = status['mode'] as String;
             final state = status['state'] as Map<String, dynamic>;
             return ListView(
@@ -598,6 +600,29 @@ class _StrategyDashboardScreenState
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
+                Text(
+                  'Verified accounting',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (accounting.isEmpty)
+                  const ListTile(
+                    dense: true,
+                    title: Text('No verified fills'),
+                    subtitle: Text(
+                      'Receipt and signed-history proof is required before accounting appears.',
+                    ),
+                  ),
+                ...accounting.take(5).map(
+                      (row) => ListTile(
+                        dense: true,
+                        title:
+                            Text('Market ${row.marketId} · ${row.environment}'),
+                        subtitle: Text(
+                          'Size ${row.positionSize} · Entry ${row.averageEntry ?? '—'} · Realized ${row.realizedPnl}',
+                        ),
+                        trailing: Text('Fees ${row.feesPaid}'),
+                      ),
+                    ),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,

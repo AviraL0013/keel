@@ -41,6 +41,21 @@ class FakeStrategies implements StrategyRepository {
         'fundingPaid': 0.1
       };
   @override
+  Future<List<StrategyAccountingRow>> verifiedAccounting(String id) async => [
+        const StrategyAccountingRow(
+          environment: 'testnet',
+          strategyId: 's1',
+          marketId: 16,
+          positionSize: '0.100000',
+          averageEntry: '99.000000',
+          realizedPnl: '0.000000',
+          feesPaid: '0.200000',
+          fundingPaid: '0.100000',
+          lastSequence: {'block': 12, 'transaction': 1, 'log': 0},
+          appliedCount: 1,
+        ),
+      ];
+  @override
   Future<List<Map<String, dynamic>>> orders(String id) async => [
         {
           'kind': 'POST',
@@ -91,6 +106,8 @@ void main() {
         if (screen == 'dashboard') {
           expect(find.text('Simulation only. No on-chain orders or fills.'),
               findsOneWidget);
+          expect(find.text('Verified accounting'), findsOneWidget);
+          expect(find.text('Market 16 · testnet'), findsOneWidget);
         }
       });
     }

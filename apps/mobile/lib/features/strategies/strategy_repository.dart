@@ -52,6 +52,46 @@ class StrategyMarket {
       );
 }
 
+class StrategyAccountingRow {
+  const StrategyAccountingRow({
+    required this.environment,
+    required this.strategyId,
+    required this.marketId,
+    required this.positionSize,
+    required this.averageEntry,
+    required this.realizedPnl,
+    required this.feesPaid,
+    required this.fundingPaid,
+    required this.lastSequence,
+    required this.appliedCount,
+  });
+
+  final String environment;
+  final String strategyId;
+  final int marketId;
+  final String positionSize;
+  final String? averageEntry;
+  final String realizedPnl;
+  final String feesPaid;
+  final String fundingPaid;
+  final Map<String, dynamic> lastSequence;
+  final int appliedCount;
+
+  factory StrategyAccountingRow.fromJson(Map<String, dynamic> json) =>
+      StrategyAccountingRow(
+        environment: json['environment'] as String,
+        strategyId: json['strategyId'] as String,
+        marketId: int.parse(json['marketId'].toString()),
+        positionSize: json['positionSize'] as String,
+        averageEntry: json['averageEntry'] as String?,
+        realizedPnl: json['realizedPnl'] as String,
+        feesPaid: json['feesPaid'] as String,
+        fundingPaid: json['fundingPaid'] as String,
+        lastSequence: Map<String, dynamic>.from(json['lastSequence'] as Map),
+        appliedCount: int.parse(json['appliedCount'].toString()),
+      );
+}
+
 class StrategySetup {
   const StrategySetup(this.accounts, this.markets);
   final List<StrategyAccount> accounts;
@@ -82,6 +122,7 @@ abstract class StrategyRepository {
   Future<StrategyEntry> control(String id, String action);
   Future<Map<String, dynamic>> status(String id);
   Future<Map<String, dynamic>> pnl(String id);
+  Future<List<StrategyAccountingRow>> verifiedAccounting(String id);
   Future<List<Map<String, dynamic>>> orders(String id);
   Future<List<Map<String, dynamic>>> fills(String id);
   Future<List<Map<String, dynamic>>> riskEvents(String id);
@@ -133,6 +174,11 @@ class HttpStrategyRepository implements StrategyRepository {
   Future<Map<String, dynamic>> pnl(String id) => api.get(
         '/strategies/$id/pnl',
         (value) => Map<String, dynamic>.from(value as Map),
+      );
+  @override
+  Future<List<StrategyAccountingRow>> verifiedAccounting(String id) => api.get(
+        '/strategies/$id/verified-accounting',
+        (value) => rows(value).map(StrategyAccountingRow.fromJson).toList(),
       );
   @override
   Future<List<Map<String, dynamic>>> orders(String id) =>
