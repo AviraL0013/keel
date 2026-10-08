@@ -20,10 +20,10 @@ The checked-in fixture `packages/strategies/fixtures/perpl-mainnet-btc-2026-10-0
 
 | Strategy     |         PnL | Max drawdown | Sharpe-like | Fills / quoted orders |   Turnover |       Fees |    Funding |
 | ------------ | ----------: | -----------: | ----------: | --------------------: | ---------: | ---------: | ---------: |
-| Grid         | +0.50843749 |  0.18769776% |  0.25853276 |                5 / 39 | 0.43214286 | 0.01166786 | 0.02586608 |
-| Market maker | -0.15166615 |  0.20094926% | -0.06920212 |               19 / 50 | 1.63100862 | 0.03864099 | 0.06162861 |
+| Grid         | +0.50910357 |  0.18861190% |  0.25815617 |                5 / 39 | 0.43214286 | 0.01166786 | 0.02520000 |
+| Market maker | -0.15793754 |  0.20186340% | -0.07188197 |               19 / 50 | 1.63100862 | 0.03864099 | 0.06790000 |
 
-The simulator fills a resting quote only on a later candle that strictly crosses its price, caps participation to 1% of quoted depth, and skips bars whose high and low could trigger both sides in an unknown sequence. Fees apply to opening volume and funding to held inventory. OHLC bars have no queue, order-book, latency, or mark/oracle path. The small positive grid result is **not** evidence that it would make money live. The maker result is negative in this fixture.
+These values supersede the earlier rate-times-index approximation. The simulator uses recorded payment per lot once per funding interval and forms quotes at the completed candle close. It fills a quote only on a later candle that strictly crosses its price, caps default participation to 1% of recorded volume, and skips bars whose high and low could trigger both sides in an unknown sequence. Fees apply to opening volume and funding to pre-bar inventory. OHLC bars have no queue, order-book, latency, or mark/oracle path. The small positive grid result is **not** evidence that it would make money live. The maker result is negative in this fixture. A broader 30-day recording, disjoint holdout and explicit execution stresses are documented in [reliability evidence](evidence.md).
 
 Reproduce with:
 
@@ -48,7 +48,7 @@ The JSON output distinguishes simulated fills and lists transaction hashes only 
 
 The internal [durable intent seam](order-intents.md) now has fake-venue proof. It remains unmounted; the production live controller and the steps below are still required.
 
-The [receipt-backed command recovery](order-proof.md) adds exact singleton POST/CHANGE/CANCEL admission proof and immutable restart recovery. Ambiguous batches and later financial settlement remain unverified. The [account capital admission](capital-admission.md) keeps Book and opening commitments separate; live strategy allocation and release still need their own lifecycle.
+The [receipt-backed command recovery](order-proof.md) adds exact singleton and independently matched batch POST/CHANGE/CANCEL admission proof and immutable restart recovery. Unsupported segments and later financial settlement remain unverified. The [account capital admission](capital-admission.md) keeps Book and opening commitments separate; internal strategy allocation, reservation and idle release are tested, but transmitted exposure cannot yet be released safely. The verified fill ledger proves identity and gross fees without inferring perpetual PnL.
 
 1. Implement and test a live controller that persists an intent before sending, reconciles each request against mt:24/history/snapshot, and never resubmits `UNKNOWN`.
 2. Add real cancel-all of strategy-owned open orders on halt, shutdown, lease loss, and kill; verify each cancellation by venue evidence. Keep Book orders untouched.
