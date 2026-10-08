@@ -116,6 +116,26 @@ describe('durable receipt-backed strategy fills', () => {
       expect(
         (await f.db.query('SELECT filled_size::text,status FROM strategy_orders WHERE id=$1', [f.order])).rows[0],
       ).toEqual({ filled_size: '0.030000000000000000', status: 'PARTIAL' })
+      expect(
+        (
+          await f.db.query(
+            `SELECT position_size::text,average_entry::text,realized_pnl::text,fees_paid::text,funding_paid::text,
+              applied_count,last_block::int,last_transaction_index,last_log_index
+             FROM strategy_accounting_projection WHERE strategy_id=$1 AND market_id=116`,
+            [f.strategy],
+          )
+        ).rows[0],
+      ).toEqual({
+        position_size: '0.030000000000000000',
+        average_entry: '99.000000000000000000',
+        realized_pnl: '0.000000000000000000',
+        fees_paid: '0.000003000000000000',
+        funding_paid: '0.000000000000000000',
+        applied_count: 1,
+        last_block: 112,
+        last_transaction_index: 0,
+        last_log_index: 0,
+      })
       expect(await f.count()).toBe(1)
     } finally {
       await f.db.close()
@@ -243,6 +263,9 @@ describe('durable receipt-backed strategy fills', () => {
       const sql = await readFile('database/migrations/032_strategy_verified_fills.sql', 'utf8')
       await f.db.exec(sql)
       await f.db.exec(sql)
+      const accountingSql = await readFile('database/migrations/034_strategy_accounting.sql', 'utf8')
+      await f.db.exec(accountingSql)
+      await f.db.exec(accountingSql)
       expect(await f.count()).toBe(1)
       const result = await f.db.query("SELECT count(*)::int n FROM strategies WHERE id=$1 AND status='PAUSED'", [
         f.strategy,

@@ -11,6 +11,13 @@ import {
 import type { VerifiedStrategyOperation } from '../../../../packages/perpl/src/strategy-receipts.js'
 import { reconcileStrategyIntent } from '../../../../packages/strategies/src/order-reconciliation.js'
 import { strategyIntentHash } from '../../../../packages/strategies/src/order-intent.js'
+import {
+  applyVerifiedAccountingEvent,
+  emptyVerifiedAccounting,
+  type VerifiedAccountingEvent,
+  type VerifiedProof,
+  type VerifiedSequence,
+} from '../../../../packages/strategies/src/verified-accounting.js'
 import type { StrategyOrderRecord } from '../../application/strategy-orders.js'
 
 const Exact = Decimal.clone({ precision: 160 })
@@ -78,6 +85,18 @@ const intentIdentity = (row: Row, proof: VerifiedStrategyOperation) =>
     proof,
   ])
 
+type AccountingRow = {
+  event_identity: string
+  block_number: string | number
+  transaction_index: string | number
+  log_index: string | number
+  side: 'BUY' | 'SELL'
+  size: string
+  price: string
+  fee: string
+  proof: VerifiedProof
+}
+
 /** Internal read-only ingestion seam; never submits, retries or credits paper fills.
  * The configured finalized RPC reader and immutable admitted POST identify each slot generation.
  * Totals describe proved fills, not a claim of account/strategy PnL or available capital.
@@ -108,6 +127,65 @@ export class StrategyFillLedger {
         [row.id, userId, this.environment, row.strategy_id],
       )
     ).rows[0]
+  }
+
+  private async rebuildAccounting(client: PoolClient, row: Row) {
+    const events = (
+      await client.query<AccountingRow>(
+        `SELECT event_identity,block_number,transaction_index,log_index,side,size::text,price::text,fee::text,proof
+         FROM strategy_accounting_events
+         WHERE environment=$1 AND strategy_id=$2 AND market_id=$3
+         ORDER BY block_number,transaction_index,log_index,event_identity`,
+        [this.environment, row.strategy_id, row.market_id],
+      )
+    ).rows
+    let state = emptyVerifiedAccounting()
+    for (const event of events) {
+      const sequence: VerifiedSequence = {
+        block: Number(event.block_number),
+        transaction: Number(event.transaction_index),
+        log: Number(event.log_index),
+      }
+      const accountingEvent: VerifiedAccountingEvent = {
+        kind: 'FILL',
+        identity: event.event_identity,
+        sequence,
+        side: event.side,
+        size: event.size,
+        price: event.price,
+        fee: event.fee,
+        proof: event.proof,
+      }
+      state = applyVerifiedAccountingEvent(state, accountingEvent).state
+    }
+    const last = state.lastSequence
+    if (!last) return
+    await client.query(
+      `INSERT INTO strategy_accounting_projection(
+         environment,strategy_id,market_id,position_size,average_entry,realized_pnl,fees_paid,funding_paid,
+         last_block,last_transaction_index,last_log_index,applied_count,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+       ON CONFLICT(environment,strategy_id,market_id) DO UPDATE SET
+         position_size=EXCLUDED.position_size,average_entry=EXCLUDED.average_entry,
+         realized_pnl=EXCLUDED.realized_pnl,fees_paid=EXCLUDED.fees_paid,
+         funding_paid=EXCLUDED.funding_paid,last_block=EXCLUDED.last_block,
+         last_transaction_index=EXCLUDED.last_transaction_index,last_log_index=EXCLUDED.last_log_index,
+         applied_count=EXCLUDED.applied_count,updated_at=now()`,
+      [
+        this.environment,
+        row.strategy_id,
+        row.market_id,
+        state.positionSize,
+        state.averageEntry,
+        state.realizedPnl,
+        state.feesPaid,
+        state.fundingPaid,
+        last.block,
+        last.transaction,
+        last.log,
+        Object.keys(state.applied).length,
+      ],
+    )
   }
 
   async ingest(userId: string, orderId: string, candidate: WireFill): Promise<{ inserted: boolean }> {
@@ -223,6 +301,33 @@ export class StrategyFillLedger {
           [row.id, latest.fullyFilled, latest.removed],
         )
       }
+      // The ledger has already verified receipt, signed history and immutable order identity.
+      // Store only those proof references as the durable accounting input; the pure projector
+      // rebuilds the exact position/PnL state inside this same transaction.
+      await client.query(
+        `INSERT INTO strategy_accounting_events(
+          environment,strategy_id,order_id,account_id,market_id,event_identity,block_number,transaction_index,
+          log_index,side,size,price,fee,proof)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT DO NOTHING`,
+        [
+          this.environment,
+          row.strategy_id,
+          row.id,
+          row.account_id,
+          row.market_id,
+          `${fill.transactionHash}:${fill.logIndex}`,
+          fill.block,
+          fill.transactionIndex,
+          fill.logIndex,
+          row.wire_order.t === 1 ? 'BUY' : 'SELL',
+          size,
+          price,
+          gross,
+          JSON.stringify({ receipt: fill.transactionHash, history: proofHash, order: row.id }),
+        ],
+      )
+      await this.rebuildAccounting(client, row)
       await client.query('COMMIT')
       return { inserted: inserted.rows.length === 1 }
     } catch (error) {
