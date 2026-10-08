@@ -59,6 +59,20 @@ export type StrategyState = {
   lastRefreshAt: number
   lastMark?: number
   lastFundingAt?: number
+  /** Paper-only interval identity. This is not verified live financial evidence. */
+  paperFundingCursor?: {
+    marketId: number
+    feb: number
+    rate: number
+    idx: number
+    ppl: number
+    sum: number
+    div: number
+    at: number
+    intervalBlocks: number
+    priceDecimals: number
+  }
+  lastPaperObservedAt?: number
   openOrders: StrategyQuote[]
   status: 'READY' | 'PAUSED' | 'HALTED'
   riskEvents: StrategyRiskCode[]

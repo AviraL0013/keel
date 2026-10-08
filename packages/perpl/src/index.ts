@@ -58,6 +58,7 @@ export type PerplContext = {
     instance_id?: number
     order_ttl_blocks?: number
     funding_interval_blocks?: number
+    funding_interval_sec?: number
     config: Record<string, unknown>
     state: Record<string, unknown>
     funding: Record<string, unknown>
@@ -252,6 +253,20 @@ export class PerplAdapter implements VenueAdapter {
     const market = (await this.getMarket(marketId)) as PerplContext['markets'][number] | null
     return market?.funding ?? null
   }
+
+  /** Unsigned public observations only; callers validate interval identity and coverage. */
+  async getFundingHistory(marketId: number, from: number, to: number): Promise<unknown> {
+    if (
+      !Number.isSafeInteger(marketId) ||
+      marketId <= 0 ||
+      ![from, to].every(Number.isSafeInteger) ||
+      from < 0 ||
+      to <= from
+    )
+      throw Error('PERPL_FUNDING_RANGE_INVALID')
+    return this.http.get(`/v1/market-data/${marketId}/funding/${from}-${to}`)
+  }
+
   async getPositions(accountId: number, marketId?: number): Promise<WirePosition[]> {
     if (!this.history) throw new Error('PERPL_SIGNER_NOT_CONFIGURED')
     return this.history.read<WirePosition>(
