@@ -298,7 +298,10 @@ describe('gapless strategy maker slot lifetime proof', () => {
       event('ClearingRemainingOrderLockBeyondBalance', [16n, 642n, 75n, 990n, 30n, 0n, 0n, 1n, 0n, 0n]),
       maker(),
     ])
-    expect(verify(value)).toMatchObject({ status: 'VERIFIED', fill: { removed: true, remainingSizeRaw: '0' } })
+    expect(verify(value)).toMatchObject({
+      status: 'VERIFIED',
+      fill: { removed: true, remainingSizeRaw: '0', fullyFilled: false },
+    })
   })
   it('requires complete block and receipt inventory, parent linkage, canonical stamps and all event indices', () => {
     const variants: Array<(value: ReturnType<typeof fixture>) => void> = [

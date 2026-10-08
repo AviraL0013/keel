@@ -17,6 +17,8 @@ import { OpeningTrades } from '../server/src/application/opening-trades.js'
 import { StrategyOrderRecovery } from '../server/src/infrastructure/strategies/order-recovery.js'
 import { strategyIntentHash } from '../packages/strategies/src/order-intent.js'
 import type { StrategyOrderEvidence } from '../packages/strategies/src/order-reconciliation.js'
+import { StrategyFillLedger } from '../server/src/infrastructure/strategies/fill-ledger.js'
+import { slotFixture, block, maker, hash, exchange } from '../tests/helpers/strategy-slot.js'
 
 // No supplied connection string, environment file, production service or network
 // endpoint is accepted. This command owns one ephemeral, loopback-only fixture.
@@ -588,6 +590,68 @@ async function proveStrategyRecovery(db: pg.Pool, observer: pg.Pool) {
   }
 }
 
+async function proveStrategyFillConcurrency(db: pg.Pool, observer: pg.Pool) {
+  const owner = (
+    await db.query(`SELECT c.id,c.user_id FROM perpl_connections c
+    JOIN perpl_accounts a ON a.connection_id=c.id WHERE a.account_id=642 LIMIT 1`)
+  ).rows[0]
+  const strategy = (
+    await db.query(
+      `INSERT INTO strategies(user_id,connection_id,environment,account_id,market_id,
+    mode,kind,capital,config,state,status) VALUES($1,$2,'testnet',642,116,'LIVE','GRID',100,'{}','{}','STOPPED') RETURNING id`,
+      [owner.user_id, owner.id],
+    )
+  ).rows[0].id
+  const vector = slotFixture()
+  const wire = { acc: 642, mkt: 116, t: 1, p: 990, s: 100, lv: 100, fl: 1 as const, orderTtlBlocks: 20 }
+  const terms = { priceDecimals: 1, sizeDecimals: 3, contractMarketId: 16 }
+  const order = (
+    await db.query(
+      `INSERT INTO strategy_orders(strategy_id,environment,account_id,market_id,kind,
+    simulated,status,side,price,size,idempotency_key,wire_order,market_terms,payload_hash,request_id,
+    last_execution_block,submitted_at,venue_order_id,venue_progress)
+    VALUES($1,'testnet',642,116,'POST',false,'PARTIAL','BUY',99,0.1,$2,$3,$4,$5,45,111,now(),90075,$6) RETURNING id`,
+      [
+        strategy,
+        randomUUID(),
+        JSON.stringify(wire),
+        JSON.stringify(terms),
+        strategyIntentHash(wire, terms, null),
+        JSON.stringify({ strategyAdmission: vector.admission }),
+      ],
+    )
+  ).rows[0].id
+  const blocks = [...vector.blocks, block(113, [{ events: [maker(70n)] }])]
+  const read = async (from: number, to: number) => ({
+    blocks: blocks.filter((b) => Number(b.block.number) >= from && Number(b.block.number) <= to),
+    finalized: { block: 113, hash: hash(113) },
+  })
+  const first = new StrategyFillLedger(db, 'testnet', exchange, { read }),
+    second = new StrategyFillLedger(observer, 'testnet', exchange, { read })
+  const last = { ...vector.candidate, s: 70, at: { b: 113, tx: 0, l: 0, txid: hash(11300).slice(2) } }
+  const results = await Promise.all([
+    first.ingest(owner.user_id, order, last),
+    second.ingest(owner.user_id, order, vector.candidate),
+    second.ingest(owner.user_id, order, last),
+  ])
+  assert.equal(results.filter((r) => r.inserted).length, 2)
+  const saved = (await observer.query('SELECT status,filled_size::text FROM strategy_orders WHERE id=$1', [order]))
+    .rows[0]
+  assert.deepEqual(saved, { status: 'FILLED', filled_size: '0.100000000000000000' })
+  assert.deepEqual(await first.totals(owner.user_id, strategy), {
+    buySize: '0.1',
+    sellSize: '0',
+    buyNotional: '9.9',
+    sellNotional: '0',
+    grossFees: '0.000006',
+    builderFees: '0',
+    fills: 2,
+  })
+  console.log(
+    'PASS independent PostgreSQL clients credit overlapping strategy fills once, with exact terminal projection',
+  )
+}
+
 if (process.argv[2] === '--allocator-worker') {
   const db = pool(await fixturePort(process.argv[3] ?? ''), 'eyeler_fixture_allocator', 1)
   try {
@@ -637,6 +701,7 @@ if (process.argv[2] === '--allocator-worker') {
     await proveBookOpening(db, observer, true)
     await proveTelegram(port, observer)
     await proveStrategyRecovery(db, observer)
+    await proveStrategyFillConcurrency(db, observer)
     const outputs = await Promise.all(
       [1, 2].map(() =>
         run(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--allocator-worker', id!], {

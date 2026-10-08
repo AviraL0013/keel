@@ -29,6 +29,8 @@ export type VerifiedStrategyMakerFill = {
   builderFeeRaw: string
   remainingSizeRaw: string
   removed: boolean
+  /** Clearing a lock can remove an unfilled remainder. Removal alone is not a full fill. */
+  fullyFilled: boolean
 }
 export type StrategyMakerFillProof =
   { status: 'VERIFIED'; fill: VerifiedStrategyMakerFill } | { status: 'UNKNOWN'; reason: string }
@@ -165,12 +167,57 @@ const neutral = new Set([
  * No capital, inventory, PnL or funding credit is made here. Unknown transitions fail closed.
  * Supported lifetime: post-only OpenLong/OpenShort, no expiry, zero requested builder fee.
  */
+/** Trusted server-persisted replay state. Never accept this object from a client.
+ * Persist only after a finalized reader validates a complete, consecutive chunk.
+ */
+export type StrategySlotCheckpoint = {
+  version: 1
+  admissionIdentity: string
+  throughBlock: number
+  blockHash: string
+  remainingSizeRaw: string
+  limitPriceRaw: string
+  ended: boolean
+}
+type ReplayProof = StrategyMakerFillProof | { status: 'CHECKPOINT'; checkpoint: StrategySlotCheckpoint }
+const canonical = (value: unknown): string => {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
+  if (value && typeof value === 'object')
+    return (
+      '{' +
+      Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, item]) => JSON.stringify(key) + ':' + canonical(item))
+        .join(',') +
+      '}'
+    )
+  return JSON.stringify(value)
+}
 export function verifyStrategyMakerFill(
   exchange: string,
   admission: VerifiedStrategyOperation,
   candidate: WireFill,
   blocks: StrategyLifecycleBlock[],
+  checkpoint?: StrategySlotCheckpoint,
 ): StrategyMakerFillProof {
+  const result = replayStrategySlot(exchange, admission, blocks, candidate, checkpoint)
+  return result.status === 'CHECKPOINT' ? { status: 'UNKNOWN', reason: 'STRATEGY_MAKER_FILL_MISSING' } : result
+}
+export function advanceStrategySlot(
+  exchange: string,
+  admission: VerifiedStrategyOperation,
+  blocks: StrategyLifecycleBlock[],
+  checkpoint?: StrategySlotCheckpoint,
+): ReplayProof {
+  return replayStrategySlot(exchange, admission, blocks, undefined, checkpoint)
+}
+function replayStrategySlot(
+  exchange: string,
+  admission: VerifiedStrategyOperation,
+  blocks: StrategyLifecycleBlock[],
+  candidate?: WireFill,
+  checkpoint?: StrategySlotCheckpoint,
+): ReplayProof {
   try {
     const identity = admission?.identity
     if (
@@ -199,43 +246,65 @@ export function verifyStrategyMakerFill(
     )
       fail('STRATEGY_SLOT_PLACEMENT_UNVERIFIED')
     if (
-      !candidate ||
-      candidate.acc !== identity.accountId ||
-      candidate.mkt !== identity.marketId ||
-      candidate.oid !== identity.venueOrderId ||
-      candidate.t !== identity.type ||
-      candidate.l !== 1 ||
-      !positiveWire(candidate.p) ||
-      !positiveWire(candidate.s) ||
-      !rawAmount(candidate.f) ||
-      (candidate.bfa !== undefined && !rawAmount(candidate.bfa)) ||
-      !candidate.at ||
-      !positiveWire(candidate.at.b) ||
-      candidate.at.b < admission.block ||
-      uint(candidate.at.tx) === undefined ||
-      uint(candidate.at.l) === undefined ||
-      !strategyReceiptHash(candidate.at.txid)
+      candidate &&
+      (!candidate ||
+        candidate.acc !== identity.accountId ||
+        candidate.mkt !== identity.marketId ||
+        candidate.oid !== identity.venueOrderId ||
+        candidate.t !== identity.type ||
+        candidate.l !== 1 ||
+        !positiveWire(candidate.p) ||
+        !positiveWire(candidate.s) ||
+        !rawAmount(candidate.f) ||
+        (candidate.bfa !== undefined && !rawAmount(candidate.bfa)) ||
+        !candidate.at ||
+        !positiveWire(candidate.at.b) ||
+        candidate.at.b < admission.block ||
+        uint(candidate.at.tx) === undefined ||
+        uint(candidate.at.l) === undefined ||
+        !strategyReceiptHash(candidate.at.txid))
     )
       fail('STRATEGY_MAKER_FILL_UNVERIFIED')
-    const { logs } = completeBlocks(blocks, admission.block, candidate.at.b)
+    const { logs } = completeBlocks(
+      blocks,
+      checkpoint ? checkpoint.throughBlock + 1 : admission.block,
+      candidate ? candidate.at.b! : (uint(blocks.at(-1)?.block?.number) ?? -1),
+    )
     const first = blocks[0]
-    const txs = first.block.transactions as Record<string, unknown>[]
-    const tx = txs[identity.creationTransactionIndex],
-      receipt = first.receipts[identity.creationTransactionIndex]
-    if (!tx || !receipt) fail('STRATEGY_SLOT_PLACEMENT_UNVERIFIED')
-    const actual = verifyStrategyCommandReceipt(exchange, admission.txHash, tx, receipt).find(
-      (item) => item.accountId === admission.accountId && item.requestId === admission.requestId,
-    )
-    if (
-      !actual ||
-      actual.outcome !== 'PLACED' ||
-      Object.keys(actual).some(
-        (key) => actual[key as keyof VerifiedStrategyOperation] !== admission[key as keyof VerifiedStrategyOperation],
-      ) ||
-      Object.hasOwn(actual, 'builderId') !== Object.hasOwn(admission, 'builderId') ||
-      Object.hasOwn(actual, 'builderFeePer100K') !== Object.hasOwn(admission, 'builderFeePer100K')
-    )
-      fail('STRATEGY_SLOT_PLACEMENT_UNVERIFIED')
+    const admissionIdentity = canonical([exchange.toLowerCase(), admission])
+    if (checkpoint) {
+      if (
+        checkpoint.version !== 1 ||
+        checkpoint.admissionIdentity !== admissionIdentity ||
+        !Number.isSafeInteger(checkpoint.throughBlock) ||
+        checkpoint.throughBlock < admission.block ||
+        !strategyReceiptHash(checkpoint.blockHash) ||
+        strategyReceiptHash(first.block.parentHash) !== checkpoint.blockHash ||
+        !rawAmount(checkpoint.remainingSizeRaw) ||
+        !rawAmount(checkpoint.limitPriceRaw) ||
+        BigInt(checkpoint.limitPriceRaw) <= 0n ||
+        typeof checkpoint.ended !== 'boolean'
+      )
+        fail('STRATEGY_SLOT_CHECKPOINT_INVALID')
+    } else {
+      const txs = first.block.transactions as Record<string, unknown>[]
+      const tx = txs[identity.creationTransactionIndex],
+        receipt = first.receipts[identity.creationTransactionIndex]
+      if (!tx || !receipt) fail('STRATEGY_SLOT_PLACEMENT_UNVERIFIED')
+      const actual = verifyStrategyCommandReceipt(exchange, admission.txHash, tx, receipt).find(
+        (item) => item.accountId === admission.accountId && item.requestId === admission.requestId,
+      )
+      if (
+        !actual ||
+        actual.outcome !== 'PLACED' ||
+        Object.keys(actual).some(
+          (key) => actual[key as keyof VerifiedStrategyOperation] !== admission[key as keyof VerifiedStrategyOperation],
+        ) ||
+        Object.hasOwn(actual, 'builderId') !== Object.hasOwn(admission, 'builderId') ||
+        Object.hasOwn(actual, 'builderFeePer100K') !== Object.hasOwn(admission, 'builderFeePer100K')
+      )
+        fail('STRATEGY_SLOT_PLACEMENT_UNVERIFIED')
+    }
     type Context = {
       account: bigint
       perp: bigint
@@ -247,9 +316,10 @@ export function verifyStrategyMakerFill(
       clearing: boolean
     }
     let context: Context | undefined, currentTx: string | undefined
-    let placed = false,
-      remaining = 0n,
-      limit = 0n
+    let placed = !!checkpoint,
+      remaining = BigInt(checkpoint?.remainingSizeRaw ?? '0'),
+      limit = BigInt(checkpoint?.limitPriceRaw ?? '0'),
+      ended = checkpoint?.ended ?? false
     for (const log of logs) {
       // Begin at the exact admitted request, not merely its creation transaction.
       if (
@@ -262,7 +332,12 @@ export function verifyStrategyMakerFill(
         currentTx = log.hash
         context = undefined
       }
-      const isCandidate = matchesStrategyReceiptStamp(candidate.at, log.block, log.tx, log.hash, log.local)
+      const isCandidate =
+        !!candidate && matchesStrategyReceiptStamp(candidate.at, log.block, log.tx, log.hash, log.local)
+      if (ended) {
+        if (isCandidate) fail('STRATEGY_SLOT_GENERATION_ENDED')
+        continue
+      }
       if (String(log.raw.address).toLowerCase() !== exchange.toLowerCase()) {
         if (isCandidate) fail('STRATEGY_MAKER_FILL_UNVERIFIED')
         continue
@@ -328,7 +403,10 @@ export function verifyStrategyMakerFill(
           fail('STRATEGY_SLOT_CONTEXT_UNVERIFIED')
         if (context!.perp === BigInt(identity.contractMarketId) && context!.slot === BigInt(identity.contractOrderId)) {
           if (!placed || context!.account !== BigInt(identity.accountId)) fail('STRATEGY_SLOT_GENERATION_CHANGED')
-          if (name! === 'OrderCancelled') fail('STRATEGY_SLOT_GENERATION_ENDED')
+          if (name! === 'OrderCancelled') {
+            ended = true
+            continue
+          }
           if (
             args!.expiryBlock !== 0n ||
             args!.lotLNS !== context!.size ||
@@ -343,7 +421,7 @@ export function verifyStrategyMakerFill(
         }
       } else if (removals.has(name!)) {
         if (args!.perpId === BigInt(identity.contractMarketId) && args!.orderId === BigInt(identity.contractOrderId))
-          fail('STRATEGY_SLOT_GENERATION_ENDED')
+          ended = true
       } else if (name! === 'ClearingRemainingOrderLockBeyondBalance') {
         if (!context) fail('STRATEGY_SLOT_CONTEXT_UNVERIFIED')
         context!.clearing = true
@@ -370,14 +448,15 @@ export function verifyStrategyMakerFill(
             : admission.builderId !== undefined)
         )
           fail('STRATEGY_MAKER_FILL_UNVERIFIED')
-        const removed = size === remaining || context?.clearing === true
+        const fullyFilled = size === remaining
+        const removed = fullyFilled || context?.clearing === true
         remaining = removed ? 0n : remaining - size
         if (isCandidate) {
           if (
-            size !== BigInt(candidate.s) ||
-            price !== BigInt(candidate.p!) ||
-            fee !== BigInt(candidate.f) ||
-            builderFee !== BigInt(candidate.bfa ?? '0')
+            size !== BigInt(candidate!.s) ||
+            price !== BigInt(candidate!.p!) ||
+            fee !== BigInt(candidate!.f) ||
+            builderFee !== BigInt(candidate!.bfa ?? '0')
           )
             fail('STRATEGY_MAKER_FILL_UNVERIFIED')
           return {
@@ -403,14 +482,28 @@ export function verifyStrategyMakerFill(
               builderFeeRaw: builderFee.toString(),
               remainingSizeRaw: remaining.toString(),
               removed,
+              fullyFilled,
             },
           }
         }
-        if (removed) fail('STRATEGY_SLOT_GENERATION_ENDED')
+        if (removed) ended = true
       } else if (['TakerOrderFilled', 'TakerOrderFilledV2'].includes(name!)) {
         if (!context) fail('STRATEGY_SLOT_CONTEXT_UNVERIFIED')
       } else if (!neutral.has(name!)) fail('STRATEGY_SLOT_TRANSITION_UNSUPPORTED')
     }
+    if (!candidate && placed)
+      return {
+        status: 'CHECKPOINT',
+        checkpoint: {
+          version: 1,
+          admissionIdentity,
+          throughBlock: uint(blocks.at(-1)!.block.number)!,
+          blockHash: strategyReceiptHash(blocks.at(-1)!.block.hash)!,
+          remainingSizeRaw: remaining.toString(),
+          limitPriceRaw: limit.toString(),
+          ended,
+        },
+      }
     return { status: 'UNKNOWN', reason: 'STRATEGY_MAKER_FILL_MISSING' }
   } catch (error) {
     return {
