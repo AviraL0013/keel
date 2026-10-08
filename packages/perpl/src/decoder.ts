@@ -46,7 +46,20 @@ export type WireOrder = {
   lp?: number
   r?: boolean
 }
-export type WireFill = { acc: number; mkt: number; oid: number; t: number; p?: number; s: number; at: Stamp; f: string }
+export type WireFill = {
+  acc: number
+  mkt: number
+  oid: number
+  t: number
+  p?: number
+  s: number
+  at: Stamp
+  f: string
+  /** Optional only for legacy frames; receipt-backed maker proof requires l=1. */
+  l?: number
+  /** Builder portion of gross f, not an additional fee. */
+  bfa?: string
+}
 export type PerplMessage = Record<string, unknown> & { mt: number; sn?: number }
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value)
