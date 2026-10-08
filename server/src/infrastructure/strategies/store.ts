@@ -411,6 +411,47 @@ export class StrategyStore {
     return (await this.pool.query('SELECT * FROM strategy_orders WHERE strategy_id=$1 ORDER BY created_at DESC', [id]))
       .rows
   }
+  async verifiedAccounting(userId: string, id: string) {
+    if (!(await this.get(userId, id))) throw new Error('STRATEGY_NOT_FOUND')
+    const rows = (
+      await this.pool.query<{
+        environment: 'testnet' | 'mainnet'
+        strategy_id: string
+        market_id: number
+        position_size: string
+        average_entry: string | null
+        realized_pnl: string
+        fees_paid: string
+        funding_paid: string
+        last_block: number
+        last_transaction_index: number
+        last_log_index: number
+        applied_count: number
+      }>(
+        `SELECT environment,strategy_id,market_id,position_size::text,average_entry::text,realized_pnl::text,
+           fees_paid::text,funding_paid::text,last_block::int,last_transaction_index,last_log_index,applied_count
+         FROM strategy_accounting_projection WHERE strategy_id=$1 AND environment=$2
+         ORDER BY market_id`,
+        [id, this.environment],
+      )
+    ).rows
+    return rows.map((row) => ({
+      environment: row.environment,
+      strategyId: row.strategy_id,
+      marketId: Number(row.market_id),
+      positionSize: row.position_size,
+      averageEntry: row.average_entry,
+      realizedPnl: row.realized_pnl,
+      feesPaid: row.fees_paid,
+      fundingPaid: row.funding_paid,
+      lastSequence: {
+        block: Number(row.last_block),
+        transaction: Number(row.last_transaction_index),
+        log: Number(row.last_log_index),
+      },
+      appliedCount: Number(row.applied_count),
+    }))
+  }
   async fills(userId: string, id: string) {
     if (!(await this.get(userId, id))) throw new Error('STRATEGY_NOT_FOUND')
     return (await this.pool.query('SELECT * FROM strategy_fills WHERE strategy_id=$1 ORDER BY filled_at DESC', [id]))

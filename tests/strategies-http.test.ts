@@ -62,6 +62,36 @@ it('authenticates paper strategy controls and keeps live creation disabled', asy
     const created = await app.inject({ method: 'POST', url: '/strategies', headers: owner, payload })
     expect(created.statusCode).toBe(200)
     const id = created.json().id as string
+    await db.query(
+      `INSERT INTO strategy_accounting_projection(
+        environment,strategy_id,market_id,position_size,average_entry,realized_pnl,fees_paid,funding_paid,
+        last_block,last_transaction_index,last_log_index,applied_count)
+       VALUES('testnet',$1,16,'0.030000000000000000','99.000000000000000000','0.000000000000000000',
+        '0.000003000000000000','0.000000000000000000',112,0,0,1)`,
+      [id],
+    )
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/strategies/${id}/verified-accounting`,
+          headers: owner,
+        })
+      ).json(),
+    ).toEqual([
+      {
+        environment: 'testnet',
+        strategyId: id,
+        marketId: 16,
+        positionSize: '0.030000000000000000',
+        averageEntry: '99.000000000000000000',
+        realizedPnl: '0.000000000000000000',
+        feesPaid: '0.000003000000000000',
+        fundingPaid: '0.000000000000000000',
+        lastSequence: { block: 112, transaction: 0, log: 0 },
+        appliedCount: 1,
+      },
+    ])
     expect(
       (
         await app.inject({

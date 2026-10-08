@@ -76,4 +76,8 @@ Opening trades (authenticated; previews and confirmation require per-user mode a
 
 The feature flag defaults off; the server rejects enabling it in operator mode. A worker-lock owner reconciles persisted requests from signed history and receipt-backed forwarded operations. The app offers “Protect this position” only after the resulting open position appears in the current authenticated Perpl snapshot; it then enters the existing Create Book policy flow. No Book is created automatically.
 
+Autopilot (authenticated; paper mode is the default):
+
+- `GET /strategies/:id/verified-accounting` returns one exact-decimal row per market from the receipt/history/order-verified fill projection. It includes position size, weighted entry, realized PnL, fees, funding input, and the last verified block/transaction/log sequence. Empty rows mean no verified financial event has been credited; the endpoint never converts paper cash flow into live PnL.
+
 Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.

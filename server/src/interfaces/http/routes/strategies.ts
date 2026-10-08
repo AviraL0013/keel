@@ -134,6 +134,10 @@ export function registerStrategyRoutes(context: Context): void {
       fundingPaid: row.state.fundingPaid,
     }
   })
+  context.app.get<{ Params: { id: string } }>('/strategies/:id/verified-accounting', async (request) => {
+    const { userId } = await owned(request, request.params.id)
+    return repo!.verifiedAccounting(userId, request.params.id)
+  })
   context.app.get<{ Params: { id: string } }>('/strategies/:id/orders', async (request) => {
     const { userId } = await owned(request, request.params.id)
     return repo!.orders(userId, request.params.id)
