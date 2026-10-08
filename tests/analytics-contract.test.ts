@@ -28,6 +28,7 @@ const endpoints = [
     ],
   ],
   ['_markets_id_funding.json', ['marketId', 'points']],
+  ['_markets_id_prices.json', ['marketId', 'interval', 'from', 'to', 'points']],
   ['_liquidations.json', ['items', 'nextCursor', 'summary']],
   ['_search.json', ['items']],
   ['_wallets_address.json', ['address', 'accountIds', 'margin', 'positions']],

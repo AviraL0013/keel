@@ -233,6 +233,44 @@ class V1MarketFunding {
   }
 }
 
+class V1MarketPrices {
+  const V1MarketPrices(
+      this.marketId, this.interval, this.from, this.to, this.points);
+  final int marketId;
+  final String interval;
+  final DateTime from, to;
+  final List<V1TimePoint> points;
+  factory V1MarketPrices.fromJson(Object? raw) {
+    final j = AnalyticsParse.object(raw);
+    final marketId = V1.integer(j, 'marketId');
+    final interval = V1.oneOf(j, 'interval', {'1h', '1d'});
+    final from = AnalyticsParse.time(j, 'from');
+    final to = AnalyticsParse.time(j, 'to');
+    final points = V1.list(j, 'points', V1TimePoint.fromJson);
+    final step = interval == '1h' ? 3600000 : 86400000;
+    if (marketId <= 0 ||
+        !from.isBefore(to) ||
+        to.difference(from).inMilliseconds > step * 2160 ||
+        points.length > 2160) {
+      throw const FormatException('Invalid price range');
+    }
+    DateTime? previous;
+    for (final point in points) {
+      if (point.time.isBefore(from) ||
+          !point.time.isBefore(to) ||
+          point.time.millisecondsSinceEpoch % step != 0 ||
+          (previous != null && !point.time.isAfter(previous)) ||
+          (point.value != null &&
+              (point.value!.startsWith('-') ||
+                  !RegExp(r'[1-9]').hasMatch(point.value!)))) {
+        throw const FormatException('Invalid price point');
+      }
+      previous = point.time;
+    }
+    return V1MarketPrices(marketId, interval, from, to, points);
+  }
+}
+
 class V1Liquidation {
   const V1Liquidation(this.id, this.time, this.marketId, this.address,
       this.side, this.notional, this.realizedPnl, this.transactionHash);

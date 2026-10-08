@@ -1,6 +1,12 @@
 import { formatMoney } from '../../../../packages/ausd/src/money.js'
 import { notionalMicros, type MarketPrecision } from '../../../../packages/analytics/src/aggregate.js'
-import type { MarketDetail, MarketFunding, MarketSummary } from '../../../../packages/analytics/src/contract.js'
+import type {
+  Envelope,
+  MarketDetail,
+  MarketFunding,
+  MarketPrices,
+  MarketSummary,
+} from '../../../../packages/analytics/src/contract.js'
 
 export interface PublicMarket {
   id: number
@@ -145,5 +151,68 @@ export class PerplPublicAnalytics {
       for (const item of response.d) if (item.t >= from && item.t < to) values.set(item.t, BigInt(item.v))
     }
     return [...values].map(([time, micros]) => ({ time, micros }))
+  }
+
+  async prices(market: PublicMarket, interval: '1h' | '1d', from: number, to: number): Promise<Envelope<MarketPrices>> {
+    const step = interval === '1h' ? 3_600_000 : 86_400_000
+    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || from >= to || to - from > step * 2160)
+      throw Error('PERPL_CANDLES_RANGE_INVALID')
+    const values = new Map<number, string>()
+    let observedAt = Infinity,
+      block: number | null = null
+    for (let start = from; start < to; start += step * 1000) {
+      const end = Math.min(to, start + step * 1000)
+      const raw = await this.read<{ r: number; at: { b?: number; t: number }; d: Array<{ t: number; c: number }> }>(
+        `/v1/market-data/${market.id}/candles/${step / 1000}/${start}-${end}`,
+      )
+      if (
+        raw?.r !== step / 1000 ||
+        !Number.isSafeInteger(raw.at?.t) ||
+        raw.at.t < 0 ||
+        raw.at.t > Date.now() + 30_000 ||
+        !Array.isArray(raw.d) ||
+        raw.d.length > 1024 ||
+        (raw.at.b !== undefined && (!Number.isSafeInteger(raw.at.b) || raw.at.b <= 0))
+      )
+        throw Error('PERPL_CANDLES_INVALID')
+      if (raw.at.t < observedAt) {
+        observedAt = raw.at.t
+        block = raw.at.b ?? null
+      }
+      for (const item of raw.d) {
+        if (
+          !Number.isSafeInteger(item?.t) ||
+          item.t < 0 ||
+          item.t % step !== 0 ||
+          !Number.isSafeInteger(item.c) ||
+          item.c <= 0
+        )
+          throw Error('PERPL_CANDLES_INVALID')
+        if (item.t < from || item.t >= to) continue
+        const value = scaledText(BigInt(item.c), market.config.price_decimals)
+        if (values.has(item.t) && values.get(item.t) !== value) throw Error('PERPL_CANDLES_INVALID')
+        values.set(item.t, value)
+      }
+    }
+    const completedThrough = Math.min(to, observedAt, Date.now())
+    const points = []
+    for (let time = Math.ceil(from / step) * step; time < to; time += step)
+      points.push({
+        time: new Date(time).toISOString(),
+        value: time + step <= completedThrough ? (values.get(time) ?? null) : null,
+      })
+    return {
+      source: 'perpl_api',
+      asOf: new Date(observedAt).toISOString(),
+      block,
+      stale: Date.now() - observedAt > step + 30_000 || points.some((p) => p.value === null),
+      data: {
+        marketId: market.id,
+        interval,
+        from: new Date(from).toISOString(),
+        to: new Date(to).toISOString(),
+        points,
+      },
+    }
   }
 }

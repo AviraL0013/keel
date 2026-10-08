@@ -1,7 +1,9 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import type { AnalyticsResponses } from '../packages/analytics/src/contract.js'
+import { scaledText } from '../server/src/infrastructure/analytics/perpl-public.js'
 
-// Illustrative, synthetic fixtures. Values do not claim to be observed mainnet totals.
+// Illustrative synthetic fixtures, except the explicitly recorded BTC price response.
+const recorded = JSON.parse(await readFile('packages/analytics/fixtures/mainnet-public.json', 'utf8'))
 const asOf = '2026-10-07T12:00:00.000Z'
 const address = '0x1234567890abcdef1234567890abcdef12345678'
 const tx = `0x${'a'.repeat(64)}`
@@ -43,6 +45,22 @@ const market = {
   markPrice: '112500.0',
 } as const
 const fixtures: AnalyticsResponses = {
+  'GET /markets/:id/prices': {
+    asOf: new Date(recorded.candles.at.t).toISOString(),
+    block: recorded.candles.at.b,
+    source: 'perpl_api',
+    stale: true,
+    data: {
+      marketId: 1,
+      interval: '1h',
+      from: new Date(recorded.candles.d[0].t).toISOString(),
+      to: new Date(recorded.candles.d[0].t + 7200000).toISOString(),
+      points: recorded.candles.d.slice(0, 2).map((p: { t: number; c: number }) => ({
+        time: new Date(p.t).toISOString(),
+        value: scaledText(BigInt(p.c), 1),
+      })),
+    },
+  },
   'GET /protocol/summary': wrap({
     window: '24h',
     volume: value('1200000.000000', '1000000.000000'),

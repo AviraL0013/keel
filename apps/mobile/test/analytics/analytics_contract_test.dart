@@ -8,6 +8,26 @@ Object fixture(String name) =>
     jsonDecode(File('test/fixtures/analytics/_$name.json').readAsStringSync());
 
 void main() {
+  test(
+      'parses recorded candle prices and rejects numeric, negative and unordered values',
+      () {
+    final envelope = V1Envelope.fromJson(
+        fixture('markets_id_prices'), V1MarketPrices.fromJson);
+    expect(envelope.data.points.first.value, '85607.9');
+    expect(envelope.block, 111365948);
+    expect(envelope.stale, isTrue);
+    for (final value in [85607.9, '-1', '0']) {
+      final raw = fixture('markets_id_prices') as Map<String, dynamic>;
+      (raw['data']['points'][0] as Map<String, dynamic>)['value'] = value;
+      expect(() => V1Envelope.fromJson(raw, V1MarketPrices.fromJson),
+          throwsFormatException);
+    }
+    final raw = fixture('markets_id_prices') as Map<String, dynamic>;
+    raw['data']['points'] =
+        (raw['data']['points'] as List<dynamic>).reversed.toList();
+    expect(() => V1Envelope.fromJson(raw, V1MarketPrices.fromJson),
+        throwsFormatException);
+  });
   test('parses every published endpoint fixture and envelope', () {
     final summary = V1Envelope.fromJson(
         fixture('protocol_summary'), V1ProtocolSummary.fromJson);

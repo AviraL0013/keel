@@ -89,6 +89,13 @@ export interface MarketFunding {
   marketId: number
   points: FundingPoint[]
 }
+export interface MarketPrices {
+  marketId: number
+  interval: Interval
+  from: string
+  to: string
+  points: TimePoint[] // completed candle closes at candle open timestamps; missing/in-progress values are null
+}
 
 export interface Liquidation {
   id: string // block:transactionHash:logIndex
@@ -173,6 +180,7 @@ export interface AnalyticsResponses {
   'GET /markets': Envelope<{ items: MarketSummary[] }>
   'GET /markets/:id': Envelope<MarketDetail>
   'GET /markets/:id/funding': Envelope<MarketFunding>
+  'GET /markets/:id/prices': Envelope<MarketPrices>
   'GET /liquidations': Envelope<LiquidationPage>
   'GET /search': Envelope<WalletSearch>
   'GET /wallets/:address': Envelope<WalletProfile>

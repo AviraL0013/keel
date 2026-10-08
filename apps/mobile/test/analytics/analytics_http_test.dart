@@ -35,6 +35,20 @@ void main() {
     if (uri.path.endsWith('/markets/1/funding')) {
       return fixture('markets_id_funding');
     }
+    if (uri.path.endsWith('/markets/1/prices')) {
+      final raw = fixture('markets_id_prices');
+      final data = raw['data'] as Map<String, dynamic>;
+      data['from'] = uri.queryParameters['from'];
+      data['to'] = uri.queryParameters['to'];
+      data['interval'] = uri.queryParameters['interval'];
+      final from = DateTime.parse(data['from'] as String);
+      final to = DateTime.parse(data['to'] as String);
+      data['points'] = (data['points'] as List<dynamic>).where((point) {
+        final time = DateTime.parse(point['time'] as String);
+        return !time.isBefore(from) && time.isBefore(to);
+      }).toList();
+      return raw;
+    }
     if (uri.path.endsWith('/liquidations')) return fixture('liquidations');
     if (uri.path.endsWith('/search')) return fixture('search');
     if (uri.path.endsWith('/wallets/$address')) {
@@ -69,10 +83,14 @@ void main() {
 
   test('composes market, wallet, search and trade endpoints', () async {
     paths.clear();
-    final repository = HttpAnalyticsRepository(get);
+    final repository = HttpAnalyticsRepository(get,
+        now: () => DateTime.parse('2026-10-07T16:00:00.000Z'));
     final market = await repository.market('BTC', '24h');
     expect(market.fundingHistory.first.value, '0.0012');
-    expect(market.priceSeries, isEmpty); // Contract has no market price series.
+    expect(market.priceSeries.map((p) => p.value), ['85607.9', '85702.0']);
+    expect(market.stale, isTrue);
+    expect(paths.any((path) => path.contains('/markets/1/prices?interval=1h&')),
+        isTrue);
     expect(paths.any((path) => path.contains('/markets/1/funding?')), isTrue);
     final wallet = await repository.wallet(address);
     expect(wallet.margin.available, '8000.000000');
@@ -102,6 +120,35 @@ void main() {
     expect(wallet.margin.equity, isNull);
     expect(wallet.positions.first.unrealizedPnl, isNull);
     expect(wallet.positions.first.liquidationDistance, isNull);
+  });
+
+  test('refuses foreign price identity and leaves missing prices null',
+      () async {
+    for (final field in ['marketId', 'interval', 'from']) {
+      final repository = HttpAnalyticsRepository((path) async {
+        final raw = await get(path);
+        if (Uri.parse(path).path.endsWith('/prices')) {
+          final data =
+              (raw as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+          data[field] = switch (field) {
+            'marketId' => 2,
+            'interval' => '1d',
+            _ => '2026-01-01T00:00:00.000Z'
+          };
+        }
+        return raw;
+      });
+      await expectLater(repository.market('BTC', '24h'), throwsFormatException);
+    }
+    final repository = HttpAnalyticsRepository((path) async {
+      final raw = await get(path);
+      if (Uri.parse(path).path.endsWith('/prices')) {
+        (raw as Map<String, dynamic>)['data']['points'][0]['value'] = null;
+      }
+      return raw;
+    }, now: () => DateTime.parse('2026-10-07T16:00:00.000Z'));
+    expect((await repository.market('BTC', '24h')).priceSeries.first.value,
+        isNull);
   });
 
   test('keeps signed liquidation distance for a short past threshold',

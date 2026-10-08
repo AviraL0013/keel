@@ -183,7 +183,15 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
     final funding = await _request(
         '/markets/$id/funding?from=${Uri.encodeQueryComponent(from)}&to=${Uri.encodeQueryComponent(to)}',
         V1MarketFunding.fromJson);
-    if (detail.data.market.id != id || funding.data.marketId != id) {
+    final prices = await _request(
+        '/markets/$id/prices?interval=1h&from=${Uri.encodeQueryComponent(from)}&to=${Uri.encodeQueryComponent(to)}',
+        V1MarketPrices.fromJson);
+    if (detail.data.market.id != id ||
+        funding.data.marketId != id ||
+        prices.data.marketId != id ||
+        prices.data.interval != '1h' ||
+        _wireTime(prices.data.from) != from ||
+        _wireTime(prices.data.to) != to) {
       throw const FormatException('Mismatched market ID');
     }
     final liquidations = await _request(
@@ -191,8 +199,8 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
         V1LiquidationPage.fromJson);
     return AnalyticsMarketDetail(
         symbol,
-        detail.asOf,
-        const [],
+        prices.asOf.isBefore(detail.asOf) ? prices.asOf : detail.asOf,
+        prices.data.points.map((point) => point.toView()).toList(),
         detail.data.market.longSharePct,
         [
           for (final point in funding.data.points)
@@ -203,7 +211,10 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
             AnalyticsLiquidation(item.id, item.time, symbol, item.address,
                 item.side, item.notional)
         ],
-        stale: detail.stale || funding.stale || liquidations.stale);
+        stale: detail.stale ||
+            funding.stale ||
+            prices.stale ||
+            liquidations.stale);
   }
 
   @override

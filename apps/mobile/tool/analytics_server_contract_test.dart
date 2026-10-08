@@ -44,10 +44,13 @@ void main() {
               .firstWhere((item) => item.key == 'volume')
               .value,
           isNull);
-      final market = await repository.market('NEAR', '24h');
-      expect(market.symbol, 'NEAR');
-      expect(
-          market.priceSeries, isEmpty); // API v1 has no verified price history.
+      final market = await repository.market('BTC', '24h');
+      expect(market.symbol, 'BTC');
+      expect(market.priceSeries.first.at,
+          DateTime.parse('2026-10-06T18:00:00.000Z'));
+      expect(market.priceSeries.first.value, '85524.4');
+      expect(market.priceSeries.last.value, isNull);
+      expect(market.stale, isTrue);
       final wallet = await repository.wallet(address);
       expect(wallet.margin.balance, '1412227.132218');
       expect(wallet.margin.locked, '366352.546064');

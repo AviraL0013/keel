@@ -419,6 +419,33 @@ export function registerAnalyticsRoutes(
           ctx.stale || !meta.completeHistory,
         )
       })
+      routes.get<{ Params: { id: string }; Querystring: { interval?: string; from?: string; to?: string } }>(
+        '/markets/:id/prices',
+        routeConfig,
+        async (request, reply) => {
+          const id = numberParam(request.params.id, 0, 1, 2_147_483_647)
+          const interval = request.query.interval ?? '1h'
+          if (!intervals.has(interval)) throw fail('INVALID_INTERVAL')
+          const to = timeParam(request.query.to, Date.now())
+          const from = timeParam(request.query.from, to - 86_400_000)
+          const step = interval === '1h' ? 3_600_000 : 86_400_000
+          if (
+            from < 0 ||
+            from >= to ||
+            to > Date.now() ||
+            to - from > step * 2160 ||
+            to - from > (interval === '1h' ? 90 : 730) * 86_400_000
+          )
+            throw fail('INVALID_RANGE')
+          const ctx = await publicData.context()
+          const market = ctx.value.markets.find((item) => item.id === id)
+          if (!market) throw fail('MARKET_NOT_FOUND', 404)
+          reply.header('Cache-Control', 'public, max-age=60')
+          return cache.get(`prices:${id}:${interval}:${from}:${to}`, 60_000, () =>
+            publicData.prices(market, interval as '1h' | '1d', from, to),
+          )
+        },
+      )
       routes.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>(
         '/markets/:id/funding',
         routeConfig,

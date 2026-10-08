@@ -52,12 +52,17 @@ export async function createAnalyticsFixtureServer() {
         ? publicFixture.context
         : path.includes('/funding/')
           ? publicFixture.funding
-          : path.includes('/candles/')
+          : path.includes('/v1/market-data/1/candles/3600/')
             ? publicFixture.candles
             : undefined
       if (!value) throw new Error('UNEXPECTED_RECORDED_FETCH')
       return Response.json(value)
     })
+    // Only BTC hourly candles were recorded. Missing market/resolution data is
+    // unavailable, never another market's prices or volume.
+    const readVolumes = publicData.volumeCandles.bind(publicData)
+    publicData.volumeCandles = (market, interval, from, to) =>
+      market.id === 1 && interval === '1h' ? readVolumes(market, interval, from, to) : Promise.resolve([])
     // Persist one recorded block. This proves the decoder/database/API path;
     // it does not fabricate missing blocks or claim complete historical totals.
     const first = rawFixture.logs.reduce(

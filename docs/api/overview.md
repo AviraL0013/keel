@@ -1,5 +1,7 @@
 # API
 
+Public analytics adds `GET /analytics/v1/markets/:id/prices?interval=1h|1d&from=<UTC>&to=<UTC>` for completed candle closes. Values are exact decimal strings; missing or unfinished buckets are null. See [analytics v1](analytics-v1.md) for limits, freshness, provenance and the other read-only routes.
+
 Routes below match `server/src/interfaces/http/register.ts` as of 2026-09-28.
 
 Public status:
@@ -53,6 +55,7 @@ Connections, capital, and notifications (authenticated):
 - `GET /capital/agora-activity?cursor=<opaque>` (cursor optional; returns only the session wallet's records and an optional `nextCursor`)
 
 `/capital` reports wallet collateral token, Perpl free and locked balances, user-owned Book allocations, and a reserve-coverage warning as separate sources. Each source can independently be unavailable. Testnet wallet collateral is USD; mainnet is AUSD. Optional `AGORA_METRICS_ENABLED=true` adds a read-only global AUSD supply card. Agora activity is not a balance or a Perpl collateral credit; transaction hashes are shown as evidence, and matches stay advisory.
+
 - `POST /devices`
 - `GET /notifications`
 - `POST /notifications/:id/read`
