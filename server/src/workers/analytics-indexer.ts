@@ -62,7 +62,7 @@ export class AnalyticsIndexer {
   ) {}
 
   private async rpc<T>(
-    method: 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getLogs',
+    method: 'eth_chainId' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getLogs',
     params: unknown[],
   ): Promise<T> {
     const response = await fetch(this.config.rpcUrl, {
@@ -126,6 +126,9 @@ export class AnalyticsIndexer {
     return low
   }
   async step(): Promise<'indexed' | 'caught-up' | 'rewound'> {
+    const chain = await this.rpc<string>('eth_chainId', [])
+    if (typeof chain !== 'string' || !/^0x[0-9a-f]+$/i.test(chain) || BigInt(chain) !== 143n)
+      throw new Error('ANALYTICS_RPC_CHAIN_MISMATCH')
     const head = BigInt(await this.rpc<string>('eth_blockNumber', []))
     const checkpoint = await this.repo.initialize(await this.startBlock(head), this.config.historyVerified)
     const finalized = head - this.config.confirmationDepth
@@ -168,6 +171,13 @@ export class AnalyticsIndexer {
       const derived = decoded ? deriveEvent(decoded, markets) : null
       return { raw, decoded, derived }
     })
+    const boundary = await this.block(end)
+    const observedBoundary = blocks.find((block) => block.number === end)!
+    if (
+      boundary.hash.toLowerCase() !== observedBoundary.hash.toLowerCase() ||
+      boundary.timestamp.getTime() !== observedBoundary.timestamp.getTime()
+    )
+      throw new Error('ANALYTICS_CHUNK_REORG')
     await this.repo.saveChunk(blocks, logs, checkpoint.nextBlock, checkpoint.startBlock)
     return 'indexed'
   }

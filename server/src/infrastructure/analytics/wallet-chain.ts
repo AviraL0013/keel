@@ -6,6 +6,7 @@ import type { Envelope, Position, WalletProfile } from '../../../../packages/ana
 import { EXCHANGE } from '../../../../packages/analytics/src/decoder.js'
 import { exchangeReads } from '../../../../packages/analytics/src/exchange-reads.js'
 import { scaledText, type PublicContext, type PublicMarket } from './perpl-public.js'
+import { historicalAccountOwner } from './owner-proof.js'
 
 type AccountView = { accountId: bigint; balanceCNS: bigint; lockedBalanceCNS: bigint; accountAddr: string }
 type PositionView = {
@@ -95,6 +96,9 @@ export class WalletChainAnalytics {
   private blockTimes = new Map<string, string>()
   constructor(rpcUrl: string) {
     this.client = createPublicClient({ chain: monad, transport: http(rpcUrl, { timeout: 8000, retryCount: 0 }) })
+  }
+  ownerAt(accountId: bigint, blockNumber: bigint, expectedHash: string) {
+    return historicalAccountOwner(this.client, accountId, blockNumber, expectedHash)
   }
   async profile(address: string, context: PublicContext): Promise<Envelope<WalletProfile> | null> {
     const normalized = getAddress(address)

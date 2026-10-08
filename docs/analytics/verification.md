@@ -14,6 +14,14 @@ At `2026-10-07T17:05:52Z`, Perpl public context reported BTC 24h volume of `11,7
 
 A finalized public view call for an observed wallet returned balance `1,412,452.711716` AUSD and 11 open positions at block `111379026`. A separate 20-block Exchange log query returned 25 events, of which four were derived maker fills. These checks establish connectivity and decoder behavior for a small sample, not full historical completeness.
 
+## Read-only comparison, 2026-10-08
+
+At `2026-10-08T08:13:57.337Z`, unsigned Perpl context at block `111559471` reported BTC 24-hour volume `12,445,852.544367` AUSD. The separate request returned 24 hourly candles totaling `11,892,643.636495` AUSD, lower by `553,208.907872` AUSD. Request edges, response observations and rolling-window definitions differ; the exact source of this discrepancy is unverified. These figures are not a reconciliation or a complete archive proof.
+
+The configured analytics RPC was absent, so the documented public Monad RPC was used for this recent read. Wallet view at head-minus-12 block `111559479` returned balance `1,405,007.410891` AUSD and 11 open positions. The unsigned 21-block range `111559462`–`111559482` returned 68 raw Exchange events and 18 derived maker fills, with no observed collateral flow event. This confirms a small recent sample only, not zero daily flows. No history was written to production, and no signed Perpl request, transaction or order was sent.
+
+The new offline recovery test replays 1,000 **synthetic transport blocks** with the existing recorded logs, including a failed chunk, restart and 64-block rewind. It proves checkpoint and idempotency mechanics. Synthetic intervening headers/ranges do not establish continuous mainnet coverage, RPC throughput or a complete historical replay. Wrong-chain and mid-read boundary reorg failures were reproduced before adding chain checks and the final boundary reread.
+
 ## Latency
 
 The offline cached `/markets` load check ran 400 requests at concurrency 20 with p95 `3.81 ms`, under the documented local target of 250 ms. It excludes network and cold database latency. Production p95 and a complete 7 to 30 day backfill are unverified.
