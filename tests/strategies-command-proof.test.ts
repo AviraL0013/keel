@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { reconcileStrategyIntent, type StrategyOrderEvidence } from '../packages/strategies/src/order-reconciliation.js'
+import {
+  reconcileStrategyIntent,
+  strategyHistoryLowerBound,
+  type StrategyOrderEvidence,
+} from '../packages/strategies/src/order-reconciliation.js'
 import type { VerifiedStrategyOperation } from '../packages/perpl/src/strategy-receipts.js'
 
 const hash = `0x${'a'.repeat(64)}`
@@ -77,6 +81,44 @@ const evidence = (): StrategyOrderEvidence => ({
 })
 
 describe('durable strategy command proof', () => {
+  it('bounds history only by a fully validated durable admission, never by lb or an unproved target', () => {
+    expect(strategyHistoryLowerBound(intent)).toBeUndefined()
+    expect(strategyHistoryLowerBound({ ...intent, previousIdentity: operation.identity })).toBeUndefined()
+    expect(strategyHistoryLowerBound({ ...intent, previousAdmission: operation })).toBe(110)
+    for (const changed of [
+      { priceRaw: '991' },
+      { accountId: 643 },
+      { lastExecutionBlock: 121 },
+      { block: 121 },
+      { identity: { ...operation.identity!, creationBlock: 119 } },
+    ])
+      expect(strategyHistoryLowerBound({ ...intent, previousAdmission: { ...operation, ...changed } })).toBeUndefined()
+    for (const kind of ['CHANGE', 'CANCEL'] as const) {
+      const order = {
+        ...intent.order,
+        oid: 75,
+        t: kind === 'CHANGE' ? 7 : 5,
+        fl: 0 as const,
+        p: kind === 'CHANGE' ? 990 : 0,
+        s: kind === 'CHANGE' ? 100 : 0,
+      }
+      const command = { ...intent, requestId: '46', kind, order, venueOrderId: 75, targetIdentity: operation.identity }
+      expect(strategyHistoryLowerBound(command)).toBeUndefined()
+      const prior = {
+        ...operation,
+        requestId: '46',
+        type: order.t,
+        orderId: '75',
+        block: 119,
+        txHash: `0x${'b'.repeat(64)}`,
+        sizeRaw: String(order.s),
+        priceRaw: String(order.p),
+        postOnly: false,
+        outcome: kind === 'CHANGE' ? ('CHANGED' as const) : ('CANCELED' as const),
+      }
+      expect(strategyHistoryLowerBound({ ...command, previousAdmission: prior })).toBe(110)
+    }
+  })
   it('never accepts an API order borrowing a reused contract slot from another placement lifetime', () => {
     const value = evidence()
     value.snapshot = [{ ...open, rq: '99', c: { b: 111, tx: 0, txid: 'b'.repeat(64) }, scid: 75 }]

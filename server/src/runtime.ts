@@ -22,7 +22,10 @@ import { ExecutionWorker } from './workers/execution-worker.js'
 import { StrategyWorker, PerplPaperFeed } from './workers/strategy-worker.js'
 import { StrategyStore } from './infrastructure/strategies/store.js'
 import { StrategyOrderRecovery } from './infrastructure/strategies/order-recovery.js'
-import type { StrategyOrderEvidence, StrategyOrderIntent } from '../../packages/strategies/src/order-reconciliation.js'
+import type {
+  StrategyOrderEvidence,
+  StrategyCommandIntent,
+} from '../../packages/strategies/src/order-reconciliation.js'
 import { MonitorScheduler } from './lifecycle.js'
 import { ConflictError, NotFoundError, PolicyRejectedError } from './application/errors.js'
 import { executionDisabled as isExecutionDisabled, logger } from './config/index.js'
@@ -65,7 +68,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     beforeSend: (reference: string, lb: number) => Promise<void>,
     verifyBeforeSend?: () => Promise<void>,
   ): Promise<PerplSubmitResult>
-  strategyOrderEvidence?(intent: StrategyOrderIntent): Promise<StrategyOrderEvidence>
+  strategyOrderEvidence?(intent: StrategyCommandIntent): Promise<StrategyOrderEvidence>
   reconcileOpening?(intent: {
     accountId: number
     marketId: number

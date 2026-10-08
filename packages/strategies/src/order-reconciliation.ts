@@ -50,6 +50,23 @@ export type StrategyCommandIntent = StrategyOrderIntent &
     previousAdmission?: VerifiedStrategyOperation
   }
 
+/** Only a previously validated durable command can shorten a history scan.
+ * lb is a latest-execution deadline, never a lower history boundary.
+ * New commands and an unproved target still require the complete candidate scan.
+ */
+export function strategyHistoryLowerBound(intent: StrategyCommandIntent): number | undefined {
+  if (!intent.previousAdmission) return undefined
+  const resolved = reconcileStrategyIntent(intent, { snapshotReady: false, snapshot: [], history: [], operations: [] })
+  const saved = resolved.admission
+  if (
+    saved !== intent.previousAdmission ||
+    !validStrategyOrderIdentity(saved?.identity) ||
+    saved.identity.creationBlock > saved.block
+  )
+    return undefined
+  return saved.identity.creationBlock
+}
+
 const compareStamp = (a: WireOrder, b: WireOrder) => {
   for (const key of ['b', 'tx', 'l', 't'] as const) {
     const delta = (a.at[key] ?? 0) - (b.at[key] ?? 0)

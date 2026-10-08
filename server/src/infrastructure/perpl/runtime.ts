@@ -12,6 +12,7 @@ import {
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
+import { strategyHistoryLowerBound } from '../../../../packages/strategies/src/order-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
 import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
@@ -713,7 +714,7 @@ export function createPerplRuntime(
         intent.requestId,
         intent.marketId,
         intent.venueOrderId,
-        undefined,
+        strategyHistoryLowerBound(intent),
         {
           contractMarketId: intent.contractMarketId,
           targetIdentity: intent.targetIdentity,

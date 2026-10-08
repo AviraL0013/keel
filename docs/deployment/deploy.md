@@ -6,30 +6,30 @@ Deploy exactly **one backend instance** per environment. Perpl allows four tradi
 
 ## Live testnet
 
-The following describes the existing single-operator deployment. The candidate per-user release uses `EYELER_PERPL_ACCOUNT_MODE=per-user`, removes shared Perpl API credentials, and requires [AWS KMS custody](aws-kms.md) on deployed testnet and mainnet. Do not enable it until the [product release checklist](../product/end-to-end-delivery.md) and operator handover pass. DevelopmentKeyCustody is no longer permitted on deployed networks.
+The following describes the existing single-operator deployment. The candidate per-user release uses `EYELER_PERPL_ACCOUNT_MODE=per-user` and removes shared Perpl API credentials. Mainnet requires [AWS KMS custody](aws-kms.md); deployed testnet also permits explicitly configured versioned Railway custody, never development custody. Do not enable it until the [product release checklist](../product/end-to-end-delivery.md) and operator handover pass. The current [Perpl rollout](perpl-product-rollout.md) lists release blockers and approval checkpoints.
 
 Set these on the backend host:
 
-| Variable | Purpose |
-| --- | --- |
-| `EYELER_ENV=testnet` | Enables testnet startup checks. |
-| `PORT` | Listener and container healthcheck port; defaults to `8787`. |
-| `DATABASE_URL` | Persistent PostgreSQL connection string; back up this database. |
-| `SESSION_SECRET` | Random server-side secret, not the development default. |
-| `EYELER_ALLOWED_WALLETS` | Exactly **one** wallet when live Perpl credentials are set. `MONAD_WALLET_ADDRESS` can supply the fallback. Multiple wallets fail startup until per-user trading exists. |
-| `CORS_ORIGIN` | Exact allowed Flutter web origin or comma-separated origins. |
-| `PERPL_REST_URL`, `PERPL_WS_URL`, `PERPL_CHAIN_ID` | Testnet venue endpoints and chain ID. |
-| `PERPL_API_KEY`, `PERPL_API_KEY_SECRET`, `PERPL_ACCOUNT_ID` | Server-side Perpl trading account credentials. Never expose them in Flutter. |
-| `MONAD_RPC_URL`, `MONAD_CHAIN_ID`, `AUSD_TOKEN_ADDRESS` | Chain and AUSD read-only evidence. |
-| `EYELER_EXECUTION_DISABLED` | Set `true` for an emergency stop on all new manual and automated submissions; existing actions still reconcile. Default `false`. |
-| `EYELER_TICK_STALE_MS` | `/ready` rejects a stalled monitor tick after this many milliseconds; default `15000`. |
-| `EYELER_SAFE_MODE_RESUME_TICKS` | Fresh consecutive ticks before transient data/venue SAFE_MODE resumes; default `5`. |
-| `EYELER_SNAPSHOT_FULL_HOURS` | Keep full-resolution risk snapshots this long; default `48`. |
-| `EYELER_SNAPSHOT_ARCHIVE_DAYS` | Keep one snapshot per Book per minute until this age; default `30`. Must exceed the full-resolution window. |
-| `EYELER_SNAPSHOT_RETENTION_BATCH_SIZE` | Maximum snapshot deletions per background pass; default `1000`. |
-| `EYELER_SNAPSHOT_RETENTION_INTERVAL_MS` | Time between retention passes; default `60000`. |
+| Variable                                                    | Purpose                                                                                                                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EYELER_ENV=testnet`                                        | Enables testnet startup checks.                                                                                                                                          |
+| `PORT`                                                      | Listener and container healthcheck port; defaults to `8787`.                                                                                                             |
+| `DATABASE_URL`                                              | Persistent PostgreSQL connection string; back up this database.                                                                                                          |
+| `SESSION_SECRET`                                            | Random server-side secret, not the development default.                                                                                                                  |
+| `EYELER_ALLOWED_WALLETS`                                    | Exactly **one** wallet when live Perpl credentials are set. `MONAD_WALLET_ADDRESS` can supply the fallback. Multiple wallets fail startup until per-user trading exists. |
+| `CORS_ORIGIN`                                               | Exact allowed Flutter web origin or comma-separated origins.                                                                                                             |
+| `PERPL_REST_URL`, `PERPL_WS_URL`, `PERPL_CHAIN_ID`          | Testnet venue endpoints and chain ID.                                                                                                                                    |
+| `PERPL_API_KEY`, `PERPL_API_KEY_SECRET`, `PERPL_ACCOUNT_ID` | Server-side Perpl trading account credentials. Never expose them in Flutter.                                                                                             |
+| `MONAD_RPC_URL`, `MONAD_CHAIN_ID`, `AUSD_TOKEN_ADDRESS`     | Chain and AUSD read-only evidence.                                                                                                                                       |
+| `EYELER_EXECUTION_DISABLED`                                 | Set `true` for an emergency stop on all new manual and automated submissions; existing actions still reconcile. Default `false`.                                         |
+| `EYELER_TICK_STALE_MS`                                      | `/ready` rejects a stalled monitor tick after this many milliseconds; default `15000`.                                                                                   |
+| `EYELER_SAFE_MODE_RESUME_TICKS`                             | Fresh consecutive ticks before transient data/venue SAFE_MODE resumes; default `5`.                                                                                      |
+| `EYELER_SNAPSHOT_FULL_HOURS`                                | Keep full-resolution risk snapshots this long; default `48`.                                                                                                             |
+| `EYELER_SNAPSHOT_ARCHIVE_DAYS`                              | Keep one snapshot per Book per minute until this age; default `30`. Must exceed the full-resolution window.                                                              |
+| `EYELER_SNAPSHOT_RETENTION_BATCH_SIZE`                      | Maximum snapshot deletions per background pass; default `1000`.                                                                                                          |
+| `EYELER_SNAPSHOT_RETENTION_INTERVAL_MS`                     | Time between retention passes; default `60000`.                                                                                                                          |
 
-Set all six `PERPL_*` live settings together. Partial settings fail startup. Check Perpl's separate on-chain order-forwarding permission before arming automation. Keep `PERPL_ENROLLMENT_ORIGIN` and `EYELER_KEY_ENCRYPTION_KEY` unset until Perpl whitelists the exact origin. Per-user enrollment is a backend foundation; Books still use the server-wide key. Optional Agora reads use server-side `AGORA_API_KEY`; no Agora transfer scope is needed.
+In operator mode, set the complete shared `PERPL_*` credential profile together. Partial settings fail startup. Check Perpl's separate on-chain order-forwarding permission before arming automation. Keep development custody keys unset on deployed networks. In per-user mode, Books use their verified user-owned connection and scoped credentials; do not configure a shared operator key. Enrollment requires the exact approved origin for that environment. Optional Agora reads use server-side `AGORA_API_KEY`; no Agora transfer scope is needed.
 
 `EYELER_KEY_TTL_DAYS`, `EYELER_EGRESS_CIDRS`, `EYELER_BUILDER_ID` and `EYELER_MAX_BUILDER_FEE_PER_100K` apply only to the backend Perpl enrollment foundation; leave them unset for the first deploy. `EYELER_*` configuration still accepts the corresponding `KEEL_*` name during the rebrand. Do not set both names to different values.
 
