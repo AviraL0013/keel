@@ -116,7 +116,9 @@ export async function assertAccountCapitalCoverage(
      WHERE account_id=$1 AND environment=$2 AND ($3::uuid IS NULL OR id<>$3)
        AND status IN ('QUEUED','SUBMITTING','SUBMITTED','VERIFYING','UNKNOWN')
      UNION ALL
-     SELECT capital::text FROM strategies WHERE account_id=$1 AND environment=$2 AND mode='LIVE'`,
+     SELECT (CASE WHEN a.status='RELEASED' THEN 0 ELSE COALESCE(a.amount,s.capital) END)::text
+     FROM strategies s LEFT JOIN strategy_capital_allocations a ON a.strategy_id=s.id
+     WHERE s.account_id=$1 AND s.environment=$2 AND s.mode='LIVE'`,
     [binding.account_id, binding.environment, excludeOpeningId ?? null],
   )
   let promised = 0n

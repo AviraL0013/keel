@@ -629,12 +629,30 @@ async function proveStrategyFillConcurrency(db: pg.Pool, observer: pg.Pool) {
   const first = new StrategyFillLedger(db, 'testnet', exchange, { read }),
     second = new StrategyFillLedger(observer, 'testnet', exchange, { read })
   const last = { ...vector.candidate, s: 70, at: { b: 113, tx: 0, l: 0, txid: hash(11300).slice(2) } }
+  // Capital locks strategy before order. A waiting fill writer must follow the
+  // same order, leaving the order row available to the capital transaction.
+  const blocker = await observer.connect()
+  let heldFill: Promise<unknown> | undefined
+  try {
+    await blocker.query('BEGIN')
+    await blocker.query('SELECT id FROM strategies WHERE id=$1 FOR UPDATE', [strategy])
+    heldFill = first.ingest(owner.user_id, order, vector.candidate)
+    await waitForLock(observer, 'eyeler_fixture_books')
+    await blocker.query('SELECT id FROM strategy_orders WHERE id=$1 FOR UPDATE NOWAIT', [order])
+    await blocker.query('COMMIT')
+    assert.deepEqual(await heldFill, { inserted: true })
+    console.log('PASS strategy-before-order lock sequence prevents capital/ledger inversion')
+  } finally {
+    await blocker.query('ROLLBACK')
+    blocker.release()
+    await Promise.allSettled([heldFill])
+  }
   const results = await Promise.all([
     first.ingest(owner.user_id, order, last),
     second.ingest(owner.user_id, order, vector.candidate),
     second.ingest(owner.user_id, order, last),
   ])
-  assert.equal(results.filter((r) => r.inserted).length, 2)
+  assert.equal(results.filter((r) => r.inserted).length, 1)
   const saved = (await observer.query('SELECT status,filled_size::text FROM strategy_orders WHERE id=$1', [order]))
     .rows[0]
   assert.deepEqual(saved, { status: 'FILLED', filled_size: '0.100000000000000000' })

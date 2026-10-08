@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import Decimal from 'decimal.js'
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import type { WireFill } from '../../../../packages/perpl/src/decoder.js'
 import {
   advanceStrategySlot,
@@ -93,6 +93,23 @@ export class StrategyFillLedger {
     if (!/^0x[0-9a-f]{40}$/i.test(exchange)) throw Error('STRATEGY_FILL_EXCHANGE_INVALID')
   }
 
+  private async lockIntent(client: PoolClient, row: Row, userId: string): Promise<Row | undefined> {
+    // Match capital's strategy-before-order sequence. A joined FOR UPDATE can
+    // acquire the order first and deadlock with a capital reservation/release.
+    const owner = await client.query(
+      'SELECT id FROM strategies WHERE id=$1 AND user_id=$2 AND environment=$3 FOR UPDATE',
+      [row.strategy_id, userId, this.environment],
+    )
+    if (!owner.rows.length) return undefined
+    return (
+      await client.query<Row>(
+        `SELECT o.*,s.user_id,s.mode FROM strategy_orders o JOIN strategies s ON s.id=o.strategy_id
+        WHERE o.id=$1 AND s.id=$4 AND s.user_id=$2 AND o.environment=$3 FOR UPDATE OF o`,
+        [row.id, userId, this.environment, row.strategy_id],
+      )
+    ).rows[0]
+  }
+
   async ingest(userId: string, orderId: string, candidate: WireFill): Promise<{ inserted: boolean }> {
     const sql = `SELECT o.*,s.user_id,s.mode FROM strategy_orders o JOIN strategies s ON s.id=o.strategy_id
       WHERE o.id=$1 AND s.user_id=$2 AND o.environment=$3`
@@ -144,7 +161,7 @@ export class StrategyFillLedger {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
-      const locked = (await client.query<Row>(sql + ' FOR UPDATE OF o,s', [orderId, userId, this.environment])).rows[0]
+      const locked = await this.lockIntent(client, row, userId)
       let currentIdentity: string | undefined
       try {
         if (locked) currentIdentity = intentIdentity(locked, admission(locked))
@@ -220,14 +237,7 @@ export class StrategyFillLedger {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
-      const locked = (
-        await client.query<Row>(
-          `SELECT o.*,s.user_id,s.mode FROM strategy_orders o
-        JOIN strategies s ON s.id=o.strategy_id WHERE o.id=$1 AND s.user_id=$2 AND o.environment=$3
-        FOR UPDATE OF o,s`,
-          [row.id, userId, this.environment],
-        )
-      ).rows[0]
+      const locked = await this.lockIntent(client, row, userId)
       let current: string | undefined
       try {
         if (locked) current = intentIdentity(locked, admission(locked))
