@@ -57,6 +57,8 @@ void main() {
       expect(wallet.margin.available, '1045874.586154');
       expect(wallet.positions.single.unrealizedPnl, '-1.609876');
       expect(wallet.positions.single.side, 'short');
+      expect(wallet.positions.single.entry, '5.15296234588623046875');
+      expect(wallet.margin.equity, isNull);
       expect(wallet.positions.single.liquidationPrice, isNull);
       expect(wallet.performance.winRate, isNull);
       expect(wallet.stale, isTrue);

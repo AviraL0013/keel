@@ -22,6 +22,12 @@ The configured analytics RPC was absent, so the documented public Monad RPC was 
 
 The new offline recovery test replays 1,000 **synthetic transport blocks** with the existing recorded logs, including a failed chunk, restart and 64-block rewind. It proves checkpoint and idempotency mechanics. Synthetic intervening headers/ranges do not establish continuous mainnet coverage, RPC throughput or a complete historical replay. Wrong-chain and mid-read boundary reorg failures were reproduced before adding chain checks and the final boundary reread.
 
+## Finalized wallet and entry precision regressions, 2026-10-08
+
+Fake-RPC tests now prove one finalized snapshot, address/ID roundtrips, matching account bitmaps, canonical hash rereads, source timestamps, cache freshness, context changes, wrong-chain/finality refusal and incomplete position coverage. SDK-derived bitmap vectors cover bank-one non-position bits, wrong membership and the 253 boundary. Equity includes position collateral; unavailable balance clamps at zero when order locks exceed account balance. Recorded market-100 short entry is `5.15296234588623046875`, preserving Q16 residue instead of truncating to `5.1529`. The recorded payload contains one position while its account bitmap contains eleven; whole-wallet equity is therefore unavailable. The Node-to-Flutter loopback test retains the exact entry and null equity.
+
+These are offline correctness checks, not a new verified mainnet RPC snapshot. The old payload has no snapshot-block hash; its entry-block hash is not substituted for that missing proof. The finalized transport fixture uses synthetic headers. An initial red test accidentally constructed the real transport against `rpc.invalid` because the injected client did not exist yet; DNS failed with `ENOTFOUND`. The harness now forbids global fetch and asserts it was never called. No credentials or real venue action were involved.
+
 ## Latency
 
 The offline cached `/markets` load check ran 400 requests at concurrency 20 with p95 `3.81 ms`, under the documented local target of 250 ms. It excludes network and cold database latency. Production p95 and a complete 7 to 30 day backfill are unverified.

@@ -31,7 +31,13 @@ export async function createAnalyticsFixtureServer() {
       capturedAt: string
       blockNumber: string
       entryBlock: { number: string; timestamp: string; openedAt: string }
-      account: { accountId: string; balanceCNS: string; lockedBalanceCNS: string; accountAddr: string }
+      account: {
+        accountId: string
+        balanceCNS: string
+        lockedBalanceCNS: string
+        accountAddr: string
+        positions: { bank1: string; bank2: string; bank3: string; bank4: string }
+      }
       position: [
         {
           accountId: string
@@ -41,6 +47,7 @@ export async function createAnalyticsFixtureServer() {
           lotLNS: string
           entryBlock: string
           pnlCNS: string
+          priceResiduePNSQ16: string
         },
         string,
         boolean,
@@ -88,6 +95,12 @@ export async function createAnalyticsFixtureServer() {
       accountId: BigInt(walletFixture.account.accountId),
       balanceCNS: BigInt(walletFixture.account.balanceCNS),
       lockedBalanceCNS: BigInt(walletFixture.account.lockedBalanceCNS),
+      positions: {
+        bank1: BigInt(walletFixture.account.positions.bank1),
+        bank2: BigInt(walletFixture.account.positions.bank2),
+        bank3: BigInt(walletFixture.account.positions.bank3),
+        bank4: BigInt(walletFixture.account.positions.bank4),
+      },
     }
     const sourcePosition = walletFixture.position[0]
     const position = {
@@ -98,6 +111,7 @@ export async function createAnalyticsFixtureServer() {
       lotLNS: BigInt(sourcePosition.lotLNS),
       entryBlock: BigInt(sourcePosition.entryBlock),
       pnlCNS: BigInt(sourcePosition.pnlCNS),
+      priceResiduePNSQ16: BigInt(sourcePosition.priceResiduePNSQ16),
     }
     const market = publicFixture.context.markets.find((item) => item.id === 100)!
     if (
