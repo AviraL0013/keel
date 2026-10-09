@@ -256,7 +256,7 @@ class AnalyticsPanel extends StatelessWidget {
       );
 }
 
-class AnalyticsChart extends StatelessWidget {
+class AnalyticsChart extends StatefulWidget {
   const AnalyticsChart({
     super.key,
     required this.points,
@@ -267,19 +267,70 @@ class AnalyticsChart extends StatelessWidget {
   final Color color;
   final double height;
   @override
+  State<AnalyticsChart> createState() => _AnalyticsChartState();
+}
+
+class _AnalyticsChartState extends State<AnalyticsChart> {
+  int? selectedIndex;
+
+  @override
+  void didUpdateWidget(covariant AnalyticsChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.points != widget.points) selectedIndex = null;
+  }
+
+  void select(double x, double width) {
+    if (width <= 0 || widget.points.isEmpty) return;
+    final index = widget.points.length == 1
+        ? 0
+        : (x / width * (widget.points.length - 1))
+            .round()
+            .clamp(0, widget.points.length - 1)
+            .toInt();
+    setState(() =>
+        selectedIndex = widget.points[index].value == null ? null : index);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (points.isEmpty) {
+    if (widget.points.isEmpty) {
       return const SizedBox(
         height: 100,
         child: Center(child: Text('No chart data')),
       );
     }
-    return SizedBox(
-      height: height,
-      width: double.infinity,
-      child: CustomPaint(
-        painter: _LinePainter(points, color, Theme.of(context).dividerColor),
-      ),
+    final selected =
+        selectedIndex == null ? null : widget.points[selectedIndex!];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: widget.height,
+          width: double.infinity,
+          child: LayoutBuilder(
+            builder: (context, constraints) => GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (details) =>
+                  select(details.localPosition.dx, constraints.maxWidth),
+              child: CustomPaint(
+                painter: _LinePainter(widget.points, widget.color,
+                    Theme.of(context).dividerColor),
+              ),
+            ),
+          ),
+        ),
+        if (selected != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                '${analyticsLocalTime(selected.at, context)} · ${selected.value}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
