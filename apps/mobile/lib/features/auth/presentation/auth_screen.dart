@@ -369,6 +369,9 @@ class _EnvironmentCard extends StatelessWidget {
                                   .textTheme
                                   .bodyMedium
                                   ?.color)),
+                      if (value.demoAllowlist)
+                        const Text('Demo (allowlisted)',
+                            style: EyelerTypography.label),
                     ]),
                 loading: () => const Text('CONNECTING TO EYELER...'),
                 error: (_, __) => const Text('EYELER SERVER UNAVAILABLE'),

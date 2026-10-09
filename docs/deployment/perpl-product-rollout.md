@@ -1,18 +1,18 @@
 # Perpl product rollout and rollback
 
-This runbook is preparation only. The feature branch is unmerged and undeployed. LIVE strategy accounting/controller/cancellation and complete analytics coverage remain unfinished; flags cannot substitute for that work. Do not execute a rollout from this document until the release blockers and all operator checkpoints are satisfied.
+This runbook is preparation only. Agora readiness and guarded Perpl product code are merged on main `0830d19`; production remains testnet operator mode because feature variables are absent. LIVE strategy accounting/controller/cancellation and complete analytics coverage remain unfinished; flags cannot substitute for that work. Do not execute a mainnet rollout until release blockers and operator checkpoints are satisfied.
 
 ## Checkpoints and release blockers
 
 1. Finish exact account/perpetual attribution, verified funding/settlement, safe transmitted-capital release, owned cancellation, restart and lease handover. Keep LIVE unmounted until integrated fake-engine tests prove these paths.
 2. Finish required mobile views and recorded screenshots with matching Linux Flutter evidence. Verify the exact candidate's five CI jobs; an older green run is insufficient. GitHub access returned 403 during this task, so newer runs are unverified.
 3. Complete the [phone script](../product/phone-flow-test.md) through the read-only wallet checkpoint. Do not fund, activate or trade as a smoke test.
-4. **Checkpoint A:** obtain only AWS region, immutable KMS key ARN, runtime role ARN and description of the runtime access setup. The operator creates resources. Never request secret keys, credential files or identity tokens in chat. Role ARN alone is not runtime authentication. The present local tests use fake KMS and make no real AWS calls.
-5. Prove runtime identity, KMS startup canary, denied-context decrypt, old-key restore and audit retention in an approved nonproduction environment. No AWS call is authorized solely by receiving metadata.
-6. **Checkpoint B:** obtain explicit merge and deploy approval for a concrete SHA and reviewed settings. Merge teammate's Mera/Agora work first if it has not already reached main; rebase this feature, rerun every gate and verify CI. Use `--no-ff`; never force-push main.
+4. For the allowlisted team demo, use the explicit Railway-secret envelope mode after the phone and configuration checkpoint. No AWS KMS metadata is needed now. Public access still requires KMS. Never request secret values in chat.
+5. Prove the Railway key startup canary, denied-context decrypt and old-version restore with nonproduction fixtures. Retain old key versions for rows and backups. No real Railway variable change is authorized solely by local tests.
+6. **Checkpoint B:** obtain explicit mainnet configuration/deploy approval for a concrete SHA and reviewed settings. Agora and guarded Perpl code have already merged. Re-run every gate and verify CI for further completion merges; use `--no-ff`, never force-push main.
 7. **Checkpoint C:** obtain wallet/account, capital and loss limits plus separate explicit real-trading permission. Configure and review limits without sending orders. No automated opening or bounty trade is permitted before that approval.
 
-Mera tip `9e6ca3d` is an ancestor of the fetched main `481e87b`. All five commits on the older opening tip `8b8eaf4` are patch-equivalent to main. This is local Git evidence, not a deployment claim. Fetch again before any approved merge; rebase if main has moved while preserving both sides' behavior.
+Agora readiness `b3ad5bb` merged as `c599598`; Perpl product merged as `0830d19`. Main CI passed all five validation jobs and deploy_web for both merges. Production configuration remains separate from code deployment. Fetch again before any later merge and preserve both sides' behavior.
 
 ## Backend variable names
 
@@ -24,7 +24,7 @@ Values belong only in the host's secure settings. Keep production secrets out of
 | Account/access                                    | `EYELER_PERPL_ACCOUNT_MODE`, `EYELER_ACCESS_MODE`, `EYELER_ALLOWED_WALLETS`, `MONAD_WALLET_ADDRESS`                                                                                                                |
 | Venue/network                                     | `PERPL_REST_URL`, `PERPL_WS_URL`, `PERPL_CHAIN_ID`, `MONAD_RPC_URL`, `MONAD_CHAIN_ID`, `AUSD_TOKEN_ADDRESS`                                                                                                        |
 | Enrollment                                        | `PERPL_ENROLLMENT_ORIGIN`, `EYELER_KEY_TTL_DAYS`, `EYELER_EGRESS_CIDRS`, `EYELER_BUILDER_ID`, `EYELER_MAX_BUILDER_FEE_PER_100K`                                                                                    |
-| KMS                                               | `EYELER_KEY_CUSTODY`, `AWS_REGION`, `EYELER_KMS_KEY_ARN`, `EYELER_KMS_DECRYPT_KEY_ARNS`                                                                                                                            |
+| Credential custody                                | `EYELER_KEY_CUSTODY`, `EYELER_DEMO_CUSTODY_KEYS`, `EYELER_DEMO_CUSTODY_ACTIVE_VERSION`; or KMS: `AWS_REGION`, `EYELER_KMS_KEY_ARN`, `EYELER_KMS_DECRYPT_KEY_ARNS`                                                  |
 | Web-identity access, only when actually supported | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`                                                                                                                                                                      |
 | Execution controls                                | `EYELER_EXECUTION_DISABLED`, `EYELER_OPENING_ENABLED`, `EYELER_STRATEGIES_ENABLED`, `EYELER_STRATEGIES_LIVE_ENABLED`, `EYELER_TEST_VENUE`                                                                          |
 | Freshness/recovery                                | `EYELER_OPENING_PREVIEW_TTL_MS`, `EYELER_ORDER_VERIFY_TIMEOUT_MS`, `EYELER_SAFE_MODE_RESUME_TICKS`, `EYELER_TICK_STALE_MS`                                                                                         |
@@ -35,7 +35,7 @@ Values belong only in the host's secure settings. Keep production secrets out of
 
 Use canonical `EYELER_` names consistently. Some legacy `KEEL_` aliases remain supported; do not set conflicting aliases. `EYELER_PERPL_CONNECTION_ID` is an internal server-scoping value, not a user-selected shared connection. Shared `PERPL_API_KEY`, `PERPL_API_KEY_SECRET` and `PERPL_ACCOUNT_ID` are operator-only and must be absent in mainnet per-user mode.
 
-Mainnet requires `aws-kms` and a successful startup probe. Development custody variables `EYELER_KEY_ENCRYPTION_KEY`/`KEEL_KEY_ENCRYPTION_KEY` are forbidden on deployed networks. Deployed testnet may instead use versioned `railway-testnet` custody with `EYELER_TESTNET_CUSTODY_KEYS` and `EYELER_TESTNET_CUSTODY_ACTIVE_VERSION`; this is never a mainnet fallback. See [KMS](aws-kms.md) and [credentials](credentials.md) for binding, rotation and fail-closed behavior.
+Mainnet per-user `railway-allowlist-demo` requires explicit `EYELER_ACCESS_MODE=allowlist`, a nonempty team-wallet allowlist and a successful envelope startup probe. Public mode or operator mode cannot use it; public access requires AWS KMS. Development custody variables `EYELER_KEY_ENCRYPTION_KEY`/`KEEL_KEY_ENCRYPTION_KEY` are forbidden on deployed networks. Deployed testnet may use its separate versioned `railway-testnet` custody with `EYELER_TESTNET_CUSTODY_KEYS` and `EYELER_TESTNET_CUSTODY_ACTIVE_VERSION`. See [mainnet plan](mainnet-bounty.md), [KMS](aws-kms.md) and [credentials](credentials.md).
 
 ## Public build definitions and Vercel
 
@@ -45,7 +45,7 @@ Keep `app.eyeler.xyz` as the approved mainnet enrollment origin/RP ID. Move the 
 
 ## Service and migration order
 
-1. Review backup/restore, retained KMS access and pending orders before any deployment. Preserve the testnet service/database and its operator allowlist.
+1. Review backup/restore, retained wrapping-key versions and pending orders before any deployment. Preserve the testnet service/database and its operator allowlist.
 2. Provision a separate mainnet per-user API/database with allowlist access. Keep execution, openings and LIVE strategies disabled. Migrations run from the exact candidate image. Never attach mainnet to the operator testnet database.
 3. Run the additive migrations against a nonproduction schema copy twice first, with populated legacy fixtures. The local fixture has passed the full current set twice, including 032/033; this does not prove a production backup or deploy migration.
 4. Run analytics as its own Railway service with its own read-only chain source and database permissions sufficient for analytics tables/checkpoints. It never acquires the trading lease. Start at verified Exchange creation block `54773010` only if archive logs and throughput are available; otherwise keep recent-window `Since <date>` labels and unavailable metrics. Confirmation depth is not consensus finality.
@@ -58,8 +58,8 @@ Keep `app.eyeler.xyz` as the approved mainnet enrollment origin/RP ID. Move the 
 
 Stop new submissions first. Do not discard pending `UNKNOWN`/`PARTIAL` rows, reset request IDs, release ambiguous allocations or cancel another user's orders. A disabled execution flag blocks new sends but does not prove resting orders are gone. Do not stop a LIVE deployment until its owned orders are reconciled/canceled by a proved cleanup path; this is why LIVE remains blocked today.
 
-Restore the prior compatible API image and frontend alias as one reviewed environment pair. Keep additive migrations, execution history and KMS decrypt access for all retained rows/backups. Never point mainnet sessions to the shared testnet account. If a schema rollback requires a backup restore, review unresolved venue outcomes first; database restoration cannot undo chain activity. Resume only after fresh state, one lease owner, compatible configuration and human approval.
+Restore the prior compatible API image and frontend alias as one reviewed environment pair. Keep additive migrations, execution history and every Railway wrapping-key version or KMS decrypt key needed by retained rows/backups. Never point mainnet sessions to the shared testnet account. If a schema rollback requires a backup restore, review unresolved venue outcomes first; database restoration cannot undo chain activity. Resume only after fresh state, one lease owner, compatible configuration and human approval.
 
 ## What remains unverified
 
-New-commit CI after the earlier GitHub 403; full backfill and archive throughput; physical phone/keystore backup; deployed KMS identity/policy/CloudTrail; migrations on the deployment; serving frontend/backend SHA; replica/handover state; linked Telegram delivery; LIVE fills and exact PnL. No deployment or production configuration was inspected or changed for this runbook.
+Full backfill and archive throughput; physical phone/passkey flow; allowlist-demo key creation and Railway configuration; separate mainnet service/database; linked Telegram delivery; LIVE fills and exact PnL. The `0830d19` code-only deploy passed CI and `/ready` with one replica and lock held; it did not switch environment or enable feature flags.

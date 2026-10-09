@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { RailwayTestnetKeyCustody } from '../server/src/infrastructure/perpl/railway-testnet-key-custody.js'
+import {
+  RailwayEnvelopeKeyCustody,
+  RailwayTestnetKeyCustody,
+} from '../server/src/infrastructure/perpl/railway-testnet-key-custody.js'
 
 describe('Railway testnet envelope custody', () => {
   const key1 = '11'.repeat(32)
@@ -27,5 +30,29 @@ describe('Railway testnet envelope custody', () => {
       'CREDENTIAL_DECRYPT_FAILED',
     )
     expect(await new RailwayTestnetKeyCustody({ v2: key2 }, 'v2').open(rotated, alice)).toBe('token')
+  })
+})
+
+describe('Railway allowlist demo custody', () => {
+  const alice = { userId: 'alice', credentialId: 'connection-a:api_token' }
+  const bob = { userId: 'bob', credentialId: 'connection-b:api_token' }
+  it('binds mainnet ciphertext to user, credential and environment', async () => {
+    const demo = new RailwayEnvelopeKeyCustody({ v1: '11'.repeat(32) }, 'v1', 'mainnet')
+    const sealed = await demo.seal('token', alice)
+    expect(await demo.open(sealed, alice)).toBe('token')
+    await expect(demo.open(sealed, bob)).rejects.toThrow('CREDENTIAL_DECRYPT_FAILED')
+    await expect(new RailwayTestnetKeyCustody({ v1: '11'.repeat(32) }, 'v1').open(sealed, alice)).rejects.toThrow(
+      'CREDENTIAL_DECRYPT_FAILED',
+    )
+  })
+  it('keeps old rows readable during wrapping-key rotation', async () => {
+    const original = new RailwayEnvelopeKeyCustody({ v1: '11'.repeat(32) }, 'v1', 'mainnet')
+    const old = await original.seal('token', alice)
+    const next = new RailwayEnvelopeKeyCustody({ v1: '11'.repeat(32), v2: '22'.repeat(32) }, 'v2', 'mainnet')
+    expect(await next.open(old, alice)).toBe('token')
+    const rotated = await next.rotate(old, alice)
+    expect(await new RailwayEnvelopeKeyCustody({ v2: '22'.repeat(32) }, 'v2', 'mainnet').open(rotated, alice)).toBe(
+      'token',
+    )
   })
 })

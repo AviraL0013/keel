@@ -8,7 +8,26 @@ const kms = {
   EYELER_KMS_KEY_ARN: 'arn:aws:kms:ap-southeast-1:111122223333:key/00000000-0000-4000-8000-000000000001',
 }
 describe('custody deployment guard', () => {
-  it('allows versioned Railway custody only on testnet and keeps mainnet KMS-only', () => {
+  it('permits a Railway envelope key only for a mainnet per-user allowlist demo', () => {
+    const demo = {
+      EYELER_KEY_CUSTODY: 'railway-allowlist-demo',
+      EYELER_PERPL_ACCOUNT_MODE: 'per-user',
+      EYELER_ACCESS_MODE: 'allowlist',
+      EYELER_DEMO_CUSTODY_KEYS: JSON.stringify({ v1: '11'.repeat(32) }),
+      EYELER_DEMO_CUSTODY_ACTIVE_VERSION: 'v1',
+    }
+    expect(loadKeyCustodyConfig(demo, 'mainnet')).toMatchObject({
+      provider: 'railway-allowlist-demo',
+      activeVersion: 'v1',
+    })
+    for (const override of [{ EYELER_ACCESS_MODE: 'public' }, { EYELER_PERPL_ACCOUNT_MODE: 'operator' }])
+      expect(() => loadKeyCustodyConfig({ ...demo, ...override }, 'mainnet')).toThrow('KMS_CUSTODY_REQUIRED')
+    expect(() => loadKeyCustodyConfig(demo, 'testnet')).toThrow('DEMO_CUSTODY_FORBIDDEN')
+    expect(() => loadKeyCustodyConfig({ ...demo, EYELER_DEMO_CUSTODY_ACTIVE_VERSION: 'v2' }, 'mainnet')).toThrow(
+      'INVALID_DEMO_CUSTODY_CONFIGURATION',
+    )
+  })
+  it('keeps the testnet Railway provider off mainnet and requires its own key versions', () => {
     const railway = {
       EYELER_KEY_CUSTODY: 'railway-testnet',
       EYELER_TESTNET_CUSTODY_KEYS: JSON.stringify({ v1: '11'.repeat(32), v2: '22'.repeat(32) }),

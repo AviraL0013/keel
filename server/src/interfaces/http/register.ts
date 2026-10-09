@@ -153,7 +153,11 @@ export function registerRoutes(context: HttpContext) {
     status: 'online',
     endpoints: { health: '/health', ready: '/ready', metrics: '/metrics' },
   }))
-  app.get('/health', async () => ({ ok: true, environment: config.environment }))
+  app.get('/health', async () => ({
+    ok: true,
+    environment: config.environment,
+    demoAllowlist: config.demoAllowlist,
+  }))
   app.get('/ready', async (_request, reply) => {
     const health = context.runtime?.health()
     const detail = {

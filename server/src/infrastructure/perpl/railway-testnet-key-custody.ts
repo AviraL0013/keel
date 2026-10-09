@@ -11,7 +11,7 @@ type Envelope = {
   ciphertext: string
 }
 
-function contextBytes(context: CredentialContext | string): Buffer {
+function contextBytes(context: CredentialContext | string, environment: 'testnet' | 'mainnet'): Buffer {
   if (
     !context ||
     typeof context === 'string' ||
@@ -19,7 +19,7 @@ function contextBytes(context: CredentialContext | string): Buffer {
     !/^[A-Za-z0-9_:-]{1,200}$/.test(context.credentialId)
   )
     throw new Error('INVALID_CREDENTIAL_CONTEXT')
-  return Buffer.from(JSON.stringify(['eyeler', 'testnet', context.userId, context.credentialId]))
+  return Buffer.from(JSON.stringify(['eyeler', environment, context.userId, context.credentialId]))
 }
 
 function decode(value: string, length?: number): Buffer {
@@ -30,13 +30,14 @@ function decode(value: string, length?: number): Buffer {
   return result
 }
 
-/** Testnet only. A random data key encrypts each credential; the Railway secret wraps that key. */
-export class RailwayTestnetKeyCustody implements KeyCustody {
+/** A random data key encrypts each credential; a versioned Railway secret wraps that key. */
+export class RailwayEnvelopeKeyCustody implements KeyCustody {
   readonly envelopePrefix = 'rail-v1:'
   private readonly keys: Map<string, Buffer>
   constructor(
     keys: Record<string, string>,
     private readonly activeVersion: string,
+    private readonly environment: 'testnet' | 'mainnet',
   ) {
     if (
       !Object.hasOwn(keys, activeVersion) ||
@@ -89,7 +90,7 @@ export class RailwayTestnetKeyCustody implements KeyCustody {
   }
 
   async seal(value: string, binding: CredentialContext | string): Promise<string> {
-    const context = contextBytes(binding)
+    const context = contextBytes(binding, this.environment)
     if (Buffer.byteLength(value) > 16384) throw new Error('CREDENTIAL_ENCRYPT_FAILED')
     const dataKey = randomBytes(32)
     try {
@@ -112,7 +113,7 @@ export class RailwayTestnetKeyCustody implements KeyCustody {
   async open(sealed: string, binding: CredentialContext | string): Promise<string> {
     let dataKey: Buffer | undefined
     try {
-      const context = contextBytes(binding)
+      const context = contextBytes(binding, this.environment)
       const data = this.parse(sealed)
       dataKey = this.unwrap(data, context)
       const cipher = createDecipheriv('aes-256-gcm', dataKey, decode(data.nonce, 12))
@@ -129,7 +130,7 @@ export class RailwayTestnetKeyCustody implements KeyCustody {
   async rotate(sealed: string, binding: CredentialContext | string): Promise<string> {
     let dataKey: Buffer | undefined
     try {
-      const context = contextBytes(binding)
+      const context = contextBytes(binding, this.environment)
       const data = this.parse(sealed)
       dataKey = this.unwrap(data, context)
       const envelope = { ...data, ...this.wrap(dataKey, context, this.activeVersion) }
@@ -144,12 +145,19 @@ export class RailwayTestnetKeyCustody implements KeyCustody {
   async assertReady() {
     const binding = { userId: 'startup-check', credentialId: 'startup-check' }
     if ((await this.open(await this.seal('ok', binding), binding)) !== 'ok')
-      throw new Error('TESTNET_CUSTODY_UNAVAILABLE')
+      throw new Error('RAILWAY_CUSTODY_UNAVAILABLE')
   }
   close() {
     for (const key of this.keys.values()) key.fill(0)
   }
   shred(): null {
     return null
+  }
+}
+
+/** Existing testnet provider retains its testnet-bound encryption context. */
+export class RailwayTestnetKeyCustody extends RailwayEnvelopeKeyCustody {
+  constructor(keys: Record<string, string>, activeVersion: string) {
+    super(keys, activeVersion, 'testnet')
   }
 }
