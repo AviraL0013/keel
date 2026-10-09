@@ -100,7 +100,7 @@ class PerplActivationGateway {
     final error = body['error'];
     if (noAccountRevert &&
         error is Map &&
-        error['code'] == -32000 &&
+        (error['code'] == -32000 || error['code'] == 3) &&
         error['message'] == 'execution reverted') {
       return null;
     }

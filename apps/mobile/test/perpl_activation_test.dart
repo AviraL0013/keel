@@ -134,62 +134,64 @@ void main() {
     expect(
         activationCall(context, ActivationStep.approve).exactAmount, '10 AUSD');
   });
-  test('fake RPC loads unsigned context, AUSD and on-chain account state',
-      () async {
-    final methods = <String>[];
-    final client = MockClient((request) async {
-      if (request.method == 'GET') {
-        expect(
-            request.url.toString(), 'https://app.perpl.xyz/api/v1/pub/context');
-        return http.Response(
-            jsonEncode({
-              'chain': {'chain_id': 143},
-              'instances': [
-                {
-                  'id': 1,
-                  'address': exchange,
-                  'collateral_token_id': 1,
-                  'min_account_open_amount': '10000000'
-                }
-              ],
-              'tokens': [
-                {'id': 1, 'address': token, 'symbol': 'AUSD', 'decimals': 6}
-              ]
-            }),
-            200);
-      }
-      final body = jsonDecode(request.body) as Map<String, dynamic>;
-      final method = body['method'] as String;
-      methods.add(method);
-      Object? result;
-      if (method == 'eth_chainId') result = '0x8f';
-      if (method == 'eth_call') {
-        final call = (body['params'] as List).first as Map;
-        final data = call['data'] as String;
-        if (data.startsWith('0x70a08231')) result = '0x989680';
-        if (data.startsWith('0xdd62ed3e')) result = '0x0';
-        if (data.startsWith('0x12e8eb2c')) {
+  for (final errorCode in [-32000, 3]) {
+    test('fake RPC loads no-account state for revert code $errorCode',
+        () async {
+      final methods = <String>[];
+      final client = MockClient((request) async {
+        if (request.method == 'GET') {
+          expect(request.url.toString(),
+              'https://app.perpl.xyz/api/v1/pub/context');
           return http.Response(
               jsonEncode({
-                'jsonrpc': '2.0',
-                'id': body['id'],
-                'error': {'code': -32000, 'message': 'execution reverted'}
+                'chain': {'chain_id': 143},
+                'instances': [
+                  {
+                    'id': 1,
+                    'address': exchange,
+                    'collateral_token_id': 1,
+                    'min_account_open_amount': '10000000'
+                  }
+                ],
+                'tokens': [
+                  {'id': 1, 'address': token, 'symbol': 'AUSD', 'decimals': 6}
+                ]
               }),
               200);
         }
-      }
-      return http.Response(
-          jsonEncode({'jsonrpc': '2.0', 'id': body['id'], 'result': result}),
-          200);
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final method = body['method'] as String;
+        methods.add(method);
+        Object? result;
+        if (method == 'eth_chainId') result = '0x8f';
+        if (method == 'eth_call') {
+          final call = (body['params'] as List).first as Map;
+          final data = call['data'] as String;
+          if (data.startsWith('0x70a08231')) result = '0x989680';
+          if (data.startsWith('0xdd62ed3e')) result = '0x0';
+          if (data.startsWith('0x12e8eb2c')) {
+            return http.Response(
+                jsonEncode({
+                  'jsonrpc': '2.0',
+                  'id': body['id'],
+                  'error': {'code': errorCode, 'message': 'execution reverted'}
+                }),
+                200);
+          }
+        }
+        return http.Response(
+            jsonEncode({'jsonrpc': '2.0', 'id': body['id'], 'result': result}),
+            200);
+      });
+      final gateway = PerplActivationGateway(client);
+      final loaded =
+          await gateway.load('0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F');
+      expect(planPerplActivation(loaded.context, loaded.state),
+          ActivationStep.approve);
+      expect(methods, containsAll(['eth_chainId', 'eth_call']));
+      client.close();
     });
-    final gateway = PerplActivationGateway(client);
-    final loaded =
-        await gateway.load('0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F');
-    expect(planPerplActivation(loaded.context, loaded.state),
-        ActivationStep.approve);
-    expect(methods, containsAll(['eth_chainId', 'eth_call']));
-    client.close();
-  });
+  }
   test('fake receipt distinguishes pending, success and revert', () async {
     Object? receipt;
     final client = MockClient((request) async {
