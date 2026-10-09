@@ -17,7 +17,7 @@ dependencies:
   bip32: 2.0.0
   web3dart: 2.7.3
   crypto: ^3.0.6
-  google_fonts: ^6.2.1
+  google_fonts: ^9.0.0
   url_launcher: 6.3.3
   qr_flutter: 4.1.0
 dev_dependencies:
