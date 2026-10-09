@@ -4,7 +4,12 @@ import pg from 'pg'
 import { toEventSelector, type AbiEvent } from 'viem'
 import { chainConfigs } from '../../../packages/chain/src/index.js'
 import { deriveEvent, type MarketPrecision } from '../../../packages/analytics/src/aggregate.js'
-import { decodeExchangeLog, EXCHANGE, type ChainLog } from '../../../packages/analytics/src/decoder.js'
+import {
+  decodeExchangeLog,
+  EXCHANGE,
+  EXCHANGE_DEPLOYMENT_BLOCK,
+  type ChainLog,
+} from '../../../packages/analytics/src/decoder.js'
 import { exchangeEvents } from '../../../packages/analytics/src/exchange-events.js'
 import { AnalyticsRepository, type IndexedBlock } from '../infrastructure/analytics/repository.js'
 
@@ -44,7 +49,7 @@ export function indexerConfig(env: NodeJS.ProcessEnv): AnalyticsIndexerConfig {
     rpcUrl: env.EYELER_ANALYTICS_RPC_URL || chainConfigs.mainnet.rpcUrl,
     perplApiUrl: env.ANALYTICS_PERPL_API_URL ?? 'https://app.perpl.xyz/api',
     startBlock: env.EYELER_ANALYTICS_START_BLOCK ? BigInt(env.EYELER_ANALYTICS_START_BLOCK) : null,
-    historyVerified: env.EYELER_ANALYTICS_START_BLOCK !== undefined,
+    historyVerified: env.EYELER_ANALYTICS_START_BLOCK === EXCHANGE_DEPLOYMENT_BLOCK.toString(),
     confirmationDepth,
     chunkSize,
     pollMs,

@@ -107,11 +107,14 @@ class _ProtocolOverviewScreenState
                     title: 'Protocol overview',
                     subtitle: 'Perpl activity and risk',
                   ),
+                  const Text('Monad mainnet'),
                   const SizedBox(height: 12),
                   _WindowSelector(
                     selected: window,
                     onSelected: (next) => setState(() => window = next),
                   ),
+                  if (value.historyLabels[window] case final label?)
+                    Text(label, style: Theme.of(context).textTheme.bodySmall),
                   if (window == 'All')
                     Text('Charts show the latest two years.',
                         style: Theme.of(context).textTheme.bodySmall),

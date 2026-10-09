@@ -42,6 +42,13 @@ describe('analytics SQL migration and checkpoint', () => {
     })
     expect(archive.startBlock).toBe(54773010n)
     expect(archive.historyVerified).toBe(true)
+    expect(
+      indexerConfig({
+        DATABASE_URL: 'fixture',
+        EYELER_ANALYTICS_RPC_URL: 'fixture',
+        EYELER_ANALYTICS_START_BLOCK: '111000000',
+      }).historyVerified,
+    ).toBe(false)
   })
   it('re-runs migration and indexes real logs idempotently after rewind', async () => {
     const { db, store } = await databaseFixture()

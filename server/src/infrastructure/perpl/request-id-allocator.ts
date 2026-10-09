@@ -43,6 +43,10 @@ export class PerplRequestIdAllocator {
         'SELECT request_id FROM opening_orders WHERE account_id=$1 AND request_id IS NOT NULL',
         [accountId],
       )
+      const strategies = await client.query(
+        'SELECT request_id FROM strategy_orders WHERE account_id=$1 AND simulated=false AND request_id IS NOT NULL',
+        [accountId],
+      )
       let highest = lfr
       // Preserve a known forwarded rejection even after a local database reset.
       // Direct/on-chain order-history IDs are never used as an API high-water mark.
@@ -55,7 +59,7 @@ export class PerplRequestIdAllocator {
         const prior = requestId(rq)
         if (prior > highest) highest = prior
       }
-      for (const row of openings.rows as Array<{ request_id: string }>) {
+      for (const row of [...openings.rows, ...strategies.rows] as Array<{ request_id: string }>) {
         const prior = requestId(String(row.request_id))
         if (prior > highest) highest = prior
       }

@@ -82,3 +82,12 @@ Autopilot (authenticated; paper mode is the default):
 - `GET /strategies/:id/status` includes the owned strategy's environment, decimal-string account ID, market, exact stored capital string, and configured risk limits. The existing session and ownership checks apply.
 
 Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.
+
+Public analytics (read-only; requires `EYELER_ANALYTICS_ENABLED=true`):
+
+- `/analytics/v1/protocol/summary`, `/protocol/timeseries`, `/protocol/flows`
+- `/analytics/v1/markets`, `/markets/:id`, `/markets/:id/funding`
+- `/analytics/v1/liquidations`, `/search`
+- `/analytics/v1/wallets/:address`, `/wallets/:address/trades`, `/wallets/:address/performance`, `/wallets/compare`
+
+All paths above share the `/analytics/v1` prefix. See [the analytics contract](analytics-v1.md) for fields, parameters, coverage and rate limits. Flutter's `/analytics` route is public and uses a separate GET-only client without private session access. This does not expose private Books, positions, credentials, or controls.

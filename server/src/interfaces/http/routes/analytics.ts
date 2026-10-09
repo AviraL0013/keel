@@ -126,7 +126,7 @@ async function dbMeta(pool: pg.Pool | null, publicBlock: number | null): Promise
     row.start_block === EXCHANGE_DEPLOYMENT_BLOCK.toString() &&
     row.first_block === row.start_block
   return {
-    asOf: row.updated_at.toISOString(),
+    asOf: row.last_time?.toISOString() ?? row.updated_at.toISOString(),
     block,
     stale,
     completeFrom: row.first_time,
@@ -162,8 +162,12 @@ const coverage = (meta: DbMeta): NonNullable<Envelope<unknown>['coverage']> => (
       ? `Since ${meta.completeFrom.toISOString().slice(0, 10)}`
       : 'No indexed history',
 })
-const covered = (meta: DbMeta, from: number) =>
-  !meta.stale && !!meta.completeFrom && meta.completeFrom.getTime() <= from
+const covered = (meta: DbMeta, from: number, to = meta.through?.getTime() ?? Infinity) =>
+  !meta.stale &&
+  !!meta.completeFrom &&
+  !!meta.through &&
+  meta.completeFrom.getTime() <= from &&
+  to <= meta.through.getTime() + 1
 const wrap = <T>(
   data: T,
   source: Envelope<T>['source'],
@@ -234,11 +238,12 @@ export function registerAnalyticsRoutes(
           const tvl = sumMicros(ctx.value.markets.map((market) => BigInt(market.state.tvl)))
           const volume24h = sumMicros(ctx.value.markets.map((market) => BigInt(market.state.dva)))
           const meta = await dbMeta(pool, ctx.block)
-          const now = Date.now()
+          // Include the final block's timestamp without implying that later blocks were replayed.
+          const now = !meta.stale && meta.through ? meta.through.getTime() + 1 : Date.now()
           const from = window === 'all' ? (meta.completeFrom?.getTime() ?? now) : now - duration[window]
           const prevFrom = window === 'all' ? null : from - duration[window]
-          const full = covered(meta, from)
-          const prevFull = prevFrom !== null && covered(meta, prevFrom)
+          const full = covered(meta, from, now)
+          const prevFull = prevFrom !== null && covered(meta, prevFrom, from)
           const current = pool && full ? await summarySlice(pool, from, now) : null
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
           const net = current ? current.deposits - current.withdrawals : null
@@ -257,8 +262,8 @@ export function registerAnalyticsRoutes(
           return wrap(
             data,
             full ? 'derived' : 'perpl_api',
-            ctx.asOf,
-            ctx.block,
+            full ? meta.asOf : ctx.asOf,
+            full ? meta.block : ctx.block,
             ctx.stale || !full || (window !== 'all' && !prevFull),
             coverage(meta),
           )
@@ -287,15 +292,27 @@ export function registerAnalyticsRoutes(
             const ctx = await publicData.context()
             const points = new Map<number, bigint>()
             const meta = await dbMeta(pool, ctx.block)
-            if (metric === 'volume') {
+            const indexedTo = Math.min(to, (meta.through?.getTime() ?? -Infinity) + 1)
+            const indexed =
+              !!pool &&
+              from < indexedTo &&
+              covered(meta, from, indexedTo) &&
+              ['volume', 'fees', 'active_users', 'net_flows'].includes(metric)
+            if (indexed) {
+              for (const row of await metricBuckets(pool!, metric as Metric, interval as '1h' | '1d', from, indexedTo))
+                if (covered(meta, row.time, Math.min(row.time + step, to))) points.set(row.time, row.value)
+              // In a fully replayed interval, absence of an additive event proves zero.
+              if (metric !== 'active_users')
+                for (let time = Math.ceil(from / step) * step; time < to; time += step)
+                  if (!points.has(time) && covered(meta, time, Math.min(time + step, to))) points.set(time, 0n)
+            } else if (metric === 'volume') {
               const candles = await Promise.all(
                 ctx.value.markets.map((market) => publicData.volumeCandles(market, interval as '1h' | '1d', from, to)),
               )
-              for (const series of candles)
-                for (const point of series) points.set(point.time, (points.get(point.time) ?? 0n) + point.micros)
-            } else if (pool && covered(meta, from) && ['fees', 'active_users', 'net_flows'].includes(metric)) {
-              for (const row of await metricBuckets(pool, metric as Metric, interval as '1h' | '1d', from, to))
-                points.set(row.time, row.value)
+              const byMarket = candles.map((series) => new Map(series.map((point) => [point.time, point.micros])))
+              for (const point of candles[0] ?? [])
+                if (byMarket.every((series) => series.has(point.time)))
+                  points.set(point.time, sumMicros(byMarket.map((series) => series.get(point.time)!)))
             }
             const data = {
               metric: metric as Metric,
@@ -315,13 +332,11 @@ export function registerAnalyticsRoutes(
               })
             return wrap(
               data,
-              metric === 'volume' ? 'perpl_api' : 'derived',
-              ctx.asOf,
-              ctx.block,
-              ctx.stale ||
-                (metric !== 'volume' && !covered(meta, from)) ||
-                data.points.some((point) => point.value === null),
-              metric === 'volume' ? undefined : coverage(meta),
+              indexed || metric !== 'volume' ? 'derived' : 'perpl_api',
+              indexed ? meta.asOf : ctx.asOf,
+              indexed ? meta.block : ctx.block,
+              ctx.stale || (metric !== 'volume' && !indexed) || data.points.some((point) => point.value === null),
+              indexed || metric !== 'volume' ? coverage(meta) : undefined,
             )
           })
         },
@@ -333,9 +348,9 @@ export function registerAnalyticsRoutes(
         return cache.get(`flows:${window}`, 15_000, async () => {
           const ctx = await publicData.context()
           const meta = await dbMeta(pool, ctx.block)
-          const now = Date.now()
+          const now = !meta.stale && meta.through ? meta.through.getTime() + 1 : Date.now()
           const from = window === 'all' ? (meta.completeFrom?.getTime() ?? now) : now - duration[window]
-          if (!pool || !covered(meta, from))
+          if (!pool || !covered(meta, from, now))
             return wrap(
               { window, deposits: null, withdrawals: null, net: null, buckets: [] },
               'derived',
@@ -527,13 +542,13 @@ export function registerAnalyticsRoutes(
               nextCursor: rows.rows.length > limit && last ? cursorFor(last) : null,
               summary: {
                 count: Number(summary.rows[0].count),
-                notional: covered(meta, from) ? formatMoney(BigInt(summary.rows[0].notional)) : null,
+                notional: covered(meta, from, to) ? formatMoney(BigInt(summary.rows[0].notional)) : null,
               },
             },
             'monad_exchange',
             meta.asOf,
             meta.block,
-            !covered(meta, from),
+            !covered(meta, from, to),
             coverage(meta),
           )
         },
@@ -824,19 +839,12 @@ async function performance(
     try {
       return calculateWalletPerformance(address, events)
     } catch {
-      /* Unknown old event: expose partial totals only. */
+      /* Incomplete episode reconstruction must not publish a partial performance total. */
     }
   }
-  const result = await pool.query(
-    `SELECT coalesce(sum(e.realized_pnl_micros),0) AS realized,
-    count(*) FILTER (WHERE e.action IN ('close','liquidation')) AS closed
-    FROM analytics_position_events e JOIN analytics_accounts a ON a.account_id=e.account_id
-    WHERE a.address=$1`,
-    [address.toLowerCase()],
-  )
   return {
     address,
-    realizedPnl: result.rows[0].closed === '0' ? null : signedMoney(BigInt(result.rows[0].realized)),
+    realizedPnl: null,
     winRatePct: null,
     profitFactor: null,
     maxDrawdownPct: null,
@@ -846,7 +854,7 @@ async function performance(
     averageHoldSeconds: null,
     bestMarketId: null,
     worstMarketId: null,
-    closedTrades: Number(result.rows[0].closed),
+    closedTrades: 0,
     equityCurve: [],
   }
 }
@@ -864,8 +872,12 @@ async function summarySlice(pool: pg.Pool, from: number, to: number) {
       [new Date(from), new Date(to)],
     ),
     pool.query(
-      `SELECT count(DISTINCT a.address) AS users FROM analytics_fills f
-      JOIN analytics_accounts a ON a.account_id=f.account_id
+      `SELECT count(DISTINCT a.address) AS users,count(*) FILTER (WHERE a.address IS NULL) AS unresolved
+      FROM (SELECT account_id,occurred_at FROM analytics_fills UNION ALL
+        SELECT e.account_id,e.occurred_at FROM analytics_position_events e
+        JOIN analytics_raw_events r USING(block_number,transaction_hash,log_index)
+        WHERE e.action <> 'liquidation' AND r.event_name IS DISTINCT FROM 'PositionLiquidated') f
+      LEFT JOIN analytics_accounts a ON a.account_id=f.account_id
       WHERE f.occurred_at >= $1 AND f.occurred_at < $2`,
       [new Date(from), new Date(to)],
     ),
@@ -890,7 +902,7 @@ async function summarySlice(pool: pg.Pool, from: number, to: number) {
     volume: BigInt(fills.rows[0].volume),
     fees,
     revenue: BigInt(revenue.rows[0].revenue),
-    users: BigInt(users.rows[0].users),
+    users: BigInt(users.rows[0].unresolved) === 0n ? BigInt(users.rows[0].users) : null,
     liquidations: BigInt(liqs.rows[0].count),
     deposits: BigInt(flows.rows[0].deposits),
     withdrawals: BigInt(flows.rows[0].withdrawals),
@@ -899,22 +911,32 @@ async function summarySlice(pool: pg.Pool, from: number, to: number) {
 async function metricBuckets(pool: pg.Pool, metric: Metric, interval: '1h' | '1d', from: number, to: number) {
   const bucket = interval === '1h' ? 'hour' : 'day'
   const query =
-    metric === 'fees'
-      ? `SELECT date_trunc('${bucket}',occurred_at) AS time,sum(fee_micros) AS value FROM (
+    metric === 'volume'
+      ? `SELECT date_trunc('${bucket}',occurred_at) AS time,sum(notional_micros) AS value FROM analytics_fills
+        WHERE occurred_at >= $1 AND occurred_at < $2 GROUP BY 1 ORDER BY 1`
+      : metric === 'fees'
+        ? `SELECT date_trunc('${bucket}',occurred_at) AS time,sum(fee_micros) AS value FROM (
         SELECT occurred_at,fee_micros FROM analytics_fills UNION ALL
         SELECT occurred_at,fee_micros FROM analytics_taker_fees) f
         WHERE occurred_at >= $1 AND occurred_at < $2 GROUP BY 1 ORDER BY 1`
-      : metric === 'active_users'
-        ? `SELECT date_trunc('${bucket}',f.occurred_at) AS time,count(DISTINCT a.address) AS value
-        FROM analytics_fills f JOIN analytics_accounts a ON a.account_id=f.account_id
+        : metric === 'active_users'
+          ? `SELECT date_trunc('${bucket}',f.occurred_at) AS time,
+        CASE WHEN count(*) FILTER (WHERE a.address IS NULL)=0 THEN count(DISTINCT a.address) ELSE NULL END AS value
+        FROM (SELECT account_id,occurred_at FROM analytics_fills UNION ALL
+          SELECT e.account_id,e.occurred_at FROM analytics_position_events e
+          JOIN analytics_raw_events r USING(block_number,transaction_hash,log_index)
+          WHERE e.action <> 'liquidation' AND r.event_name IS DISTINCT FROM 'PositionLiquidated') f
+        LEFT JOIN analytics_accounts a ON a.account_id=f.account_id
         WHERE f.occurred_at >= $1 AND f.occurred_at < $2
         GROUP BY 1 ORDER BY 1`
-        : `SELECT date_trunc('${bucket}',occurred_at) AS time,
+          : `SELECT date_trunc('${bucket}',occurred_at) AS time,
         coalesce(sum(CASE WHEN direction='deposit' THEN amount_micros ELSE -amount_micros END),0) AS value
         FROM analytics_flows WHERE occurred_at >= $1 AND occurred_at < $2 GROUP BY 1 ORDER BY 1`
   const rows = await pool.query(query, [new Date(from), new Date(to)])
-  return rows.rows.map((row: { time: Date | string; value: string }) => ({
-    time: new Date(row.time).getTime(),
-    value: BigInt(row.value),
-  }))
+  return rows.rows
+    .filter((row: { value: string | null }) => row.value !== null)
+    .map((row: { time: Date | string; value: string }) => ({
+      time: new Date(row.time).getTime(),
+      value: BigInt(row.value),
+    }))
 }

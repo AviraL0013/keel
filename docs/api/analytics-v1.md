@@ -41,7 +41,7 @@ Wallet addresses must be EIP-55 checksummed (or all lowercase) Ethereum addresse
 
 ## Data caveats
 
-Perpl public REST provides context, market snapshots, candles and funding. Its account/fill/position history requires a signed account API key, so public wallet analytics must use Exchange logs and verified account mapping. The user supplied Exchange creation transaction `0x22d1d74e137c3a82ac4b702fd90024811b184fcdcf8fd4d1473097b4d8a619f3` at block `54773010`; an archive RPC is still needed to replay from that block. Liquidation price and unrealized PnL are null until exact venue formulas and current mark can be verified. See [`metrics.md`](../analytics/metrics.md) for definitions and provenance.
+Perpl public REST provides context, market snapshots, candles and funding. Its account/fill/position history requires a signed account API key, so public wallet analytics must use Exchange logs and verified account mapping. The Exchange creation receipt at block `54773010` is verified; the existing public RPC serves sampled logs there in ranges of at most 100 blocks. A complete replay and adequate throughput remain unverified. Liquidation price and unrealized PnL are null until exact venue formulas and current mark can be verified. See [`metrics.md`](../analytics/metrics.md) for definitions and provenance.
 
 ## CHANGELOG
 

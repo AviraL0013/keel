@@ -45,6 +45,7 @@ type PendingOrder = {
 
 /** Read-only recovery. UNKNOWN and missing request IDs have no submission path. */
 export class StrategyOrderRecovery {
+  private cursor: { createdAt: Date; id: string } | null = null
   constructor(
     private readonly pool: Pool,
     private readonly venue: RuntimeVenue | undefined,
@@ -60,10 +61,14 @@ export class StrategyOrderRecovery {
        FROM strategy_orders o JOIN strategies s ON s.id=o.strategy_id
        WHERE o.environment=$1 AND o.simulated=false AND o.request_id IS NOT NULL
          AND o.status IN ('SUBMITTING','UNKNOWN','OPEN','PARTIAL')
-       ORDER BY o.created_at LIMIT 100`,
-      [this.environment],
+         AND ($2::timestamptz IS NULL OR (o.created_at,o.id)>($2::timestamptz,$3::uuid))
+       ORDER BY o.created_at,o.id LIMIT 100`,
+      [this.environment, this.cursor?.createdAt ?? null, this.cursor?.id ?? null],
     )
     for (const row of pending.rows) {
+      // Rotate through all unresolved rows, including failed reads. Never starve a
+      // later order behind a permanently unavailable connection or UNKNOWN state.
+      this.cursor = { createdAt: row.created_at, id: row.id }
       try {
         const lb = Number(row.last_execution_block)
         const terms = row.market_terms
@@ -120,6 +125,7 @@ export class StrategyOrderRecovery {
         // Transport/history failures keep prior state; next locked worker tick retries read-only.
       }
     }
+    if (pending.rows.length < 100) this.cursor = null
   }
 
   private async save(row: PendingOrder, resolution: StrategyOrderResolution, evidence: Record<string, unknown> = {}) {

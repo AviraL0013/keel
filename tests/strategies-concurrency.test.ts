@@ -7,6 +7,38 @@ import { PerplRequestIdAllocator } from '../server/src/infrastructure/perpl/requ
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import type { Action } from '../packages/domain/src/index.js'
 
+it('repairs the shared request counter from real strategy orders and ignores simulated IDs', async () => {
+  const { db, store } = await databaseFixture()
+  try {
+    const user = await store.ensureUser('0x0000000000000000000000000000000000000073')
+    const connection = randomUUID()
+    await db.query(
+      `INSERT INTO perpl_connections(id,user_id,environment,scope,credential_reference,status,expires_at)
+      VALUES($1,$2,'testnet','trade','fixture','ACTIVE',now()+interval '1 hour')`,
+      [connection, user],
+    )
+    const strategy = (
+      await db.query(
+        `INSERT INTO strategies(user_id,connection_id,environment,account_id,market_id,
+      mode,kind,capital,config,state,status) VALUES($1,$2,'testnet',642,16,'PAPER','GRID',100,'{}','{}','PAUSED') RETURNING id`,
+        [user, connection],
+      )
+    ).rows[0].id
+    await db.query(
+      `INSERT INTO strategy_orders(strategy_id,environment,account_id,market_id,kind,simulated,status,side,price,size,request_id)
+      VALUES($1,'testnet',642,16,'POST',false,'UNKNOWN','BUY',99,1,101),
+            ($1,'testnet',642,16,'POST',true,'OPEN','BUY',99,1,999)`,
+      [strategy],
+    )
+    const allocator = new PerplRequestIdAllocator(store.pool)
+    expect(await allocator.allocate(642, '100')).toBe('102')
+    await db.query('DELETE FROM perpl_request_ids WHERE account_id=642')
+    expect(await allocator.allocate(642, '100')).toBe('102')
+  } finally {
+    await db.close()
+  }
+}, 30_000)
+
 it('serializes a strategy post after a Book action on one account and never reuses request IDs', async () => {
   const { db, store } = await databaseFixture()
   const custody = new DevelopmentKeyCustody('12'.repeat(32))

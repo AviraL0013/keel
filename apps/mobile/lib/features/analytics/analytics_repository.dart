@@ -1,11 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
-import '../../core/networking/api_client.dart';
+import '../../core/config/environment.dart';
 import 'analytics_contract.dart';
 import 'analytics_fixture.dart';
 import 'analytics_models.dart';
+import 'public_analytics_client.dart';
 
 abstract interface class AnalyticsRepository {
   Future<AnalyticsOverview> overview();
@@ -17,8 +19,15 @@ abstract interface class AnalyticsRepository {
 
 /// Composes public v1 endpoints into screen view models.
 class HttpAnalyticsRepository implements AnalyticsRepository {
-  HttpAnalyticsRepository(this._get);
+  HttpAnalyticsRepository(this._get, {DateTime Function()? now})
+      : _now = now ?? DateTime.now;
   final Future<Object?> Function(String path) _get;
+  final DateTime Function() _now;
+  // Server query boundaries use canonical UTC ISO strings at millisecond precision.
+  static String _wireTime(DateTime value) =>
+      DateTime.fromMillisecondsSinceEpoch(value.millisecondsSinceEpoch,
+              isUtc: true)
+          .toIso8601String();
   static const _base = '/analytics/v1';
   final Map<String, _WindowResponse> _historical = {};
   Map<int, String>? _symbols;
@@ -32,7 +41,7 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
   Future<V1Envelope<List<V1Market>>> _markets() async {
     if (_marketSnapshot case final cached?) {
       if (_marketFetched != null &&
-          DateTime.now().toUtc().difference(_marketFetched!) <
+          _now().toUtc().difference(_marketFetched!) <
               const Duration(seconds: 15)) {
         return cached;
       }
@@ -43,7 +52,7 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
             V1.list(AnalyticsParse.object(raw), 'items', V1Market.fromJson));
     _symbols = {for (final market in response.data) market.id: market.symbol};
     _marketSnapshot = response;
-    _marketFetched = DateTime.now().toUtc();
+    _marketFetched = _now().toUtc();
     return response;
   }
 
@@ -66,8 +75,8 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
       _ => 730,
     };
     final interval = days >= 30 ? '1d' : '1h';
-    final from = now.subtract(Duration(days: days)).toIso8601String();
-    final to = now.toIso8601String();
+    final from = _wireTime(now.subtract(Duration(days: days)));
+    final to = _wireTime(now);
     final results = await Future.wait<Object>([
       _request('/protocol/summary?window=$window', V1ProtocolSummary.fromJson),
       _request(
@@ -92,7 +101,7 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
 
   @override
   Future<AnalyticsOverview> overview() async {
-    final now = DateTime.now().toUtc();
+    final now = _now().toUtc();
     final responses = await Future.wait([
       _window('24h', now),
       _window('7d', now),
@@ -105,9 +114,15 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
     final windows = <String, List<AnalyticsMetric>>{};
     final volumeSeries = <String, List<AnalyticsPoint>>{};
     final inflowSeries = <String, List<AnalyticsPoint>>{};
+    final historyLabels = <String, String>{};
     for (var i = 0; i < responses.length; i++) {
       final key = ['24h', '7d', '30d', 'All'][i];
       final item = responses[i];
+      if (item.summary.coverage case final coverage?) {
+        historyLabels[key] = coverage.completeHistory
+            ? 'All time'
+            : '${coverage.label} · history incomplete';
+      }
       final metrics = item.summary.data.metrics;
       windows[key] = [
         for (final (label, field) in [
@@ -152,6 +167,7 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
       volumeSeriesByWindow: volumeSeries,
       inflowSeriesByWindow: inflowSeries,
       liquidationCount: liquidations.data.count,
+      historyLabels: historyLabels,
       stale: responses.any((item) =>
               item.summary.stale ||
               item.timeseries.stale ||
@@ -167,18 +183,16 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
     final matches = markets.data.where((market) => market.symbol == symbol);
     if (matches.isEmpty) throw StateError('No market analytics');
     final id = matches.first.id;
-    final now = DateTime.now().toUtc();
-    final from = now
-        .subtract(Duration(
-            days: window == 'All'
+    final now = _now().toUtc();
+    final from = _wireTime(now.subtract(Duration(
+        days: window == 'All'
+            ? 30
+            : window == '30d'
                 ? 30
-                : window == '30d'
-                    ? 30
-                    : window == '7d'
-                        ? 7
-                        : 1))
-        .toIso8601String();
-    final to = now.toIso8601String();
+                : window == '7d'
+                    ? 7
+                    : 1)));
+    final to = _wireTime(now);
     final detail = await _request('/markets/$id', V1MarketDetail.fromJson);
     final funding = await _request(
         '/markets/$id/funding?from=${Uri.encodeQueryComponent(from)}&to=${Uri.encodeQueryComponent(to)}',
@@ -410,9 +424,11 @@ const analyticsFixtureMode = bool.fromEnvironment(
   defaultValue: false,
 );
 
-final analyticsRepositoryProvider = Provider<AnalyticsRepository>(
-  (ref) => analyticsFixtureMode
-      ? FixtureAnalyticsRepository.sample()
-      : HttpAnalyticsRepository((path) =>
-          ref.watch(apiClientProvider).get<Object?>(path, (value) => value)),
-);
+final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) {
+  if (analyticsFixtureMode) return FixtureAnalyticsRepository.sample();
+  final client = http.Client();
+  ref.onDispose(client.close);
+  final api =
+      PublicAnalyticsClient(ref.watch(configProvider).apiBaseUrl, client);
+  return HttpAnalyticsRepository(api.get);
+});

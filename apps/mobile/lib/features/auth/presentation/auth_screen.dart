@@ -64,6 +64,12 @@ class AuthScreen extends ConsumerWidget {
                             style: EyelerTypography.display
                                 .copyWith(fontSize: 42)),
                         const SizedBox(height: EyelerSpacing.md),
+                        TextButton.icon(
+                          onPressed: () =>
+                              Navigator.of(context).pushNamed('/analytics'),
+                          icon: const Icon(Icons.analytics_outlined),
+                          label: const Text('Browse public analytics'),
+                        ),
                         Text(
                             'EYELER watches position, reserve, market depth, and execution evidence behind every bounded action.',
                             style: EyelerTypography.body.copyWith(

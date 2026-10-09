@@ -39,12 +39,14 @@ abstract final class V1 {
 }
 
 class V1Envelope<T> {
-  const V1Envelope(this.asOf, this.block, this.source, this.stale, this.data);
+  const V1Envelope(this.asOf, this.block, this.source, this.stale, this.data,
+      {this.coverage});
   final DateTime asOf;
   final int? block;
   final String source;
   final bool stale;
   final T data;
+  final V1Coverage? coverage;
 
   factory V1Envelope.fromJson(Object? raw, T Function(Object?) parse) {
     final j = AnalyticsParse.object(raw);
@@ -55,7 +57,27 @@ class V1Envelope<T> {
           j, 'source', {'perpl_api', 'monad_exchange', 'derived', 'external'}),
       V1.boolean(j, 'stale'),
       parse(j['data']),
+      coverage:
+          j['coverage'] == null ? null : V1Coverage.fromJson(j['coverage']),
     );
+  }
+}
+
+class V1Coverage {
+  const V1Coverage(this.from, this.through, this.completeHistory, this.label);
+  final DateTime? from, through;
+  final bool completeHistory;
+  final String label;
+  factory V1Coverage.fromJson(Object? raw) {
+    final j = AnalyticsParse.object(raw);
+    final from = j['from'] == null ? null : AnalyticsParse.time(j, 'from');
+    final through =
+        j['through'] == null ? null : AnalyticsParse.time(j, 'through');
+    if (from != null && through != null && from.isAfter(through)) {
+      throw const FormatException('Invalid coverage range');
+    }
+    return V1Coverage(from, through, V1.boolean(j, 'completeHistory'),
+        AnalyticsParse.string(j, 'label'));
   }
 }
 

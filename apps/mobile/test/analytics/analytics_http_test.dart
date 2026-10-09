@@ -63,6 +63,23 @@ void main() {
     throw StateError('Unexpected path: $path');
   }
 
+  test('request times use the server UTC millisecond precision', () async {
+    paths.clear();
+    final repository = HttpAnalyticsRepository(get,
+        now: () => DateTime.utc(2026, 10, 8, 0, 0, 0, 123, 456));
+    await repository.overview();
+    await repository.market('BTC', '24h');
+    final requests = paths
+        .map(Uri.parse)
+        .where((uri) => uri.queryParameters.containsKey('to'));
+    expect(requests.length, greaterThan(4));
+    for (final uri in requests) {
+      expect(uri.queryParameters['to'], '2026-10-08T00:00:00.123Z');
+      expect(uri.queryParameters['from'],
+          matches(RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')));
+    }
+  });
+
   test('composes v1 overview with exact paths and funding units', () async {
     paths.clear();
     final repository = HttpAnalyticsRepository(get);

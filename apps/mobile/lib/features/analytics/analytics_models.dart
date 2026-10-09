@@ -190,6 +190,7 @@ class AnalyticsOverview {
       this.insight,
       {this.volumeSeriesByWindow = const {},
       this.inflowSeriesByWindow = const {},
+      this.historyLabels = const {},
       this.liquidationCount,
       this.stale = false});
   final DateTime asOf;
@@ -203,6 +204,7 @@ class AnalyticsOverview {
   final List<AnalyticsLiquidation> liquidations;
   final String? insight;
   final bool stale;
+  final Map<String, String> historyLabels;
   factory AnalyticsOverview.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     final windows = AnalyticsParse.object(j['windows']).map(

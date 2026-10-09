@@ -26,4 +26,9 @@ describe('Perpl mainnet Exchange log decoder', () => {
     expect(decodeExchangeLog({ ...sample.logs[0], address: '0x0000000000000000000000000000000000000001' })).toBeNull()
     expect(decodeExchangeLog({ ...sample.logs[0], removed: true })).toBeNull()
   })
+
+  it('halts on malformed recognized financial events instead of losing evidence', () => {
+    expect(() => decodeExchangeLog({ ...sample.logs[0], data: '0x' })).toThrow('ANALYTICS_RECOGNIZED_LOG_INVALID')
+    expect(decodeExchangeLog({ ...sample.logs[0], topics: [`0x${'f'.repeat(64)}`] })).toBeNull()
+  })
 })

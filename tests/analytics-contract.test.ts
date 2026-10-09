@@ -55,6 +55,11 @@ const endpoints = [
 ] as const
 
 describe('Analytics v1 contract fixtures', () => {
+  it.each(endpoints)('%s matches the mobile contract fixture', (name) => {
+    const canonical = JSON.parse(readFileSync(`packages/analytics/fixtures/${name}`, 'utf8'))
+    const mobile = JSON.parse(readFileSync(`apps/mobile/test/fixtures/analytics/${name}`, 'utf8'))
+    expect(mobile).toEqual(canonical)
+  })
   it.each(endpoints)('%s has envelope and declared data fields', (name, fields) => {
     const response = JSON.parse(readFileSync(`packages/analytics/fixtures/${name}`, 'utf8')) as Record<string, unknown>
     expect(
