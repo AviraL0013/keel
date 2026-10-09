@@ -26,6 +26,8 @@ import type { PerplEnrollmentService } from '../../infrastructure/perpl/enrollme
 import type { TelegramLinks } from '../../infrastructure/telegram/links.js'
 import { toBookDto } from './dto.js'
 import { OpeningTrades, type OpeningPreviewInput } from '../../application/opening-trades.js'
+import { registerAnalyticsRoutes, type AnalyticsRouteDependencies } from './routes/analytics.js'
+import { registerStrategyRoutes } from './routes/strategies.js'
 import {
   toActionDto,
   toAutopsyDto,
@@ -57,6 +59,7 @@ export type HttpContext = {
   enrollment?: PerplEnrollmentService
   telegramLinks?: TelegramLinks
   publicCapital?: (wallet: string, userId: string) => Promise<CapitalSnapshot>
+  analytics?: AnalyticsRouteDependencies
 }
 
 type Session = { userId: string; walletAddress: string; expiresAt: number }
@@ -64,6 +67,8 @@ type RequestWithSession = FastifyRequest & { user?: Session }
 
 export function registerRoutes(context: HttpContext) {
   const { app, config, persistence, auth, notificationStore } = context
+  if (process.env.EYELER_ANALYTICS_ENABLED === 'true')
+    registerAnalyticsRoutes(app, persistence instanceof PostgresStore ? persistence.pool : null, context.analytics)
   const books = new BooksApplication(persistence, context.venue)
   const authToken = (request: FastifyRequest) => {
     const bearer = request.headers.authorization
@@ -277,6 +282,9 @@ export function registerRoutes(context: HttpContext) {
     return { ok: true }
   })
   app.addHook('preHandler', async (request, reply) => {
+    // Only registered GET analytics routes are public. Private routes and
+    // unknown lookalike URLs still pass through the session gate.
+    if (request.method === 'GET' && request.routeOptions.url?.startsWith('/analytics/v1/')) return
     // Telegram has no browser session. This one route authenticates the webhook secret itself.
     if (request.method === 'POST' && request.routeOptions.url === '/integrations/telegram/webhook') return
     if (
@@ -746,6 +754,12 @@ export function registerRoutes(context: HttpContext) {
       throw Object.assign(new Error('TEST_VENUE_NOT_ENABLED'), { statusCode: 404 })
     context.testRuntime.venue.setScenario(request.body.scenario)
     return { ok: true, scenario: request.body.scenario, environment: 'DEV / TEST VENUE' }
+  })
+  registerStrategyRoutes({
+    app,
+    persistence: persistence instanceof PostgresStore ? persistence : null,
+    environment: config.environment === 'mainnet' ? 'mainnet' : 'testnet',
+    session,
   })
   app.setErrorHandler((error, _request, reply) => {
     logger.error({ error: error instanceof Error ? error.message : 'INTERNAL_ERROR' }, 'request failed')

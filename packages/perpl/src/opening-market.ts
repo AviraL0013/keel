@@ -152,6 +152,7 @@ export function openingMarketSnapshot(
     headObservedAt: head.observedAt,
     orderTtlBlocks: market.order_ttl_blocks,
     freeBalance: free.toFixed(token.decimals),
+    balanceBlock: balance.observedBlock,
     priceTick: step(priceDecimals),
     sizeStep: step(sizeDecimals),
     minimumSize: new Decimal(minSizeRaw.toString()).div(sizeScale.toString()).toFixed(sizeDecimals),

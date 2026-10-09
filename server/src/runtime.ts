@@ -19,9 +19,17 @@ import { OpeningTrades } from './application/opening-trades.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
 import { ExecutionWorker } from './workers/execution-worker.js'
+import { StrategyWorker, PerplPaperFeed } from './workers/strategy-worker.js'
+import { StrategyStore } from './infrastructure/strategies/store.js'
+import { StrategyOrderRecovery } from './infrastructure/strategies/order-recovery.js'
+import type {
+  StrategyOrderEvidence,
+  StrategyCommandIntent,
+} from '../../packages/strategies/src/order-reconciliation.js'
 import { MonitorScheduler } from './lifecycle.js'
 import { ConflictError, NotFoundError, PolicyRejectedError } from './application/errors.js'
 import { executionDisabled as isExecutionDisabled, logger } from './config/index.js'
+import type { BookSetup } from './application/books.js'
 
 export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   accountId?: number
@@ -33,7 +41,8 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     marketId: number,
     accountId: number,
     positionId: number,
-  ): Promise<{ market: string; position: BookPositionSeed; telemetry: BookTelemetrySeed; reserveAvailable: number }>
+    transaction?: Pick<PoolClient, 'query'>,
+  ): Promise<BookSetup>
   listPositions?(): Promise<
     Array<{
       marketId: number
@@ -46,13 +55,20 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     }>
   >
   listOpeningMarkets?(): Promise<Array<{ id: number; symbol: string; status: 'OPEN' | 'CLOSED' }>>
-  openingMarketSnapshot?(marketId: number): Promise<OpeningMarketDetail>
+  openingMarketSnapshot?(marketId: number, transaction?: Pick<PoolClient, 'query'>): Promise<OpeningMarketDetail>
   submitOpening?(
     openingId: string,
     order: PerplOrder,
     beforeSend: (reference: string, lb: number) => Promise<void>,
     verifyBeforeSend?: () => Promise<void>,
   ): Promise<PerplSubmitResult>
+  submitStrategy?(
+    intentId: string,
+    order: PerplOrder,
+    beforeSend: (reference: string, lb: number) => Promise<void>,
+    verifyBeforeSend?: () => Promise<void>,
+  ): Promise<PerplSubmitResult>
+  strategyOrderEvidence?(intent: StrategyCommandIntent): Promise<StrategyOrderEvidence>
   reconcileOpening?(intent: {
     accountId: number
     marketId: number
@@ -118,6 +134,9 @@ export function classifySafeModeCause(code: string): Exclude<SafeModeReason, 'UN
 export class EyelerRuntime {
   private readonly repository: PostgresExecutionRepository
   private readonly scheduler: MonitorScheduler
+  private readonly strategyWorker?: StrategyWorker
+  private readonly strategyRecovery?: StrategyOrderRecovery
+  private nextStrategyReconcileAt = 0
   private readonly reconciliationSchedule = new Map<string, { nextAt: number; rateLimitFailures: number }>()
   private readonly freshRecoveryTicks = new Map<string, number>()
   private lease?: PoolClient
@@ -137,6 +156,15 @@ export class EyelerRuntime {
   ) {
     this.repository = new PostgresExecutionRepository(store)
     this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000, () => undefined, now)
+    if (openingEnvironment && process.env.EYELER_STRATEGIES_ENABLED === 'true') {
+      this.strategyWorker = new StrategyWorker(
+        new StrategyStore(store.pool, openingEnvironment),
+        new PerplPaperFeed(openingEnvironment),
+        now,
+        () => isExecutionDisabled(process.env),
+      )
+      this.strategyRecovery = new StrategyOrderRecovery(store.pool, venue, openingEnvironment)
+    }
   }
   async start() {
     if (this.lease || this.waitingForLock || this.scheduler.health().running) return
@@ -169,6 +197,7 @@ export class EyelerRuntime {
       await this.scheduler.stop()
     } finally {
       try {
+        await this.strategyWorker?.close()
         if (this.venueStarted || this.lease) await this.venue?.close()
         this.venueStarted = false
       } finally {
@@ -232,7 +261,7 @@ export class EyelerRuntime {
         ownedLease.release()
         // Unlike graceful shutdown, a lost lock cannot retain venue authority while draining a tick.
         const closing = this.venue?.close()
-        this.lockLoss = Promise.all([this.scheduler.stop(), closing]).then(
+        this.lockLoss = Promise.all([this.scheduler.stop(), closing, this.strategyWorker?.close()]).then(
           () => this.scheduleLockRetry(),
           () => logger.error({ error: 'WORKER_LOCK_LOSS_SHUTDOWN_FAILED' }, 'Automatic worker restart is blocked'),
         )
@@ -426,6 +455,18 @@ export class EyelerRuntime {
        ON CONFLICT(minute) DO UPDATE SET last_tick=EXCLUDED.last_tick,tick_count=monitor_heartbeat_minutes.tick_count+1`,
       [this.now()],
     )
+    try {
+      await this.strategyWorker?.tick()
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : 'STRATEGY_TICK_FAILED' },
+        'Paper strategy tick deferred',
+      )
+    }
+    if (this.strategyRecovery && this.now() >= this.nextStrategyReconcileAt) {
+      this.nextStrategyReconcileAt = this.now() + 5_000
+      await this.strategyRecovery.recover()
+    }
   }
   private async recordDecision(decision: Decision, explicitManualRequest = false) {
     const fingerprint = JSON.stringify([decision.state, decision.action, decision.amount, decision.reasonCodes])

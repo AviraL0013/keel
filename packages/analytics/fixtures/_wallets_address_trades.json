@@ -1,0 +1,24 @@
+{
+  "asOf": "2026-10-07T12:00:00.000Z",
+  "block": 35000000,
+  "source": "monad_exchange",
+  "stale": false,
+  "data": {
+    "items": [
+      {
+        "id": "34999900:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1",
+        "time": "2026-10-07T11:00:00.000Z",
+        "marketId": 1,
+        "side": "long",
+        "action": "close",
+        "size": "0.01000",
+        "price": "112500.0",
+        "notional": "1125.000000",
+        "fee": "0.000000",
+        "realizedPnl": "125.000000",
+        "transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "nextCursor": null
+  }
+}

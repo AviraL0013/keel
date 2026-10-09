@@ -8,6 +8,8 @@ import type {
 } from '../../../packages/domain/src/index.js'
 import { NotFoundError, ValidationError } from './errors.js'
 import type { BookRepository, VenuePort } from './ports.js'
+import type { AccountCapitalBalance } from '../infrastructure/capital/admission.js'
+import type { PoolClient } from 'pg'
 
 export type CreateBookCommand = {
   market: string
@@ -27,8 +29,14 @@ export type BookSetup = {
   position: BookPositionSeed
   telemetry: BookTelemetrySeed
   reserveAvailable: number
+  capital?: AccountCapitalBalance
 }
-export type BookSetupLoader = (marketId: number, accountId: number, positionId: number) => Promise<BookSetup>
+export type BookSetupLoader = (
+  marketId: number,
+  accountId: number,
+  positionId: number,
+  transaction?: Pick<PoolClient, 'query'>,
+) => Promise<BookSetup>
 
 export class BooksApplication {
   constructor(
@@ -56,16 +64,23 @@ export class BooksApplication {
       const setup = await venue.loadBookSetup(command.marketId, command.venueAccountId, command.venuePositionId)
       const reserveAvailable = command.reserveAvailable ?? setup.reserveAvailable
       if (reserveAvailable > setup.reserveAvailable) throw new ValidationError('Reserve exceeds available capital.')
-      return this.books.createBook(userId, {
-        ...command,
-        perplConnectionId: venue.connectionId,
-        market: setup.market,
-        side: setup.position.side,
-        initialPosition: setup.position,
-        initialTelemetry: setup.telemetry,
-        reserveAvailable,
-        status: 'ACTIVE',
-      })
+      return this.books.createBook(
+        userId,
+        {
+          ...command,
+          perplConnectionId: venue.connectionId,
+          market: setup.market,
+          side: setup.position.side,
+          initialPosition: setup.position,
+          initialTelemetry: setup.telemetry,
+          reserveAvailable,
+          status: 'ACTIVE',
+        },
+        venue.connectionId
+          ? (transaction) =>
+              venue.loadBookSetup!(command.marketId!, command.venueAccountId!, command.venuePositionId!, transaction)
+          : undefined,
+      )
     }
     return this.books.createBook(userId, {
       ...command,

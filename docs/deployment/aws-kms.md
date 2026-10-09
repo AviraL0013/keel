@@ -8,16 +8,16 @@ Create a symmetric `ENCRYPT_DECRYPT` customer-managed KMS key and a least-privil
 
 Set these names through the backend host's secure configuration:
 
-| Name | Purpose |
-| --- | --- |
-| `EYELER_KEY_CUSTODY` | Set to `aws-kms`. |
-| `AWS_REGION` | The KMS key's AWS region. |
-| `EYELER_KMS_KEY_ARN` | Full immutable key ARN for new encryption. Aliases are rejected. |
+| Name                          | Purpose                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `EYELER_KEY_CUSTODY`          | Set to `aws-kms`.                                                             |
+| `AWS_REGION`                  | The KMS key's AWS region.                                                     |
+| `EYELER_KMS_KEY_ARN`          | Full immutable key ARN for new encryption. Aliases are rejected.              |
 | `EYELER_KMS_DECRYPT_KEY_ARNS` | Optional comma-separated previous key ARNs in the same region, maximum eight. |
 
 Configure an AWS SDK credential provider that obtains short-lived credentials for the runtime role. The SDK supports workload credentials and web identity (`AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE`), among its standard providers. A role ARN alone is not authentication. A GitHub Actions identity cannot be reused as the continuously running Railway service's identity. Railway workload federation has not been verified for this installation; its documented “Login with Railway” OAuth integration is user login, not proof of an AWS workload identity. Resolve this before activation. Never paste credentials, web identity tokens, or private material into chat or the repository.
 
-Unset `EYELER_KEY_ENCRYPTION_KEY` and `KEEL_KEY_ENCRYPTION_KEY` for deployed testnet/mainnet. `DevelopmentKeyCustody` is accepted only in `development` or `test`. Mainnet refuses startup without valid KMS configuration; per-user deployed testnet also requires KMS. There is no fallback when KMS is unavailable.
+Unset `EYELER_KEY_ENCRYPTION_KEY` and `KEEL_KEY_ENCRYPTION_KEY` for deployed testnet/mainnet. `DevelopmentKeyCustody` is accepted only in `development` or `test`. Mainnet refuses startup without valid KMS configuration. Deployed per-user testnet supports either AWS KMS or the explicit versioned `railway-testnet` provider documented in [credentials](credentials.md). The latter requires `EYELER_TESTNET_CUSTODY_KEYS` and `EYELER_TESTNET_CUSTODY_ACTIVE_VERSION`, remains context-bound and is forbidden on mainnet. There is no automatic fallback when KMS is unavailable.
 
 ## Minimum runtime IAM policy
 

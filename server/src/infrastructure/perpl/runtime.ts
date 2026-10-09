@@ -12,6 +12,7 @@ import {
 import { PerplLiveAdapter, type ReconciliationContext } from '../../../../packages/perpl/src/live.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
+import { strategyHistoryLowerBound } from '../../../../packages/strategies/src/order-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
 import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
@@ -34,7 +35,35 @@ import { readAgoraActivity } from '../agora/activity.js'
 import { readCapital } from '../capital/snapshot.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
-import { brandEnv, logger } from '../../config/index.js'
+import { brandEnv, executionDisabled, logger } from '../../config/index.js'
+
+function perplFreeBalance(
+  balance: PerplBalance,
+  now = Date.now(),
+  freshnessMs = defaultFreshnessThresholds.marketMs,
+): Decimal {
+  if (!Number.isFinite(balance.updatedAt) || balance.updatedAt! > now || now - balance.updatedAt! > freshnessMs)
+    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  try {
+    const available = new Decimal(balance.available)
+    const locked = new Decimal(balance.locked)
+    const free = available.minus(locked)
+    if (
+      !available.isFinite() ||
+      !locked.isFinite() ||
+      available.lt(0) ||
+      locked.lt(0) ||
+      free.lt(0) ||
+      balance.decimals !== 6 ||
+      available.decimalPlaces() > 6 ||
+      locked.decimalPlaces() > 6
+    )
+      throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+    return free
+  } catch {
+    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  }
+}
 
 export function assertPerplFreeBalance(
   balance: PerplBalance,
@@ -42,10 +71,8 @@ export function assertPerplFreeBalance(
   now = Date.now(),
   freshnessMs = defaultFreshnessThresholds.marketMs,
 ) {
-  if (!Number.isFinite(balance.updatedAt) || balance.updatedAt! > now || now - balance.updatedAt! > freshnessMs)
-    throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
+  const free = perplFreeBalance(balance, now, freshnessMs)
   try {
-    const free = new Decimal(balance.available).minus(balance.locked)
     const needed = new Decimal(amount)
     if (!free.isFinite() || !needed.isFinite() || needed.lte(0)) throw new Error('PERPL_FREE_BALANCE_UNAVAILABLE')
     if (free.lt(needed)) throw new Error('PERPL_FREE_BALANCE_INSUFFICIENT')
@@ -541,13 +568,20 @@ export function createPerplRuntime(
       const { bookId: _bookId, ...positionSeed } = position
       const { source: _source, freshnessMs: _freshnessMs, ...telemetrySeed } = currentTelemetry
       const balance = await adapter.getBalance(accountId)
-      const reserveAvailable = Number(balance.available)
-      if (!Number.isFinite(reserveAvailable) || reserveAvailable < 0) throw new Error('PERPL_BALANCE_INVALID')
+      const free = perplFreeBalance(balance, Date.now(), freshnessThresholds.marketMs)
+      const reserveAvailable = free.toNumber()
       return {
         market: market.symbol,
         position: positionSeed,
         telemetry: { ...telemetrySeed, source: currentTelemetry.source, freshnessMs: currentTelemetry.freshnessMs },
         reserveAvailable,
+        capital: {
+          environment,
+          accountId,
+          free: free.toFixed(6),
+          observedAt: balance.updatedAt!,
+          observedBlock: balance.observedBlock!,
+        },
       }
     },
     async listPositions() {
@@ -667,6 +701,38 @@ export function createPerplRuntime(
     },
     async submitOpening(openingId, order, beforeSend, verifyBeforeSend) {
       return trading.submitOpening(openingId, order, beforeSend, verifyBeforeSend)
+    },
+    async submitStrategy(intentId, order, beforeSend, verifyBeforeSend) {
+      if (order.t !== 5 && (env.EYELER_STRATEGIES_LIVE_ENABLED !== 'true' || executionDisabled(env)))
+        throw new Error('STRATEGIES_LIVE_DISABLED')
+      return trading.submitStrategy(intentId, order, beforeSend, verifyBeforeSend)
+    },
+    async strategyOrderEvidence(intent) {
+      if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')
+      const proof = await history.strategyCommandEvidence(
+        intent.accountId,
+        intent.requestId,
+        intent.marketId,
+        intent.venueOrderId,
+        strategyHistoryLowerBound(intent),
+        {
+          contractMarketId: intent.contractMarketId,
+          targetIdentity: intent.targetIdentity,
+          previousIdentity: intent.previousIdentity,
+        },
+      )
+      const snapshotReady = trading.isReady()
+      const snapshot = snapshotReady
+        ? trading
+            .stateSnapshot()
+            .orders.filter(
+              (item) =>
+                item.acc === intent.accountId &&
+                (String(item.rq) === intent.requestId ||
+                  (item.mkt === intent.marketId && item.oid === intent.venueOrderId)),
+            )
+        : []
+      return { ...proof, snapshotReady, snapshot }
     },
     async reconcile(action) {
       return live.reconcile(action)

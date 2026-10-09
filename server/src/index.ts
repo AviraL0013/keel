@@ -21,6 +21,7 @@ import { registerRoutes } from './interfaces/http/register.js'
 import { installShutdownHandlers } from './shutdown.js'
 import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
 import { TelegramLinks } from './infrastructure/telegram/links.js'
+import { StrategyTelegramCommands, telegramCommandSender } from './infrastructure/strategies/telegram-commands.js'
 import { createPublicCapital } from './infrastructure/capital/snapshot.js'
 import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
 
@@ -65,7 +66,17 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     process.env.TELEGRAM_BOT_TOKEN &&
     process.env.TELEGRAM_BOT_USERNAME &&
     process.env.TELEGRAM_WEBHOOK_SECRET
-      ? new TelegramLinks(persistence.pool, process.env.TELEGRAM_BOT_USERNAME, process.env.TELEGRAM_WEBHOOK_SECRET)
+      ? new TelegramLinks(
+          persistence.pool,
+          process.env.TELEGRAM_BOT_USERNAME,
+          process.env.TELEGRAM_WEBHOOK_SECRET,
+          Date.now,
+          new StrategyTelegramCommands(
+            persistence.pool,
+            config.environment === 'mainnet' ? 'mainnet' : 'testnet',
+            telegramCommandSender(process.env.TELEGRAM_BOT_TOKEN),
+          ),
+        )
       : undefined
   const snapshotRetention =
     persistence instanceof PostgresStore
@@ -77,6 +88,13 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       .map((origin) => origin.trim())
       .filter(Boolean),
   )
+  origins.add('https://app.eyeler.xyz')
+  if (process.env.ANALYTICS_CORS_ORIGIN) {
+    const origin = new URL(process.env.ANALYTICS_CORS_ORIGIN)
+    if (origin.protocol !== 'https:' || origin.origin !== process.env.ANALYTICS_CORS_ORIGIN)
+      throw new Error('ANALYTICS_CORS_ORIGIN_INVALID')
+    origins.add(origin.origin)
+  }
   if (config.environment === 'test' || config.environment === 'development')
     for (const port of [8082, 8083]) {
       origins.add(`http://localhost:${port}`)

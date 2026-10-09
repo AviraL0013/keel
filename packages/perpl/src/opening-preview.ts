@@ -21,6 +21,8 @@ export type OpeningMarketSnapshot = {
   marketOpen: boolean
   marketObservedAt: number
   balanceObservedAt: number
+  /** Signed wallet block, required by execution capital admission. */
+  balanceBlock?: number
   marketBlock: number
   headBlock: number
   headObservedAt: number

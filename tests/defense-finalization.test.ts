@@ -1,21 +1,11 @@
-import { PGlite } from '@electric-sql/pglite'
-import { readFile } from 'node:fs/promises'
 import { expect, it, vi } from 'vitest'
 import { PostgresExecutionRepository } from '../server/src/infrastructure/database/execution-repository.js'
 import type { Action } from '../packages/domain/src/index.js'
+import { databaseFixture } from './helpers/database.js'
 
 it('settles verified DEFEND once when stale market timestamps prevent efficiency measurement', async () => {
-  const db = new PGlite()
+  const { db } = await databaseFixture()
   try {
-    await db.exec(
-      (await readFile('database/migrations/001_initial.sql', 'utf8')).replace(
-        'CREATE EXTENSION IF NOT EXISTS pgcrypto;',
-        '',
-      ),
-    )
-    await db.exec(await readFile('database/migrations/002_execution.sql', 'utf8'))
-    await db.exec(await readFile('database/migrations/007_action_safety_pause.sql', 'utf8'))
-    await db.exec(await readFile('database/migrations/012_telegram_delivery.sql', 'utf8'))
     const user = (
       await db.query<{ id: string }>("INSERT INTO users(wallet_address) VALUES('reconciled-defend') RETURNING id")
     ).rows[0].id

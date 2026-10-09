@@ -21,6 +21,7 @@ it('stores a bound, hashed 15-second preview from a fresh account snapshot witho
       VALUES($1,12,true,false)`,
       [connectionId],
     )
+    await db.query("INSERT INTO perpl_account_owners(environment,account_id,user_id) VALUES('testnet',12,$1)", [userId])
     const snapshot: OpeningMarketSnapshot = {
       environment: 'testnet',
       accountId: 12,
@@ -39,6 +40,7 @@ it('stores a bound, hashed 15-second preview from a fresh account snapshot witho
       marketOpen: true,
       marketObservedAt: now,
       balanceObservedAt: now,
+      balanceBlock: 100,
       marketBlock: 100,
       headBlock: 101,
       headObservedAt: now,

@@ -137,6 +137,7 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
     marketObservedAt: observedAt,
     balanceObservedAt: observedAt,
     marketBlock: 100,
+    balanceBlock: 100,
     headBlock: 101,
     headObservedAt: observedAt,
     orderTtlBlocks: 10,
@@ -292,6 +293,11 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
     await db.query('INSERT INTO perpl_accounts(connection_id,account_id,forwarding,frozen) VALUES($1,12,true,false)', [
       connectionId.value,
     ])
+    // The real per-user venue sync persists this owner binding. This fake
+    // venue must provide the same evidence before capital admission.
+    await db.query("INSERT INTO perpl_account_owners(environment,account_id,user_id) VALUES('mainnet',12,$1)", [
+      owner.userId,
+    ])
     const funded = (await app.inject({ url: '/capital', headers })).json()
     expect(funded.perplAvailable.amount).toBe('1000.000000')
     expect(funded.walletAgoraAusd.amount).toBe('123.456789') // Never sum these two sources.
@@ -306,7 +312,7 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
         .statusCode,
     ).toBe(404)
     const admitted = await app.inject({ method: 'POST', url: '/openings/confirm', headers, payload: confirmation })
-    expect(admitted.statusCode).toBe(200)
+    expect(admitted.statusCode, JSON.stringify(admitted.json())).toBe(200)
     expect(admitted.json().status).toBe('VERIFYING')
     expect(submitOpening).toHaveBeenCalledOnce()
     const again = await app.inject({ method: 'POST', url: '/openings/confirm', headers, payload: confirmation })

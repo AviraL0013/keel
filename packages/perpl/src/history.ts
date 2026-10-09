@@ -5,6 +5,15 @@ import { parsePerplRequestIds } from './request-id.js'
 import { decodeEventLog, decodeFunctionData, parseAbi } from 'viem'
 import { encodeAmount } from './units.js'
 import Decimal from 'decimal.js'
+import { verifyStrategyCommandReceipt } from './strategy-receipts.js'
+import {
+  encodeStrategyOrderIdentity,
+  matchesStrategyOrderIdentity,
+  matchesStrategyReceiptStamp,
+  strategyReceiptHash,
+  validStrategyOrderIdentity,
+  type StrategyOrderIdentity,
+} from './strategy-identity.js'
 
 export type AccountEvent = {
   id: number
@@ -269,6 +278,114 @@ export class PerplHistory {
       }
     }
     return operations
+  }
+  /** Signed history supplies candidates, including OPEN and original target rq.
+   * On-chain request and outcome events own positive command admission proof.
+   * A failed/incomplete history scan throws; it cannot establish absence.
+   */
+  async strategyCommandEvidence(
+    accountId: number,
+    requestedId: string,
+    marketId: number,
+    targetOrderId?: number,
+    minBlock?: number,
+    scope?: {
+      contractMarketId?: number
+      targetIdentity?: StrategyOrderIdentity
+      previousIdentity?: StrategyOrderIdentity
+    },
+  ) {
+    if (!this.rpcUrl || !this.exchangeAddress) throw new Error('PERPL_RECONCILIATION_RPC_UNAVAILABLE')
+    const history = await this.read<WireOrder>(
+      'order-history',
+      (row) =>
+        row.acc === accountId &&
+        (String(row.rq) === requestedId || (row.mkt === marketId && row.oid === targetOrderId)),
+      minBlock,
+    )
+    const hashes = [
+      ...new Set(
+        history
+          .flatMap((row) => [strategyReceiptHash(row.at?.txid), strategyReceiptHash(row.c?.txid)])
+          .filter((hash): hash is string => hash !== undefined),
+      ),
+    ]
+    if (hashes.length > 64) throw new Error('PERPL_STRATEGY_RECEIPT_SCAN_LIMIT')
+    const operations = [] as ReturnType<typeof verifyStrategyCommandReceipt>
+    for (const raw of scope?.contractMarketId && Number.isSafeInteger(scope.contractMarketId) ? hashes : []) {
+      const hash = raw.startsWith('0x') ? raw : `0x${raw}`
+      const [tx, receipt] = await Promise.all([
+        this.rpc('eth_getTransactionByHash', hash),
+        this.rpc('eth_getTransactionReceipt', hash),
+      ])
+      for (const op of verifyStrategyCommandReceipt(this.exchangeAddress, hash, tx, receipt)) {
+        if (op.accountId !== accountId || op.requestId !== requestedId || op.transactionIndex === undefined) continue
+        // Keep owned request mismatches visible for superseded detection, but
+        // never give them an API order identity or infer market IDs by equality.
+        const signed = history.filter(
+          (row) =>
+            row.acc === accountId &&
+            (matchesStrategyReceiptStamp(row.at, op.block, op.transactionIndex!, hash, op.outcomeTransactionLogIndex) ||
+              matchesStrategyReceiptStamp(row.c, op.block, op.transactionIndex!, hash)),
+        )
+        if (!signed.length) continue
+        let identities: StrategyOrderIdentity[] = []
+        if (op.marketId === scope!.contractMarketId && op.outcome === 'PLACED' && op.contractOrderId) {
+          identities = signed
+            .filter(
+              (row) =>
+                row.mkt === marketId &&
+                row.scid === op.contractOrderId &&
+                row.t === op.type &&
+                matchesStrategyReceiptStamp(row.c, op.block, op.transactionIndex!, hash) &&
+                (String(row.rq) === requestedId ||
+                  (scope?.previousIdentity &&
+                    scope.previousIdentity.placementRequestId === requestedId &&
+                    matchesStrategyOrderIdentity(row, scope.previousIdentity))),
+            )
+            .map((row) => ({
+              accountId,
+              marketId,
+              contractMarketId: op.marketId,
+              venueOrderId: row.oid,
+              contractOrderId: op.contractOrderId!,
+              placementRequestId: requestedId,
+              type: op.type,
+              creationBlock: op.block,
+              creationTransactionIndex: op.transactionIndex!,
+              creationTxHash: hash,
+            }))
+        } else if (
+          op.marketId === scope!.contractMarketId &&
+          ['CHANGED', 'CANCELED'].includes(op.outcome) &&
+          validStrategyOrderIdentity(scope?.targetIdentity) &&
+          scope.targetIdentity.venueOrderId === targetOrderId &&
+          scope.targetIdentity.contractOrderId === op.contractOrderId &&
+          signed.some(
+            (row) =>
+              matchesStrategyOrderIdentity(row, scope.targetIdentity!) &&
+              matchesStrategyReceiptStamp(row.at, op.block, op.transactionIndex!, hash, op.outcomeTransactionLogIndex),
+          )
+        ) {
+          identities = [scope.targetIdentity]
+        }
+        const unique = new Map(
+          identities
+            .filter(validStrategyOrderIdentity)
+            .map((identity) => [encodeStrategyOrderIdentity(identity), identity]),
+        )
+        const identity = unique.size === 1 ? [...unique.values()][0] : undefined
+        operations.push(identity ? { ...op, venueOrderId: identity.venueOrderId, identity } : op)
+      }
+    }
+    const wallet = await this.wallet()
+    const account = wallet.as.find((row) => row.id === accountId)
+    return {
+      history,
+      operations,
+      historyComplete: true,
+      ...(account?.lfr !== undefined ? { account: { lfr: String(account.lfr), block: wallet.at.b! } } : {}),
+    }
   }
   async evidence(
     accountId: number,

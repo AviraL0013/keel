@@ -1,0 +1,35 @@
+{
+  "asOf": "2026-10-07T12:00:00.000Z",
+  "block": 35000000,
+  "source": "monad_exchange",
+  "stale": false,
+  "data": {
+    "address": "0x1234567890abcdef1234567890abcdef12345678",
+    "accountIds": [
+      "42"
+    ],
+    "margin": {
+      "balance": "10000.000000",
+      "locked": "2000.000000",
+      "free": "8000.000000",
+      "equity": "11250.000000"
+    },
+    "positions": [
+      {
+        "id": "7",
+        "marketId": 1,
+        "symbol": "BTC",
+        "side": "long",
+        "size": "0.10000",
+        "notional": "11250.000000",
+        "entryPrice": "100000.0",
+        "markPrice": "112500.0",
+        "leverage": "5.00",
+        "collateral": "2000.000000",
+        "unrealizedPnl": "1250.000000",
+        "liquidationPrice": "82000.0",
+        "openedAt": "2026-10-06T00:00:00.000Z"
+      }
+    ]
+  }
+}

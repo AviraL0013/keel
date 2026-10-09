@@ -13,6 +13,8 @@ import type {
   Position,
   Reserve,
 } from '../../../packages/domain/src/index.js'
+import type { BookSetup } from './books.js'
+import type { PoolClient } from 'pg'
 export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & {
   reserveAvailable?: number
   initialPosition?: BookPositionSeed
@@ -21,7 +23,11 @@ export type CreateBookInput = Omit<Book, 'id' | 'userId' | 'createdAt' | 'update
 export type BookControlPatch = { automationEnabled?: boolean; status?: BookStatus; stance?: BookStance }
 
 export type BookRepository = {
-  createBook(userId: string, input: CreateBookInput): Promise<Book>
+  createBook(
+    userId: string,
+    input: CreateBookInput,
+    reloadSetup?: (transaction: Pick<PoolClient, 'query'>) => Promise<BookSetup>,
+  ): Promise<Book>
   getBook(userId: string, bookId: string): Promise<Book | null>
   listBooks(userId: string): Promise<Book[]>
   updateBookControls(userId: string, bookId: string, changes: BookControlPatch): Promise<Book | null>

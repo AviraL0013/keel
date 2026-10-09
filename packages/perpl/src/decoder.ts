@@ -32,6 +32,10 @@ export type WireOrder = {
   acc: number
   mkt: number
   oid: number
+  /** Smart-contract slot; not the API oid. Optional only for older fixtures/frames. */
+  scid?: number
+  /** Placement transaction; update at can belong to a later fill/change. */
+  c?: Omit<Stamp, 'l'>
   rq: string | number
   st: number
   sr: number
@@ -42,7 +46,20 @@ export type WireOrder = {
   lp?: number
   r?: boolean
 }
-export type WireFill = { acc: number; mkt: number; oid: number; t: number; p?: number; s: number; at: Stamp; f: string }
+export type WireFill = {
+  acc: number
+  mkt: number
+  oid: number
+  t: number
+  p?: number
+  s: number
+  at: Stamp
+  f: string
+  /** Optional only for legacy frames; receipt-backed maker proof requires l=1. */
+  l?: number
+  /** Builder portion of gross f, not an additional fee. */
+  bfa?: string
+}
 export type PerplMessage = Record<string, unknown> & { mt: number; sn?: number }
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value)

@@ -7,6 +7,8 @@ import '../../../capital/presentation/capital_screen.dart';
 import '../../../autopsy/presentation/autopsy_screen.dart';
 import '../../../notifications/presentation/notifications_screen.dart';
 import '../../../settings/presentation/settings_screen.dart';
+import '../../../analytics/analytics_screen.dart';
+import '../../../strategies/autopilot_screen.dart';
 import '../../data/books_repository.dart';
 import '../../../onboarding/presentation/onboarding_screen.dart';
 
@@ -42,6 +44,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       const OnboardingHome(),
       const PositionsScreen(),
       const CapitalScreen(),
+      const AnalyticsScreen(),
+      const AutopilotScreen(),
       books.maybeWhen(
           data: (items) => items.isEmpty
               ? const Center(child: Text('Create a Book to inspect Autopsy.'))
@@ -66,28 +70,45 @@ class _AppShellState extends ConsumerState<AppShell> {
                   clipBehavior: Clip.none,
                   alignment: Alignment.topCenter,
                   children: [
-                    NavigationBar(
-                      selectedIndex: index,
-                      onDestinationSelected: (value) =>
-                          setState(() => index = value),
-                      destinations: const [
-                        NavigationDestination(
-                            icon: Icon(Icons.home_outlined), label: 'Home'),
-                        NavigationDestination(
-                            icon: Icon(Icons.account_balance_wallet_outlined),
-                            label: 'Positions'),
-                        NavigationDestination(
-                            icon: Icon(Icons.account_balance_outlined),
-                            label: 'Capital'),
-                        NavigationDestination(
-                            icon: Icon(Icons.history), label: 'Autopsy'),
-                        NavigationDestination(
-                            icon: Icon(Icons.notifications_none),
-                            label: 'Notifications'),
-                        NavigationDestination(
-                            icon: Icon(Icons.settings_outlined),
-                            label: 'Settings'),
-                      ],
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: MediaQuery.sizeOf(context).width < 560
+                            ? 560
+                            : MediaQuery.sizeOf(context).width > 720
+                                ? 720
+                                : MediaQuery.sizeOf(context).width,
+                        child: NavigationBar(
+                          selectedIndex: index,
+                          onDestinationSelected: (value) =>
+                              setState(() => index = value),
+                          destinations: const [
+                            NavigationDestination(
+                                icon: Icon(Icons.home_outlined), label: 'Home'),
+                            NavigationDestination(
+                                icon:
+                                    Icon(Icons.account_balance_wallet_outlined),
+                                label: 'Positions'),
+                            NavigationDestination(
+                                icon: Icon(Icons.account_balance_outlined),
+                                label: 'Capital'),
+                            NavigationDestination(
+                                icon: Icon(Icons.analytics_outlined),
+                                label: 'Analytics'),
+                            NavigationDestination(
+                                icon: Icon(Icons.auto_awesome_outlined),
+                                label: 'Autopilot'),
+                            NavigationDestination(
+                                icon: Icon(Icons.history), label: 'Autopsy'),
+                            NavigationDestination(
+                                icon: Icon(Icons.notifications_none),
+                                label: 'Notifications'),
+                            NavigationDestination(
+                                icon: Icon(Icons.settings_outlined),
+                                label: 'Settings'),
+                          ],
+                        ),
+                      ),
                     ),
                     Positioned(
                         top: -20,

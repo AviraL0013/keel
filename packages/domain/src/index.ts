@@ -258,6 +258,8 @@ export type VenueProgress = {
   streamEpoch?: string
   orderStatusReceived?: boolean
   effectiveLastExecBlock?: number
+  /** Successful on-chain execution evidence; used to fence capital snapshot coverage. */
+  confirmedExecutionBlock?: number
   response: 'ADMITTED' | 'REJECTED' | 'ORDER_UPDATE' | 'TIMEOUT' | 'TRANSPORT_AMBIGUOUS'
   code?: number
   orderStatus?: number

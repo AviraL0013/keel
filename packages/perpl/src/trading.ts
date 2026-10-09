@@ -25,6 +25,8 @@ export type PerplOrder = {
   p?: number
   ms?: number
   lp?: number
+  oid?: number
+  fl?: 0 | 1 | 2 | 4
 }
 export type PerplSubmitStatus = 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'FAILED' | 'UNKNOWN'
 export type PerplSubmitResult = {
@@ -54,6 +56,8 @@ type Pending = {
   sentHeartbeatSequence: number
   streamEpoch: string
   orderStatusReceived: boolean
+  resting: boolean
+  strategy: boolean
 }
 function progress(
   pending: Pending,
@@ -193,12 +197,50 @@ export class PerplTradingClient {
       throw new PerplPreSubmissionError('PERPL_OPEN_ORDER_INVALID')
     return this.submitIntent({ id: openingId }, order, beforeSend, verifyBeforeSend, true)
   }
+  /** Resting strategy orders share the same allocator, serial proof, and WS session as Book actions. */
+  async submitStrategy(
+    intentId: string,
+    order: PerplOrder,
+    beforeSend: (reference: string, lb: number) => Promise<void>,
+    verifyBeforeSend: () => Promise<void> = async () => undefined,
+  ): Promise<PerplSubmitResult> {
+    const posting = [1, 2, 3, 4].includes(order.t)
+    const amending = order.t === 7
+    const canceling = order.t === 5
+    if (
+      !intentId ||
+      !(posting || amending || canceling) ||
+      !Number.isSafeInteger(order.mkt) ||
+      order.mkt <= 0 ||
+      !Number.isSafeInteger(order.acc) ||
+      order.acc <= 0 ||
+      (posting &&
+        (order.fl !== 1 ||
+          !Number.isSafeInteger(order.p) ||
+          order.p! <= 0 ||
+          !Number.isSafeInteger(order.s) ||
+          order.s <= 0 ||
+          !Number.isSafeInteger(order.lv) ||
+          order.lv < 0)) ||
+      ((amending || canceling) &&
+        (!Number.isSafeInteger(order.oid) || order.oid! <= 0 || order.fl !== 0 || order.lv !== 0)) ||
+      (amending &&
+        (!Number.isSafeInteger(order.p) || order.p! <= 0 || !Number.isSafeInteger(order.s) || order.s <= 0)) ||
+      (canceling && order.s !== 0) ||
+      order.a !== undefined ||
+      order.ms !== undefined
+    )
+      throw new PerplPreSubmissionError('PERPL_STRATEGY_ORDER_INVALID')
+    return this.submitIntent({ id: intentId }, order, beforeSend, verifyBeforeSend, true, posting || amending, true)
+  }
   private async submitIntent(
     action: { id: string },
     order: PerplOrder,
     beforeSend: (reference: string, lb: number) => Promise<void>,
     verifyBeforeSend: () => Promise<void>,
     opening: boolean,
+    resting = false,
+    strategy = false,
   ): Promise<PerplSubmitResult> {
     if (!this.socket || this.socket.readyState !== WS.OPEN)
       throw new PerplPreSubmissionError('PERPL_TRADING_NOT_CONNECTED')
@@ -308,12 +350,14 @@ export class PerplTradingClient {
         sentHeartbeatSequence: expiry.sequence,
         streamEpoch: expiry.epoch,
         orderStatusReceived: false,
+        resting,
+        strategy,
       })
       this.requestBySequence.set(sn, rq)
       this.diagnostic(
         `PERPL_WS_ORDER_SEND actionId=${action.id} mt=22 rq=${rq} sn=${sn} accountId=${order.acc} marketId=${order.mkt}`,
       )
-      this.socket!.send(orderFrameWithRequestId({ mt: 22, sn, ...wireOrder, fl: 4 }, rq), (error) => {
+      this.socket!.send(orderFrameWithRequestId({ mt: 22, sn, ...wireOrder, fl: order.fl ?? 4 }, rq), (error) => {
         if (!error) {
           this.diagnostic(`PERPL_WS_ORDER_WRITE_OK actionId=${action.id} rq=${rq} sn=${sn}`)
           return
@@ -335,6 +379,12 @@ export class PerplTradingClient {
   }
   stateSnapshot() {
     return this.state.snapshot()
+  }
+  openOrders(accountId: number) {
+    if (!this.isReady()) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
+    return this.state
+      .snapshot()
+      .orders.filter((order) => order.acc === accountId && !order.r && [2, 3].includes(order.st))
   }
   heartbeat() {
     const value = this.state.heartbeat()
@@ -697,12 +747,12 @@ export class PerplTradingClient {
       const [sn, pending] = entry
       pending.orderStatusReceived = true
       const status = mapPerplOrderStatus(order.st ?? 0)
-      if (status === 'SUBMITTED') continue
+      if (status === 'SUBMITTED' && !pending.resting) continue
       clearTimeout(pending.timer)
       this.pending.delete(sn)
       pending.resolve({
         venueReference: `${pending.accountId}:${pending.rq}:${order.oid ?? pending.rq}`,
-        status: status === 'FAILED' ? 'UNKNOWN' : status,
+        status: status === 'FAILED' && !pending.strategy ? 'UNKNOWN' : status,
         reason: order.sr === 32 ? 'ORDER_REQUEST_ID_TOO_LOW' : undefined,
         venueProgress: progress(pending, sn, 'ORDER_UPDATE', {
           orderStatus: order.st,

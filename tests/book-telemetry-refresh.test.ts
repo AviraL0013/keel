@@ -201,6 +201,22 @@ describe('Book telemetry refresh', () => {
         .spyOn(PerplAdapter.prototype, 'getPosition')
         .mockRejectedValue(new Error('HISTORY_IS_NOT_CURRENT_STATE'))
       venue = createPerplRuntime(store)
+      vi.spyOn(PerplAdapter.prototype, 'getBalance').mockResolvedValue({
+        available: '1.180776',
+        locked: '0.200000',
+        decimals: 6,
+        updatedAt: at,
+        observedBlock: 100,
+      })
+      const setup = await venue!.loadBookSetup!(16, 642, 77)
+      expect(setup.reserveAvailable).toBe(0.980776)
+      vi.spyOn(PerplAdapter.prototype, 'getBalance').mockResolvedValueOnce({
+        available: '1.180776',
+        locked: '0.200000',
+        decimals: 6,
+        updatedAt: at - 20_000,
+      })
+      await expect(venue!.loadBookSetup!(16, 642, 77)).rejects.toThrow('PERPL_FREE_BALANCE_UNAVAILABLE')
       await venue!.refresh(book)
       const row = await store.getTelemetryRow(user, book.id)
       const dto = toTelemetryDto(row!)

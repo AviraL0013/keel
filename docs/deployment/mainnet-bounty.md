@@ -8,16 +8,16 @@ The Android package is `xyz.eyeler.app`. Mera uses RP ID `app.eyeler.xyz`; the a
 
 Mainnet constants, checked against Perpl's public `/api/v1/pub/context` on 2026-10-07:
 
-| Item | Value |
-| --- | --- |
-| Perpl REST | `https://app.perpl.xyz/api` |
-| Perpl trading WebSocket | `wss://app.perpl.xyz` |
-| Monad chain ID / RPC | `143` / `https://rpc.monad.xyz` |
-| Explorer | `https://monadscan.com` |
-| Exchange | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` |
-| AUSD | `0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a`, 6 decimals |
+| Item                                    | Value                                                                      |
+| --------------------------------------- | -------------------------------------------------------------------------- |
+| Perpl REST                              | `https://app.perpl.xyz/api`                                                |
+| Perpl trading WebSocket                 | `wss://app.perpl.xyz`                                                      |
+| Monad chain ID / RPC                    | `143` / `https://rpc.monad.xyz`                                            |
+| Explorer                                | `https://monadscan.com`                                                    |
+| Exchange                                | `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F`                               |
+| AUSD                                    | `0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a`, 6 decimals                   |
 | Current minimum account-opening deposit | `10.000000 AUSD`; the wizard reads the current minimum again before acting |
-| Builder | ID `25`, fee ceiling `0` |
+| Builder                                 | ID `25`, fee ceiling `0`                                                   |
 
 The backend refuses a mixed mainnet/testnet configuration. The Android wizard rejects a changed Exchange, AUSD token, chain, or a minimum below 10 AUSD. It reads current account, AUSD balance, allowance, and authenticated forwarding state before offering each step. A submitted transaction with no known outcome remains blocked; the user must review the chain before any further attempt. No fallback RPC or alternate account is used after a 401/403.
 
@@ -25,25 +25,25 @@ The backend refuses a mixed mainnet/testnet configuration. The Android wizard re
 
 Create a separate mainnet API service and PostgreSQL database. Keep the operator testnet service and its database intact. Migrations run as the pre-deploy step. Use one replica, zero overlap, 30-second drain, `/health` health check, and Wait for CI. Set the following **names** in Railway; values belong in its secure variables, never in Git or Flutter defines:
 
-| Variable | Required setting |
-| --- | --- |
-| `EYELER_ENV` | `mainnet` |
-| `EYELER_PERPL_ACCOUNT_MODE` | `per-user` |
-| `EYELER_ACCESS_MODE` | `allowlist` |
-| `EYELER_ALLOWED_WALLETS` | Mera wallet address after phone creation, plus explicitly approved team wallets only |
-| `EYELER_OPENING_ENABLED` | `true` only after `feat/opening-trades` is integrated, reviewed, and its fake-venue gates pass |
-| `EYELER_EXECUTION_DISABLED` | Keep `true` until KMS, per-user enrollment, and readiness checks pass; then deliberate cutover to `false` |
-| `DATABASE_URL` | New mainnet PostgreSQL database; never the testnet database |
-| `SESSION_SECRET` | New independent mainnet secret |
-| `CORS_ORIGIN`, `EYELER_APP_URL`, `PERPL_ENROLLMENT_ORIGIN` | `https://app.eyeler.xyz` |
-| `PERPL_REST_URL`, `PERPL_WS_URL`, `PERPL_CHAIN_ID` | `https://app.perpl.xyz/api`, `wss://app.perpl.xyz`, `143` |
-| `EYELER_BUILDER_ID`, `EYELER_MAX_BUILDER_FEE_PER_100K` | `25`, `0` |
-| `MONAD_RPC_URL`, `MONAD_CHAIN_ID`, `AUSD_TOKEN_ADDRESS` | `https://rpc.monad.xyz`, `143`, mainnet AUSD address above |
-| `EYELER_KEY_CUSTODY`, `AWS_REGION`, `EYELER_KMS_KEY_ARN` | `aws-kms`, key region, immutable mainnet key ARN |
-| `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE` | Only if Railway can supply an actual workload identity; role ARN alone is insufficient |
-| `EYELER_KMS_DECRYPT_KEY_ARNS` | Optional old key ARNs during controlled rotation |
-| `TELEGRAM_BOT_TOKEN` | Optional; existing bot credential managed only in Railway |
-| `EYELER_APP_URL` | Also used for Telegram Book links; must point to mainnet app |
+| Variable                                                   | Required setting                                                                                          |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `EYELER_ENV`                                               | `mainnet`                                                                                                 |
+| `EYELER_PERPL_ACCOUNT_MODE`                                | `per-user`                                                                                                |
+| `EYELER_ACCESS_MODE`                                       | `allowlist`                                                                                               |
+| `EYELER_ALLOWED_WALLETS`                                   | Mera wallet address after phone creation, plus explicitly approved team wallets only                      |
+| `EYELER_OPENING_ENABLED`                                   | `true` only after `feat/opening-trades` is integrated, reviewed, and its fake-venue gates pass            |
+| `EYELER_EXECUTION_DISABLED`                                | Keep `true` until KMS, per-user enrollment, and readiness checks pass; then deliberate cutover to `false` |
+| `DATABASE_URL`                                             | New mainnet PostgreSQL database; never the testnet database                                               |
+| `SESSION_SECRET`                                           | New independent mainnet secret                                                                            |
+| `CORS_ORIGIN`, `EYELER_APP_URL`, `PERPL_ENROLLMENT_ORIGIN` | `https://app.eyeler.xyz`                                                                                  |
+| `PERPL_REST_URL`, `PERPL_WS_URL`, `PERPL_CHAIN_ID`         | `https://app.perpl.xyz/api`, `wss://app.perpl.xyz`, `143`                                                 |
+| `EYELER_BUILDER_ID`, `EYELER_MAX_BUILDER_FEE_PER_100K`     | `25`, `0`                                                                                                 |
+| `MONAD_RPC_URL`, `MONAD_CHAIN_ID`, `AUSD_TOKEN_ADDRESS`    | `https://rpc.monad.xyz`, `143`, mainnet AUSD address above                                                |
+| `EYELER_KEY_CUSTODY`, `AWS_REGION`, `EYELER_KMS_KEY_ARN`   | `aws-kms`, key region, immutable mainnet key ARN                                                          |
+| `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`              | Only if Railway can supply an actual workload identity; role ARN alone is insufficient                    |
+| `EYELER_KMS_DECRYPT_KEY_ARNS`                              | Optional old key ARNs during controlled rotation                                                          |
+| `TELEGRAM_BOT_TOKEN`                                       | Optional; existing bot credential managed only in Railway                                                 |
+| `EYELER_APP_URL`                                           | Also used for Telegram Book links; must point to mainnet app                                              |
 
 Do not set shared `PERPL_API_KEY`, `PERPL_API_KEY_SECRET`, or `PERPL_ACCOUNT_ID` on mainnet. Do not set `EYELER_KEY_ENCRYPTION_KEY` or `KEEL_KEY_ENCRYPTION_KEY`. The mainnet process refuses startup without AWS KMS. Follow [AWS KMS setup](aws-kms.md) for key policy, workload identity, startup probe, and audit checks. The operator has not provided an AWS key or role yet; a fake KMS test is not deployment evidence.
 
@@ -66,4 +66,4 @@ For rollback, disable openings and execution first. Restore the prior web deploy
 
 ## Unverified external proof
 
-At the original branch check on 2026-10-07, live `https://app.eyeler.xyz/.well-known/assetlinks.json` returned 404. No phone was connected and no passkey ceremony, mainnet approval, deposit, order, or Perpl enrollment was attempted. Main commit `481e87b` subsequently merged guarded opening trades and Mera mainnet activation; the guided-onboarding candidate builds on that implementation. These merges do not verify a live trade or deployed association file. Railway KMS workload access and the mainnet per-user service still require the external checks above.
+The 2026-10-07 Asset Links 404 is historical. On 2026-10-09, `app.eyeler.xyz/.well-known/assetlinks.json` returned HTTP 200 `application/json` with both `handle_all_urls` and `get_login_creds` relations and the release certificate fingerprint after main merge `c599598`. The signed local APK matches that fingerprint. The API remains on the default testnet operator configuration; no phone ceremony, mainnet activation, funding, enrollment or trade was performed by this integration. Follow the current [rollout](perpl-product-rollout.md) and [phone acceptance script](../product/phone-flow-test.md). The separate allowlist-demo custody decision still needs implementation and approval before any mainnet configuration change.

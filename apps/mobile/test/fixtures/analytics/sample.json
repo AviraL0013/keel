@@ -1,0 +1,39 @@
+{
+  "overview": {
+    "asOf": "2026-10-07T12:00:00Z",
+    "windows": {
+      "24h": [{"key":"volume","value":"1842500.52","delta":"5.4"},{"key":"oi","value":"8214000.00","delta":"-1.2"},{"key":"tvl","value":"11250000.00","delta":"2.6"},{"key":"fees","value":"9221.44","delta":"7.1"},{"key":"activeUsers","value":"1284","delta":"3.2"}],
+      "7d": [{"key":"volume","value":"11983000.00","delta":"12.4"},{"key":"oi","value":"8214000.00","delta":"6.2"},{"key":"tvl","value":"11250000.00","delta":"5.6"},{"key":"fees","value":"64281.44","delta":"11.1"},{"key":"activeUsers","value":"3210","delta":"8.2"}],
+      "30d": [{"key":"volume","value":"48830000.00","delta":"20.4"},{"key":"oi","value":"8214000.00","delta":"9.2"},{"key":"tvl","value":"11250000.00","delta":"14.6"},{"key":"fees","value":"254281.44","delta":"19.1"},{"key":"activeUsers","value":"9104","delta":"12.2"}],
+      "All": [{"key":"volume","value":"187830000.00","delta":"42.4"},{"key":"oi","value":"8214000.00","delta":"9.2"},{"key":"tvl","value":"11250000.00","delta":"14.6"},{"key":"fees","value":"954281.44","delta":"29.1"},{"key":"activeUsers","value":"23104","delta":"22.2"}]
+    },
+    "volumeSeries": [{"at":"2026-10-07T08:00:00Z","value":"112000"},{"at":"2026-10-07T09:00:00Z","value":"168000"},{"at":"2026-10-07T10:00:00Z","value":"143000"},{"at":"2026-10-07T11:00:00Z","value":"190000"}],
+    "inflowSeries": [{"at":"2026-10-07T08:00:00Z","value":"-72000"},{"at":"2026-10-07T09:00:00Z","value":"18000"},{"at":"2026-10-07T10:00:00Z","value":"57000"},{"at":"2026-10-07T11:00:00Z","value":"-9000"}],
+    "volumeSeriesByWindow": {
+      "24h": [{"at":"2026-10-07T08:00:00Z","value":"112000"},{"at":"2026-10-07T09:00:00Z","value":"168000"},{"at":"2026-10-07T10:00:00Z","value":"143000"},{"at":"2026-10-07T11:00:00Z","value":"190000"}],
+      "7d": [{"at":"2026-10-01T00:00:00Z","value":"1310000"},{"at":"2026-10-03T00:00:00Z","value":"1640000"},{"at":"2026-10-05T00:00:00Z","value":"1500000"},{"at":"2026-10-07T00:00:00Z","value":"1890000"}],
+      "30d": [{"at":"2026-09-08T00:00:00Z","value":"11200000"},{"at":"2026-09-18T00:00:00Z","value":"13500000"},{"at":"2026-09-28T00:00:00Z","value":"11800000"},{"at":"2026-10-07T00:00:00Z","value":"15100000"}],
+      "All": [{"at":"2026-06-01T00:00:00Z","value":"21000000"},{"at":"2026-07-01T00:00:00Z","value":"31000000"},{"at":"2026-08-01T00:00:00Z","value":"46000000"},{"at":"2026-10-07T00:00:00Z","value":"65000000"}]
+    },
+    "inflowSeriesByWindow": {
+      "24h": [{"at":"2026-10-07T08:00:00Z","value":"-72000"},{"at":"2026-10-07T09:00:00Z","value":"18000"},{"at":"2026-10-07T10:00:00Z","value":"57000"},{"at":"2026-10-07T11:00:00Z","value":"-9000"}],
+      "7d": [{"at":"2026-10-01T00:00:00Z","value":"-82000"},{"at":"2026-10-03T00:00:00Z","value":"43000"},{"at":"2026-10-05T00:00:00Z","value":"19000"},{"at":"2026-10-07T00:00:00Z","value":"91000"}],
+      "30d": [{"at":"2026-09-08T00:00:00Z","value":"-145000"},{"at":"2026-09-18T00:00:00Z","value":"76000"},{"at":"2026-09-28T00:00:00Z","value":"91000"},{"at":"2026-10-07T00:00:00Z","value":"128000"}],
+      "All": [{"at":"2026-06-01T00:00:00Z","value":"-280000"},{"at":"2026-07-01T00:00:00Z","value":"210000"},{"at":"2026-08-01T00:00:00Z","value":"410000"},{"at":"2026-10-07T00:00:00Z","value":"620000"}]
+    },
+    "markets": [{"symbol":"BTC-PERP","volume":"892300.21","oi":"4200000","longShare":"56.2","funding":"0.012"},{"symbol":"ETH-PERP","volume":"610420.31","oi":"2800000","longShare":"48.7","funding":"-0.004"}],
+    "liquidationTotal":"482000.21",
+    "liquidations": [{"id":"liq-1","at":"2026-10-07T11:59:00Z","market":"BTC-PERP","address":"0x0000000000000000000000000000000000000001","side":"long","notional":"28500.10"}],
+    "insight":"BTC-PERP accounts for most recent liquidation volume."
+  },
+  "marketDetails": {
+    "BTC-PERP": {"symbol":"BTC-PERP","asOf":"2026-10-07T12:00:00Z","priceSeries":[{"at":"2026-10-07T08:00:00Z","value":"61200.5"},{"at":"2026-10-07T09:00:00Z","value":"61500.2"},{"at":"2026-10-07T10:00:00Z","value":"61380.1"},{"at":"2026-10-07T11:00:00Z","value":"61920.0"}],"longShare":"56.2","fundingHistory":[{"at":"2026-10-07T08:00:00Z","value":"0.010"},{"at":"2026-10-07T11:00:00Z","value":"0.012"}],"liquidations":[{"id":"liq-1","at":"2026-10-07T11:59:00Z","market":"BTC-PERP","address":"0x0000000000000000000000000000000000000001","side":"long","notional":"28500.10"}]},
+    "ETH-PERP": {"symbol":"ETH-PERP","asOf":"2026-10-07T12:00:00Z","priceSeries":[{"at":"2026-10-07T08:00:00Z","value":"2840.5"},{"at":"2026-10-07T09:00:00Z","value":"2856.2"},{"at":"2026-10-07T10:00:00Z","value":"2847.1"},{"at":"2026-10-07T11:00:00Z","value":"2871.0"}],"longShare":"48.7","fundingHistory":[{"at":"2026-10-07T08:00:00Z","value":"-0.002"},{"at":"2026-10-07T11:00:00Z","value":"-0.004"}],"liquidations":[]}
+  },
+  "wallets": {
+    "0x0000000000000000000000000000000000000001": {"address":"0x0000000000000000000000000000000000000001","asOf":"2026-10-07T12:00:00Z","margin":{"equity":"12540.52","available":"4210.40","maintenance":"924.10"},"positions":[{"market":"BTC-PERP","side":"long","size":"0.42","entry":"60200.12","leverage":"5","unrealizedPnl":"722.15","liquidationPrice":"51800.00","liquidationDistance":"16.3"}],"performance":{"winRate":"61.2","profitFactor":"1.82","maxDrawdown":"-12.4","currentStreak":"3","averageHoldHours":"14.5","bestMarket":"BTC-PERP","worstMarket":"ETH-PERP","equitySeries":[{"at":"2026-10-01T00:00:00Z","value":"10400"},{"at":"2026-10-04T00:00:00Z","value":"11200"},{"at":"2026-10-07T00:00:00Z","value":"12540.52"}]}}
+  },
+  "trades": {
+    "0x0000000000000000000000000000000000000001": {"rows":[{"id":"trade-1","at":"2026-10-07T10:15:00Z","market":"BTC-PERP","side":"long","size":"0.10","realizedPnl":"124.52"}],"nextCursor":null}
+  }
+}

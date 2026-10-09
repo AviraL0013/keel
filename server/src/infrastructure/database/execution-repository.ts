@@ -1,6 +1,7 @@
 import { defenseSensitivity, measureDefense } from '../../../../packages/risk-engine/src/sizing.js'
 import { liquidationDistance } from '../../../../packages/risk-engine/src/index.js'
 import { settleDefense } from '../../reserveSettlement.js'
+import { lockBookAccountCapital } from '../capital/admission.js'
 import { canonicalMoney, moneyMicros } from '../../../../packages/ausd/src/money.js'
 import type {
   Action,
@@ -177,6 +178,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
+      await lockBookAccountCapital(client, action.bookId)
       const locked = await client.query('SELECT status FROM actions WHERE id=$1 FOR UPDATE', [action.id])
       if (!locked.rows.length) throw new Error('ACTION_NOT_FOUND')
       if (locked.rows[0].status === 'CONFIRMED') {

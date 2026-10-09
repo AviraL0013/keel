@@ -91,7 +91,9 @@ describe('bounded Perpl reconciliation', () => {
     expect((await live.reconcile(baseAction())).status).toBe('VERIFYING')
     now = started + 60_000
     setEvidence({ ...empty(), collateralSuccess: { txHash: `0x${'a'.repeat(64)}`, block: 67324070 } } as never)
-    expect((await live.reconcile(baseAction())).status).toBe('CONFIRMED')
+    const confirmed = await live.reconcile(baseAction())
+    expect(confirmed.status).toBe('CONFIRMED')
+    expect(confirmed.venueProgress?.confirmedExecutionBlock).toBe(67324070)
   })
 
   it('does not expire the transport-ambiguous EXIT when low-word lfr 45 has passed its rq', async () => {

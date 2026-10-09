@@ -1,5 +1,7 @@
 # API
 
+Public analytics adds `GET /analytics/v1/markets/:id/prices?interval=1h|1d&from=<UTC>&to=<UTC>` for completed candle closes. Values are exact decimal strings; missing or unfinished buckets are null. See [analytics v1](analytics-v1.md) for limits, freshness, provenance and the other read-only routes.
+
 Routes below match `server/src/interfaces/http/register.ts` as of 2026-09-28.
 
 Public status:
@@ -53,6 +55,7 @@ Connections, capital, and notifications (authenticated):
 - `GET /capital/agora-activity?cursor=<opaque>` (cursor optional; returns only the session wallet's records and an optional `nextCursor`)
 
 `/capital` reports wallet collateral token, Perpl free and locked balances, user-owned Book allocations, and a reserve-coverage warning as separate sources. Each source can independently be unavailable. Testnet wallet collateral is USD; mainnet is AUSD. Optional `AGORA_METRICS_ENABLED=true` adds a read-only global AUSD supply card. Agora activity is not a balance or a Perpl collateral credit; transaction hashes are shown as evidence, and matches stay advisory.
+
 - `POST /devices`
 - `GET /notifications`
 - `POST /notifications/:id/read`
@@ -73,4 +76,18 @@ Opening trades (authenticated; previews and confirmation require per-user mode a
 
 The feature flag defaults off; the server rejects enabling it in operator mode. A worker-lock owner reconciles persisted requests from signed history and receipt-backed forwarded operations. The app offers “Protect this position” only after the resulting open position appears in the current authenticated Perpl snapshot; it then enters the existing Create Book policy flow. No Book is created automatically.
 
+Autopilot (authenticated; paper mode is the default):
+
+- `GET /strategies/:id/verified-accounting` returns one exact-decimal row per market from the receipt/history/order-verified fill projection. It includes position size, weighted entry, realized PnL, fees, funding input, and the last verified block/transaction/log sequence. Empty rows mean no verified financial event has been credited; the endpoint never converts paper cash flow into live PnL.
+- `GET /strategies/:id/status` includes the owned strategy's environment, decimal-string account ID, market, exact stored capital string, and configured risk limits. The existing session and ownership checks apply.
+
 Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.
+
+Public analytics (read-only; requires `EYELER_ANALYTICS_ENABLED=true`):
+
+- `/analytics/v1/protocol/summary`, `/protocol/timeseries`, `/protocol/flows`
+- `/analytics/v1/markets`, `/markets/:id`, `/markets/:id/funding`
+- `/analytics/v1/liquidations`, `/search`
+- `/analytics/v1/wallets/:address`, `/wallets/:address/trades`, `/wallets/:address/performance`, `/wallets/compare`
+
+All paths above share the `/analytics/v1` prefix. See [the analytics contract](analytics-v1.md) for fields, parameters, coverage and rate limits. Flutter's `/analytics` route is public and uses a separate GET-only client without private session access. This does not expose private Books, positions, credentials, or controls.
