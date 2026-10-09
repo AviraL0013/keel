@@ -6,7 +6,7 @@ Deploy exactly **one backend instance** per environment. Perpl allows four tradi
 
 ## Live testnet
 
-The following describes the existing single-operator deployment. The candidate per-user release uses `EYELER_PERPL_ACCOUNT_MODE=per-user` and removes shared Perpl API credentials. Mainnet requires [AWS KMS custody](aws-kms.md); deployed testnet also permits explicitly configured versioned Railway custody, never development custody. Do not enable it until the [product release checklist](../product/end-to-end-delivery.md) and operator handover pass. The current [Perpl rollout](perpl-product-rollout.md) lists release blockers and approval checkpoints.
+The following describes the existing single-operator deployment. The candidate per-user release uses `EYELER_PERPL_ACCOUNT_MODE=per-user` and removes shared Perpl API credentials. Mainnet permits the explicit [allowlisted demo envelope provider](mainnet-bounty.md) for team wallets; public access still requires [AWS KMS](aws-kms.md). Deployed testnet separately permits versioned Railway custody, never development custody. Do not enable mainnet before the [product release checklist](../product/end-to-end-delivery.md) and operator handover pass. The current [Perpl rollout](perpl-product-rollout.md) lists release blockers and approval checkpoints.
 
 Set these on the backend host:
 

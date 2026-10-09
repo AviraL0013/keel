@@ -14,6 +14,7 @@ export type Config = {
   allowedWallets: string[]
   perplAccountMode: 'operator' | 'per-user'
   accessMode: 'allowlist' | 'public'
+  demoAllowlist: boolean
   openingEnabled: boolean
   safeModeResumeTicks: number
   tickStaleMs: number
@@ -76,6 +77,12 @@ export function loadConfig(env: Record<string, string | undefined> = {}): Config
     environment,
     perplAccountMode,
     accessMode,
+    demoAllowlist:
+      environment === 'mainnet' &&
+      perplAccountMode === 'per-user' &&
+      accessMode === 'allowlist' &&
+      env.EYELER_ACCESS_MODE === 'allowlist' &&
+      env.EYELER_KEY_CUSTODY === 'railway-allowlist-demo',
     openingEnabled,
     port: Number(env.PORT ?? 8787),
     databaseUrl: env.DATABASE_URL,
@@ -102,7 +109,13 @@ export function assertProductionConfig(config: Config, env: Record<string, strin
     if (
       ['mainnet', 'testnet'].includes(config.environment) &&
       custody?.provider !== 'aws-kms' &&
-      !(config.environment === 'testnet' && custody?.provider === 'railway-testnet')
+      !(config.environment === 'testnet' && custody?.provider === 'railway-testnet') &&
+      !(
+        config.environment === 'mainnet' &&
+        config.perplAccountMode === 'per-user' &&
+        config.accessMode === 'allowlist' &&
+        custody?.provider === 'railway-allowlist-demo'
+      )
     )
       throw new Error('KMS_CUSTODY_REQUIRED')
     if (

@@ -18,16 +18,16 @@ This is the release checklist, not a claim that the product is complete. Mark an
 
 ## Verified starting point
 
-| Area | Existing implementation | Gap |
-| --- | --- | --- |
-| Sessions | Wallet signature challenges and persisted sessions | Public registration policy, linked wallets, per-user resource lifetime and cache isolation |
-| Mera | Native PRF derivation and message signing | Typed-data signing, recovery/cancel/device proof, Android association, lifecycle locking |
-| Perpl enrollment | Encrypted testnet enrollment foundation | Mainnet configuration, production key custody, UI, account discovery and runtime binding |
-| Perpl execution | Shared server account; tested risk actions and durable reconciliation | Per-user venue ownership; opening trades; concurrent multi-account verification |
-| Capital | Separate wallet, venue, Book and Agora sources | Work without a venue key; correctly bind all sources to the selected identity and environment |
-| Telegram | Durable delivery to one configured operator chat | Verified per-user link, routing, unlink, privacy and terminal delivery failures |
-| Android | CI build | Install, platform passkey association, device ceremony and release signing evidence |
-| Deploy | Railway/Vercel CI workflows | Candidate release verification, staged activation and rollback evidence |
+| Area             | Existing implementation                                               | Gap                                                                                           |
+| ---------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Sessions         | Wallet signature challenges and persisted sessions                    | Public registration policy, linked wallets, per-user resource lifetime and cache isolation    |
+| Mera             | Native PRF derivation and message signing                             | Typed-data signing, recovery/cancel/device proof, Android association, lifecycle locking      |
+| Perpl enrollment | Encrypted testnet enrollment foundation                               | Mainnet configuration, production key custody, UI, account discovery and runtime binding      |
+| Perpl execution  | Shared server account; tested risk actions and durable reconciliation | Per-user venue ownership; opening trades; concurrent multi-account verification               |
+| Capital          | Separate wallet, venue, Book and Agora sources                        | Work without a venue key; correctly bind all sources to the selected identity and environment |
+| Telegram         | Durable delivery to one configured operator chat                      | Verified per-user link, routing, unlink, privacy and terminal delivery failures               |
+| Android          | CI build                                                              | Install, platform passkey association, device ceremony and release signing evidence           |
+| Deploy           | Railway/Vercel CI workflows                                           | Candidate release verification, staged activation and rollback evidence                       |
 
 ## 1. Identity and many-user access
 
@@ -66,7 +66,7 @@ Acceptance: user B cannot read, trade, receive alerts for, or bind user A's reso
 - [ ] PE-08: Handle expired, revoked, ambiguous-enrollment and disconnect states. Disconnect blocks new execution; unresolved prior actions retain an explicit reconciliation path.
 - [ ] PE-09: Verify origin approval on each deployed enrollment origin. Mainnet approval does not automatically prove testnet approval or another origin.
 
-PE-09 check on 2026-10-07: unsigned testnet enrollment-payload requests with origin `https://app.eyeler.xyz` returned HTTP 400 `Bad Request` both with builder ID 25 and zero fee ceiling and without either builder field. Equivalent mainnet request with builder ID 25 returned HTTP 200. No signature or enrollment was attempted. Testnet builder terms and origin approval remain unverified; the generic 400 does not identify which testnet rule failed. Testnet-only versioned Railway-secret envelope custody has fake-key tests; mainnet remains KMS-only.
+PE-09 check on 2026-10-07: unsigned testnet enrollment-payload requests with origin `https://app.eyeler.xyz` returned HTTP 400 `Bad Request` both with builder ID 25 and zero fee ceiling and without either builder field. Equivalent mainnet request with builder ID 25 returned HTTP 200. No signature or enrollment was attempted. Testnet builder terms and origin approval remain unverified; the generic 400 does not identify which testnet rule failed. Versioned Railway-secret envelope custody has fake-key tests for testnet and the explicit mainnet per-user allowlist demo. Public mainnet access remains KMS-only.
 
 ## 4. Runtime isolation and execution
 
@@ -90,6 +90,7 @@ PE-09 check on 2026-10-07: unsigned testnet enrollment-payload requests with ori
 - [ ] TR-07: Show the verified new position, then create a Book through existing policy gates. A trade is not a Book reserve credit.
 
 Opening-trade branch evidence: `opening-market.test.ts`, `opening-http.test.ts`, `opening-preview.test.ts`, `opening-previews.test.ts`, `opening-confirm-gates.test.ts`, `opening-reserves.test.ts`, `opening-migration.test.ts`, `opening-reconciliation.test.ts`, `perpl-trading.test.ts`, `perpl-request-id.test.ts`, `perpl-user-venues.test.ts`, and Flutter `opening_flow_test.dart` cover metadata, freshness, exact preview math, owner/expiry binding, reserve boundaries, migration 017, durable request IDs, IOC flags, fake-socket submission, no-resend recovery, receipt-backed reconciliation, and Protect navigation. No live order or deployed testnet enrollment has been exercised. The branch is not a production release; items remain unchecked pending all gates and external enrollment confirmation.
+
 - [ ] TR-08: Exercise DEFEND/REDUCE/EXIT for each scoped account, including late history, insufficient funds, external/manual position changes and stale snapshots.
 - [ ] TR-09: Keep automation opt-in, limits explicit, pause/kill effective, and unresolved actions blocking. No opening-position automation in this release.
 

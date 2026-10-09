@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assertProductionConfig, loadConfig, walletAccess } from '../packages/shared/src/index.js'
+import { configuredKeyCustody } from '../server/src/infrastructure/perpl/configured-key-custody.js'
 
 const base = {
   EYELER_ENV: 'testnet',
@@ -64,6 +65,38 @@ describe('explicit per-user deployment configuration', () => {
       expect(() => assertProductionConfig(loadConfig({ ...mainnet, ...invalid }), { ...mainnet, ...invalid })).toThrow(
         'MAINNET_BOUNTY_PROFILE_MISMATCH',
       )
+  })
+  it('starts an allowlisted per-user mainnet demo with Railway custody but never public or operator mode', async () => {
+    const demo = {
+      ...base,
+      EYELER_ENV: 'mainnet',
+      EYELER_KEY_CUSTODY: 'railway-allowlist-demo',
+      EYELER_ACCESS_MODE: 'allowlist',
+      AWS_REGION: undefined,
+      EYELER_KMS_KEY_ARN: undefined,
+      EYELER_DEMO_CUSTODY_KEYS: JSON.stringify({ v1: '11'.repeat(32) }),
+      EYELER_DEMO_CUSTODY_ACTIVE_VERSION: 'v1',
+      CORS_ORIGIN: 'https://app.eyeler.xyz',
+      PERPL_ENROLLMENT_ORIGIN: 'https://app.eyeler.xyz',
+      AUSD_TOKEN_ADDRESS: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a',
+      MONAD_CHAIN_ID: '143',
+      MONAD_RPC_URL: 'https://rpc.monad.xyz',
+      EYELER_BUILDER_ID: '25',
+      EYELER_MAX_BUILDER_FEE_PER_100K: '0',
+    }
+    expect(loadConfig(demo).demoAllowlist).toBe(true)
+    expect(() => assertProductionConfig(loadConfig(demo), demo)).not.toThrow()
+    const custody = configuredKeyCustody(demo, 'mainnet')
+    await expect(custody?.assertReady?.()).resolves.toBeUndefined()
+    custody?.close?.()
+    for (const override of [{ EYELER_ACCESS_MODE: 'public' }, { EYELER_PERPL_ACCOUNT_MODE: 'operator' }])
+      expect(loadConfig({ ...demo, ...override }).demoAllowlist).toBe(false)
+    for (const override of [{ EYELER_ACCESS_MODE: 'public' }, { EYELER_PERPL_ACCOUNT_MODE: 'operator' }])
+      expect(() => assertProductionConfig(loadConfig({ ...demo, ...override }), { ...demo, ...override })).toThrow(
+        'KMS_CUSTODY_REQUIRED',
+      )
+    const withoutCustody = { ...demo, EYELER_KEY_CUSTODY: undefined }
+    expect(() => assertProductionConfig(loadConfig(withoutCustody), withoutCustody)).toThrow('KMS_CUSTODY_REQUIRED')
   })
   it('accepts multiple allowlisted users only with isolated connections and no shared credentials', () => {
     expect(loadConfig(base)).toMatchObject({ perplAccountMode: 'per-user' })

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/networking/backend_status.dart';
 
 import 'book_detail_screen.dart';
 import '../../../positions/presentation/positions_screen.dart';
@@ -24,6 +25,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     final books = ref.watch(booksProvider);
+    final demoAllowlist =
+        ref.watch(backendStatusProvider).valueOrNull?.demoAllowlist == true;
     final linkedBookId = Uri.base.queryParameters['book'];
     if (!_openedLinkedBook && linkedBookId != null) {
       books.whenData((items) {
@@ -58,7 +61,21 @@ class _AppShellState extends ConsumerState<AppShell> {
       width: double.infinity,
       height: MediaQuery.sizeOf(context).height,
       child: Scaffold(
-        body: pages[index],
+        body: Column(children: [
+          if (demoAllowlist)
+            SizedBox(
+              width: double.infinity,
+              child: ColoredBox(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 7, horizontal: 16),
+                  child:
+                      Text('Demo (allowlisted)', textAlign: TextAlign.center),
+                ),
+              ),
+            ),
+          Expanded(child: pages[index]),
+        ]),
         bottomNavigationBar: ColoredBox(
           color: Theme.of(context).colorScheme.surface,
           child: Center(

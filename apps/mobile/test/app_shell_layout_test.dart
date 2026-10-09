@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eyeler_mobile/core/theme/app_theme.dart';
+import 'package:eyeler_mobile/core/networking/backend_status.dart';
 import 'package:eyeler_mobile/features/books/data/books_repository.dart';
 import 'package:eyeler_mobile/features/books/presentation/screens/app_shell.dart';
 import 'package:eyeler_mobile/features/books/presentation/screens/books_screen.dart';
@@ -11,6 +12,40 @@ import 'package:eyeler_mobile/features/onboarding/domain/onboarding_progress.dar
 import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
 
 void main() {
+  for (final width in [320.0, 360.0]) {
+    testWidgets('allowlist demo remains visible after sign-in at $width dp',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 952);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          backendStatusProvider.overrideWith((ref) async => const BackendStatus(
+              BackendState.live,
+              environment: 'mainnet',
+              demoAllowlist: true)),
+          onboardingProvider.overrideWith((ref) async {
+            final snapshot = CapitalSnapshot.fromJson({'perplAvailable': '0'});
+            return OnboardingProgress(
+                step: OnboardingStep.unavailable,
+                environment: 'mainnet',
+                walletBalance: snapshot.walletAgoraAusd,
+                collateral: snapshot.perplAvailable,
+                canOpenTrade: false);
+          }),
+          booksProvider.overrideWith((ref) async => []),
+          positionsProvider.overrideWith((ref) async => []),
+          perplConnectionProvider.overrideWith((ref) async =>
+              const PerplConnectionState(status: 'NOT_CONNECTED')),
+        ],
+        child: MaterialApp(theme: EyelerTheme.dark, home: const AppShell()),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Demo (allowlisted)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
   for (final size in [const Size(427, 952), const Size(1440, 900)]) {
     testWidgets('shell preserves body and tab hit targets at $size',
         (tester) async {

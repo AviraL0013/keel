@@ -24,7 +24,7 @@ Per-user testnet enrollment (only when `EYELER_PERPL_ACCOUNT_MODE=per-user`):
 - `EYELER_EGRESS_CIDRS` — leave unset. Nonempty restrictions are rejected at startup until Perpl's signed serialization has been verified independently.
 - `EYELER_BUILDER_ID` and `EYELER_MAX_BUILDER_FEE_PER_100K` — optional paired builder terms; both must be set together.
 
-EYELER never revokes a key at Perpl. Disconnect shreds local credentials and directs the user to the Perpl key page for venue-side revocation. Mainnet enrollment is disabled until production custody exists.
+EYELER never revokes a key at Perpl. Disconnect shreds local credentials and directs the user to the Perpl key page for venue-side revocation. Mainnet enrollment requires AWS KMS or the explicit per-user, allowlisted Railway demo custody profile. Public access cannot use the demo profile.
 
 ## MONAD TESTNET — REQUIRED FOR LIVE EVIDENCE
 
