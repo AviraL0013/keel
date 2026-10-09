@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { chainConfigs } from '../packages/chain/src/index.js'
 import { deriveEvent, type MarketPrecision } from '../packages/analytics/src/aggregate.js'
 import { decodeExchangeLog, type ChainLog } from '../packages/analytics/src/decoder.js'
 import { AnalyticsRepository } from '../server/src/infrastructure/analytics/repository.js'
@@ -27,12 +28,13 @@ const markets = new Map<number, MarketPrecision>(
 )
 
 describe('analytics SQL migration and checkpoint', () => {
-  it('requires an environment RPC and keeps recent and archive starts distinct', () => {
-    expect(() => indexerConfig({ DATABASE_URL: 'fixture' })).toThrow('EYELER_ANALYTICS_RPC_URL_REQUIRED')
-    const recent = indexerConfig({ DATABASE_URL: 'fixture', EYELER_ANALYTICS_RPC_URL: 'fixture' })
+  it('falls back to public mainnet RPC for recent history and keeps archive starts distinct', () => {
+    const recent = indexerConfig({ DATABASE_URL: 'fixture' })
+    expect(recent.rpcUrl).toBe(chainConfigs.mainnet.rpcUrl)
     expect(recent.startBlock).toBeNull()
     expect(recent.historyVerified).toBe(false)
     expect(recent.chunkSize).toBe(20n)
+    expect(indexerConfig({ DATABASE_URL: 'fixture', EYELER_ANALYTICS_RPC_URL: 'fixture' }).rpcUrl).toBe('fixture')
     const archive = indexerConfig({
       DATABASE_URL: 'fixture',
       EYELER_ANALYTICS_RPC_URL: 'fixture',

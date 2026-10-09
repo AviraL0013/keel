@@ -2,6 +2,7 @@
 import { pathToFileURL } from 'node:url'
 import pg from 'pg'
 import { toEventSelector, type AbiEvent } from 'viem'
+import { chainConfigs } from '../../../packages/chain/src/index.js'
 import { deriveEvent, type MarketPrecision } from '../../../packages/analytics/src/aggregate.js'
 import { decodeExchangeLog, EXCHANGE, type ChainLog } from '../../../packages/analytics/src/decoder.js'
 import { exchangeEvents } from '../../../packages/analytics/src/exchange-events.js'
@@ -23,7 +24,6 @@ export interface AnalyticsIndexerConfig {
 }
 export function indexerConfig(env: NodeJS.ProcessEnv): AnalyticsIndexerConfig {
   if (!env.DATABASE_URL) throw new Error('DATABASE_URL_REQUIRED')
-  if (!env.EYELER_ANALYTICS_RPC_URL) throw new Error('EYELER_ANALYTICS_RPC_URL_REQUIRED')
   if (env.EYELER_ANALYTICS_START_BLOCK !== undefined && !/^\d+$/.test(env.EYELER_ANALYTICS_START_BLOCK))
     throw new Error('EYELER_ANALYTICS_START_BLOCK_INVALID')
   const confirmationDepth = BigInt(env.ANALYTICS_CONFIRMATIONS ?? '12')
@@ -41,7 +41,7 @@ export function indexerConfig(env: NodeJS.ProcessEnv): AnalyticsIndexerConfig {
     throw new Error('ANALYTICS_CONFIG_INVALID')
   return {
     databaseUrl: env.DATABASE_URL,
-    rpcUrl: env.EYELER_ANALYTICS_RPC_URL,
+    rpcUrl: env.EYELER_ANALYTICS_RPC_URL || chainConfigs.mainnet.rpcUrl,
     perplApiUrl: env.ANALYTICS_PERPL_API_URL ?? 'https://app.perpl.xyz/api',
     startBlock: env.EYELER_ANALYTICS_START_BLOCK ? BigInt(env.EYELER_ANALYTICS_START_BLOCK) : null,
     historyVerified: env.EYELER_ANALYTICS_START_BLOCK !== undefined,
