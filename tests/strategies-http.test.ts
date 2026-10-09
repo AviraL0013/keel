@@ -62,6 +62,29 @@ it('authenticates paper strategy controls and keeps live creation disabled', asy
     const created = await app.inject({ method: 'POST', url: '/strategies', headers: owner, payload })
     expect(created.statusCode).toBe(200)
     const id = created.json().id as string
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/strategies/${id}/status`,
+          headers: owner,
+        })
+      ).json(),
+    ).toMatchObject({
+      environment: 'testnet',
+      accountId: '642',
+      marketId: 16,
+      kind: 'GRID',
+      capital: '1000.000000',
+      limits: {
+        maxNotional: 500,
+        maxInventory: 0.3,
+        maxOpenOrders: 4,
+        maxDailyLoss: 50,
+        maxDrawdownPct: 5,
+        leverage: 1,
+      },
+    })
     await db.query(
       `INSERT INTO strategy_accounting_projection(
         environment,strategy_id,market_id,position_size,average_entry,realized_pnl,fees_paid,funding_paid,

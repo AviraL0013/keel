@@ -30,6 +30,18 @@ class FakeStrategies implements StrategyRepository {
   Future<Map<String, dynamic>> status(String id) async => {
         'mode': 'PAPER',
         'status': 'RUNNING',
+        'environment': 'testnet',
+        'accountId': '642',
+        'marketId': 16,
+        'capital': '1000.000000',
+        'limits': {
+          'maxNotional': 500,
+          'maxInventory': 0.3,
+          'maxOpenOrders': 4,
+          'maxDailyLoss': 50,
+          'maxDrawdownPct': 5,
+          'leverage': 1,
+        },
         'state': {'riskEvents': [], 'inventory': 0.1}
       };
   @override
@@ -108,6 +120,9 @@ void main() {
               findsOneWidget);
           expect(find.text('Verified accounting'), findsOneWidget);
           expect(find.text('Market 16 · testnet'), findsOneWidget);
+          expect(
+              find.text('testnet · Account 642 · Market 16'), findsOneWidget);
+          expect(find.textContaining('Maximum daily loss 50'), findsOneWidget);
         }
       });
     }

@@ -565,6 +565,7 @@ class _StrategyDashboardScreenState
             final accounting = snapshot.data![5] as List<StrategyAccountingRow>;
             final mode = status['mode'] as String;
             final state = status['state'] as Map<String, dynamic>;
+            final limits = (status['limits'] as Map?) ?? const {};
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -574,26 +575,42 @@ class _StrategyDashboardScreenState
                 ),
                 if (mode != 'LIVE')
                   const Text('Simulation only. No on-chain orders or fills.'),
+                Text(
+                  '${status['environment'] ?? 'Environment unavailable'} · Account ${status['accountId'] ?? 'Unavailable'} · Market ${status['marketId'] ?? 'Unavailable'}',
+                ),
+                Text(
+                  'Allocated capital: ${status['capital'] ?? 'Unavailable'}',
+                ),
+                Text(
+                  'Maximum notional ${limits['maxNotional'] ?? 'Unavailable'} · Maximum inventory ${limits['maxInventory'] ?? 'Unavailable'}',
+                ),
+                Text(
+                  'Maximum daily loss ${limits['maxDailyLoss'] ?? 'Unavailable'} · Maximum drawdown ${limits['maxDrawdownPct'] ?? 'Unavailable'}%',
+                ),
+                Text(
+                  'Maximum open orders ${limits['maxOpenOrders'] ?? 'Unavailable'} · Leverage ${limits['leverage'] ?? 'Unavailable'}',
+                ),
                 const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('PnL: ${pnl['pnl'] ?? 'Unavailable'}'),
-                        Text('Equity: ${pnl['equity'] ?? 'Unavailable'}'),
-                        Text('Inventory: ${pnl['inventory']}'),
-                        Text(
-                          'Fees paid: ${pnl['feesPaid']} · Funding paid: ${pnl['fundingPaid']}',
-                        ),
-                        Text(
-                          'Risk: ${(state['riskEvents'] as List?)?.join(', ') ?? 'No events'}',
-                        ),
-                      ],
+                if (mode != 'LIVE')
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('PnL: ${pnl['pnl'] ?? 'Unavailable'}'),
+                          Text('Equity: ${pnl['equity'] ?? 'Unavailable'}'),
+                          Text('Inventory: ${pnl['inventory']}'),
+                          Text(
+                            'Fees paid: ${pnl['feesPaid']} · Funding paid: ${pnl['fundingPaid']}',
+                          ),
+                          Text(
+                            'Risk: ${(state['riskEvents'] as List?)?.join(', ') ?? 'No events'}',
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
                 if (error != null)
                   Text(
                     error!,

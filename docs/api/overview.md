@@ -79,5 +79,6 @@ The feature flag defaults off; the server rejects enabling it in operator mode. 
 Autopilot (authenticated; paper mode is the default):
 
 - `GET /strategies/:id/verified-accounting` returns one exact-decimal row per market from the receipt/history/order-verified fill projection. It includes position size, weighted entry, realized PnL, fees, funding input, and the last verified block/transaction/log sequence. Empty rows mean no verified financial event has been credited; the endpoint never converts paper cash flow into live PnL.
+- `GET /strategies/:id/status` includes the owned strategy's environment, decimal-string account ID, market, exact stored capital string, and configured risk limits. The existing session and ownership checks apply.
 
 Book ownership and wallet allowlisting are checked server-side. Perpl credentials remain server-side.
