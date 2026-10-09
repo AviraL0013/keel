@@ -31,7 +31,7 @@ Create a separate mainnet API service and PostgreSQL database. Keep the operator
 | `EYELER_PERPL_ACCOUNT_MODE`                                | `per-user`                                                                                                   |
 | `EYELER_ACCESS_MODE`                                       | `allowlist`                                                                                                  |
 | `EYELER_ALLOWED_WALLETS`                                   | Mera wallet address after phone creation, plus explicitly approved team wallets only                         |
-| `EYELER_OPENING_ENABLED`                                   | `true` only after `feat/opening-trades` is integrated, reviewed, and its fake-venue gates pass               |
+| `EYELER_OPENING_ENABLED`                                   | `false` for the execution-disabled canary; enable only at the separately approved trading cutover           |
 | `EYELER_EXECUTION_DISABLED`                                | Keep `true` until custody, per-user enrollment and readiness checks pass; then deliberate cutover to `false` |
 | `DATABASE_URL`                                             | New mainnet PostgreSQL database; never the testnet database                                                  |
 | `SESSION_SECRET`                                           | New independent mainnet secret                                                                               |
@@ -42,6 +42,8 @@ Create a separate mainnet API service and PostgreSQL database. Keep the operator
 | `EYELER_KEY_CUSTODY`                                       | `railway-allowlist-demo` for the approved team-wallet demo, or `aws-kms` for a later KMS rollout             |
 | `EYELER_DEMO_CUSTODY_KEYS`                                 | Railway secret containing a version-to-32-byte-key map; never print or put in a build                        |
 | `EYELER_DEMO_CUSTODY_ACTIVE_VERSION`                       | Version used for new credential envelopes; retain old versions until every old row and backup is retired     |
+| `EYELER_STRATEGIES_ENABLED`, `EYELER_STRATEGIES_LIVE_ENABLED` | `false`; LIVE grid remains blocked until its verified accounting and cancellation gates pass                 |
+| `EYELER_ANALYTICS_ENABLED`                                 | `false` at initial API canary; enable only with a separately verified read-only indexer service             |
 | `AWS_REGION`, `EYELER_KMS_KEY_ARN`                         | Required only when `EYELER_KEY_CUSTODY=aws-kms`; unset for the demo provider                                 |
 | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`              | Only if Railway can supply an actual workload identity; role ARN alone is insufficient                       |
 | `EYELER_KMS_DECRYPT_KEY_ARNS`                              | Optional old key ARNs during controlled rotation                                                             |
@@ -49,6 +51,16 @@ Create a separate mainnet API service and PostgreSQL database. Keep the operator
 | `EYELER_APP_URL`                                           | Also used for Telegram Book links; must point to mainnet app                                                 |
 
 Do not set shared `PERPL_API_KEY`, `PERPL_API_KEY_SECRET`, or `PERPL_ACCOUNT_ID` on mainnet. Do not set `EYELER_KEY_ENCRYPTION_KEY` or `KEEL_KEY_ENCRYPTION_KEY`. `railway-allowlist-demo` starts only with explicit mainnet, per-user accounts, `EYELER_ACCESS_MODE=allowlist`, a nonempty wallet allowlist, and valid versioned keys. It rejects public or operator mode. A random data key encrypts each credential; its envelope is bound to environment, database user ID and credential ID. Keep old wrapping-key versions readable during rotation. Losing all configured versions makes retained credentials unreadable. Railway secret access and application logs need restricted access; this mode does not provide KMS audit and access isolation. For public access, configure [AWS KMS](aws-kms.md) instead.
+
+### Safe variable preparation after approval
+
+Create an empty separate Railway service whose name contains `mainnet`, and attach a separate mainnet PostgreSQL database through Railway's private `DATABASE_URL` reference. Review the target project UUID, `production` environment, service and public Mera address. Before the rollout approval, run only the names-only preview:
+
+```text
+node scripts/deploy/prepare-mainnet-railway.mjs --service api-mainnet --environment production --project <Railway project UUID> --wallet <public Mera address>
+```
+
+After the separate configuration approval, repeat with `--apply`. The script refuses the existing `api` service, inherited shared Perpl credentials, and any target names already present. It sets fixed non-secret mainnet variables with `--skip-deploys`, leaves openings/strategy LIVE/analytics off and execution disabled, generates a new session secret and versioned demo wrapping key in memory, and passes both secrets to `railway variable set KEY --stdin --skip-deploys`. It prints names only. It never sets `DATABASE_URL`, bot tokens, or shared Perpl API keys. If interrupted, it reports which names were written; do not rerun until the partial Railway state is reviewed. Railway secret values and logs must remain restricted. This is preparation, not a deploy or trading authorization.
 
 ## Web and Android
 
@@ -58,15 +70,15 @@ The current GitHub `deploy_web` job still builds testnet for `app.eyeler.xyz`; c
 
 ## Cutover order and rollback
 
-1. Back up signing keystore and password file. Build and install a signed Android APK; verify Digital Asset Links and passkey prompt on the phone. Record the derived Mera address; add only that address to the mainnet allowlist.
+1. Confirm the existing signing-file backup. Build and install a signed Android APK; verify Digital Asset Links and the passkey prompt on the phone. Record the derived public Mera address; prepare only that address for the mainnet allowlist. A sign-in refusal can display and copy it before the backend cutover.
 2. Provision separate mainnet PostgreSQL and the approved versioned Railway secret. Prove startup canary, context-denial and old-key rotation with nonproduction fixtures. For any public rollout, use AWS KMS and verify workload authentication and CloudTrail first. Run migrations against the new mainnet database only.
 3. Bring up the mainnet API with execution disabled on a temporary domain. Verify `/health`, `/ready`, one replica, lock ownership, mainnet context, and per-user isolation. Do not use real orders as a smoke test.
 4. Preserve the testnet operator service on `api.testnet.eyeler.xyz` and move the current testnet web build to `testnet.eyeler.xyz`. Keep its existing database and credentials with that service. Confirm both are explicitly labeled TESTNET before switching `api.eyeler.xyz`.
 5. Switch `api.eyeler.xyz` to the mainnet service. Build and publish mainnet web to `app.eyeler.xyz`; update GitHub auto-deploy target and Vercel aliases. Check live build SHA, assetlinks HTTP headers, and Mera sign-in. Only then allow deliberate activation and one operator-performed bounty trade in the app.
-6. Enable openings only after the reviewed opening-trades branch is included and all gates pass. The operator, not deployment automation, confirms the bounty trade.
+6. After the separate trading approval, enable openings and execution for the allowlisted account only. The operator, not deployment automation, confirms the bounty trade. Keep strategy LIVE disabled until its own later checkpoint.
 
 For rollback, disable openings and execution first. Restore the prior web deployment or a clear maintenance page. Repoint `api.eyeler.xyz` only to a compatible mainnet API/database pair; never attach mainnet users to the testnet operator database or its shared Perpl key. Retain every wrapping-key version needed by credential rows and backups; retain KMS decrypt access if KMS was used. The testnet service and domain remain available independently throughout rollback.
 
 ## Unverified external proof
 
-The 2026-10-07 Asset Links 404 is historical. On 2026-10-09, `app.eyeler.xyz/.well-known/assetlinks.json` returned HTTP 200 `application/json` with both `handle_all_urls` and `get_login_creds` relations and the release certificate fingerprint after main merge `c599598`. The signed local APK matches that fingerprint. The API remains on the default testnet operator configuration; no phone ceremony, mainnet activation, funding, enrollment or trade was performed by this integration. Follow the current [rollout](perpl-product-rollout.md) and [phone acceptance script](../product/phone-flow-test.md). The separate allowlist-demo custody decision still needs implementation and approval before any mainnet configuration change.
+The 2026-10-07 Asset Links 404 is historical. On 2026-10-09, `app.eyeler.xyz/.well-known/assetlinks.json` returned HTTP 200 `application/json` with both `handle_all_urls` and `get_login_creds` relations and the release certificate fingerprint after main merge `0830d19`. The signed local APK matches that fingerprint. The API remains on the default testnet operator configuration; no phone ceremony, mainnet activation, funding, enrollment or trade was performed by this integration. The allowlist-demo custody implementation is on `feat/eyeler-completion`, unmerged and undeployed. Follow the current [rollout](perpl-product-rollout.md) and [phone acceptance script](../product/phone-flow-test.md); the production configuration change still requires separate approval.
