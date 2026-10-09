@@ -5,6 +5,7 @@ import {
   planMainnetVariables,
   prepareMainnetRailway,
   railwayArguments,
+  railwayLaunch,
   validateTarget,
 } from '../scripts/deploy/prepare-mainnet-railway.mjs'
 
@@ -75,6 +76,14 @@ describe('mainnet Railway preparation without production calls', () => {
     }
     expect(JSON.parse(secretCalls[1].input!)).toHaveProperty('v1')
     expect(railwayArguments(target, 'SESSION_SECRET')).toContain('--stdin')
+  })
+
+  it('launches the Windows Railway CLI through Node without a shell', () => {
+    const launch = railwayLaunch(['variable', 'list'], 'win32', { APPDATA: 'C:\\Users\\tester\\AppData\\Roaming' })
+    expect(launch.command).toBe(process.execPath)
+    expect(launch.args[0]).toMatch(/npm[\\/]node_modules[\\/]@railway[\\/]cli[\\/]bin[\\/]railway\.js$/)
+    expect(launch.args.slice(1)).toEqual(['variable', 'list'])
+    expect(railwayLaunch(['variable', 'list'], 'linux', {}).command).toBe('railway')
   })
 
   it('reports only names after a partial CLI failure, never generated values', async () => {

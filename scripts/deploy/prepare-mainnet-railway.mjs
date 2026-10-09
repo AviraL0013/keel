@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const fixedVariables = Object.freeze({
@@ -79,9 +79,20 @@ export function createRailwayClient(target, run = runRailway) {
   }
 }
 
+export function railwayLaunch(args, platform = process.platform, env = process.env) {
+  if (platform === 'win32' && env.APPDATA) {
+    return {
+      command: process.execPath,
+      args: [join(env.APPDATA, 'npm', 'node_modules', '@railway', 'cli', 'bin', 'railway.js'), ...args],
+    }
+  }
+  return { command: 'railway', args }
+}
+
 function runRailway(args, input) {
   return new Promise((resolve, reject) => {
-    const child = spawn('railway', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    const launch = railwayLaunch(args)
+    const child = spawn(launch.command, launch.args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     let stdout = ''
     let byteCount = 0
     child.stdout.on('data', (chunk) => {
