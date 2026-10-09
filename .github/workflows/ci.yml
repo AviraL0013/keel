@@ -1,4 +1,4 @@
-﻿name: Eyeler checks
+name: Eyeler checks
 on:
   push:
     branches: [main, '**']
@@ -36,7 +36,7 @@ jobs:
       - run: flutter test
       - name: Preserve failed screenshot evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: flutter-golden-failures
           path: apps/mobile/test/**/failures/**
@@ -65,14 +65,14 @@ jobs:
           flutter-version: '3.47.5'
       - run: flutter pub get
       - run: flutter build apk --debug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: eyeler-debug-apk
           path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
       - name: Compile mainnet onboarding and activation
         run: flutter build apk --debug --dart-define=EYELER_DEPLOYMENT=mainnet --dart-define=EYELER_API_URL=https://api-mainnet-production-b042.up.railway.app --dart-define=EYELER_BUILD_SHA=${{ github.sha }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: eyeler-mainnet-debug-apk
           path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
