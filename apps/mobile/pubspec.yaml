@@ -11,7 +11,7 @@ dependencies:
   flutter_riverpod: ^2.5.1
   flutter_secure_storage: ^9.2.2
   http: ^1.2.2
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
   passkeys: 2.23.1
   bip39: 1.0.6
   bip32: 2.0.0
