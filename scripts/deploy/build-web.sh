@@ -2,14 +2,14 @@
 set -eu
 case "${1:-}" in
   mainnet)
-    api_url=https://api.eyeler.xyz
+    api_url=https://api-mainnet-production-b042.up.railway.app
     chain_id=143
     chain_name=Monad
     rpc_url=https://rpc.monad.xyz
     explorer_url=https://monadscan.com
     ;;
   testnet|sandbox)
-    if [ "$1" = testnet ]; then api_url=https://api.eyeler.xyz; else api_url=https://sandbox-api.eyeler.xyz; fi
+    if [ "$1" = testnet ]; then api_url=https://api-production-9fcf.up.railway.app; else api_url=https://sandbox-api.eyeler.xyz; fi
     chain_id=10143
     chain_name='Monad Testnet'
     rpc_url=https://testnet-rpc.monad.xyz
