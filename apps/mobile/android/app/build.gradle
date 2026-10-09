@@ -4,6 +4,21 @@ plugins {
     id 'dev.flutter.flutter-gradle-plugin'
 }
 
+// Signing material stays outside Git. Environment settings override the local
+// android/key.properties file; debug builds retain Android's debug signer.
+def releaseProperties = new Properties()
+def releasePropertiesFile = rootProject.file('key.properties')
+if (releasePropertiesFile.exists()) {
+    releasePropertiesFile.withInputStream { releaseProperties.load(it) }
+}
+def releaseValue = { String property, String variable ->
+    System.getenv(variable) ?: releaseProperties.getProperty(property)
+}
+def releaseStorePath = releaseValue('storeFile', 'EYELER_ANDROID_KEYSTORE_PATH')
+def releaseKeyAlias = releaseValue('keyAlias', 'EYELER_ANDROID_KEY_ALIAS')
+def releaseStorePassword = releaseValue('storePassword', 'EYELER_ANDROID_STORE_PASSWORD')
+def releaseKeyPassword = releaseValue('keyPassword', 'EYELER_ANDROID_KEY_PASSWORD')
+
 android {
     namespace 'xyz.eyeler.app'
     compileSdk flutter.compileSdkVersion
@@ -24,6 +39,32 @@ android {
 
     kotlinOptions {
         jvmTarget = '17'
+    }
+
+    signingConfigs {
+        release {
+            storeFile releaseStorePath ? rootProject.file(releaseStorePath) : null
+            keyAlias releaseKeyAlias
+            storePassword releaseStorePassword
+            keyPassword releaseKeyPassword
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == 'preReleaseBuild') {
+        doFirst {
+            if (![releaseStorePath, releaseKeyAlias, releaseStorePassword, releaseKeyPassword].every { it } ||
+                    !rootProject.file(releaseStorePath).isFile()) {
+                throw new GradleException('EYELER release signing is required. Configure android/key.properties or EYELER_ANDROID_* signing variables; never use a debug key for the passkey release.')
+            }
+        }
     }
 }
 

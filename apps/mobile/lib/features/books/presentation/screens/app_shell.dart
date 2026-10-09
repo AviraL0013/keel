@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'books_screen.dart';
 import 'book_detail_screen.dart';
 import '../../../positions/presentation/positions_screen.dart';
 import '../../../capital/presentation/capital_screen.dart';
@@ -9,6 +8,7 @@ import '../../../autopsy/presentation/autopsy_screen.dart';
 import '../../../notifications/presentation/notifications_screen.dart';
 import '../../../settings/presentation/settings_screen.dart';
 import '../../data/books_repository.dart';
+import '../../../onboarding/presentation/onboarding_screen.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
@@ -39,7 +39,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       });
     }
     final pages = <Widget>[
-      const BooksScreen(),
+      const OnboardingHome(),
       const PositionsScreen(),
       const CapitalScreen(),
       books.maybeWhen(
@@ -72,7 +72,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                           setState(() => index = value),
                       destinations: const [
                         NavigationDestination(
-                            icon: Icon(Icons.book_outlined), label: 'Books'),
+                            icon: Icon(Icons.home_outlined), label: 'Home'),
                         NavigationDestination(
                             icon: Icon(Icons.account_balance_wallet_outlined),
                             label: 'Positions'),

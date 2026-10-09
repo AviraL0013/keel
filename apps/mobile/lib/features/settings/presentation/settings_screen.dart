@@ -10,6 +10,8 @@ import '../../capital/data/capital_repository.dart';
 import '../data/settings_repository.dart';
 import 'telegram_panel.dart';
 import '../../positions/presentation/perpl_connection_panel.dart';
+import '../../onboarding/presentation/wallet_recovery_screen.dart';
+import '../../onboarding/presentation/onboarding_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -37,6 +39,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: EyelerSpacing.lg),
             const TelegramPanel(),
             const PerplConnectionPanel(),
+            OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => const OnboardingHome())),
+                icon: const Icon(Icons.route),
+                label: const Text('TRADING SETUP')),
+            if (ref.watch(walletConnectorProvider).supportsAccountCreation)
+              TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => const WalletRecoveryScreen())),
+                  icon: const Icon(Icons.key),
+                  label: const Text('PASSKEY & RECOVERY')),
             const SizedBox(height: EyelerSpacing.md),
             EyelerPanel(
                 child: Padding(
@@ -167,6 +182,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     : () => ref.read(authProvider.notifier).logout(),
                 icon: const Icon(Icons.logout),
                 label: const Text('LOG OUT')),
+            TextButton(
+                onPressed: busy ? null : _logoutAll,
+                child: const Text('LOG OUT ALL DEVICES')),
           ]),
     );
   }
@@ -177,6 +195,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         'development' => 'LOCAL DEV',
         _ => environment?.toUpperCase() ?? 'UNKNOWN',
       };
+
+  Future<void> _logoutAll() async {
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+                title: const Text('Log out all devices?'),
+                content: const Text(
+                    'This revokes every EYELER session for this wallet. It does not revoke Perpl API keys or pause enabled automation.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('CANCEL')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('LOG OUT ALL'))
+                ]));
+    if (confirmed != true || !mounted) return;
+    setState(() => busy = true);
+    try {
+      await ref.read(authProvider.notifier).logout(allDevices: true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Could not confirm session revocation. Retry when connected.')));
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
 
   Future<void> _confirmKillSwitch() async {
     final confirmed = await showDialog<bool>(

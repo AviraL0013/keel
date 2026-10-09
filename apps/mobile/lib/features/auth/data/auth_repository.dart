@@ -30,6 +30,10 @@ class AuthRepository {
   Future<void> logout() async {
     await api.post('/auth/logout', decode: (_) => true);
   }
+
+  Future<void> logoutAll() async {
+    await api.post('/auth/logout-all', decode: (_) => true);
+  }
 }
 
 final authRepositoryProvider = Provider<AuthRepository>(
@@ -99,6 +103,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> connectAndAuthenticate({bool createAccount = false}) async {
+    if (state.loading) return;
     try {
       state = const AuthState(
           authenticated: false,
@@ -138,15 +143,19 @@ class AuthController extends StateNotifier<AuthState> {
       state = AuthState(
           authenticated: false,
           walletStatus: WalletStatus.error,
+          address: state.address,
+          chainId: state.chainId,
           error: error is Exception
               ? error.toString()
               : 'Wallet authentication failed.');
     }
   }
 
-  Future<void> logout() async {
+  Future<void> logout({bool allDevices = false}) async {
+    // Keep this session if a requested global revocation could not be confirmed.
+    if (allDevices) await repository.logoutAll();
     try {
-      await repository.logout();
+      if (!allDevices) await repository.logout();
     } finally {
       wallet.dispose();
       await storage.clear();

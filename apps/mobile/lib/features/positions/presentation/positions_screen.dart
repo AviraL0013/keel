@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/errors/eyeler_exception.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/eyeler_widgets.dart';
+import '../../../core/errors/eyeler_exception.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/eyeler_widgets.dart';
 import '../data/positions_repository.dart';
 import '../domain/position.dart';
 import '../../books/presentation/screens/create_book_screen.dart';
-import '../../openings/presentation/opening_screen.dart';
+import '../../onboarding/presentation/trading_entry_route.dart';
+import '../../onboarding/data/onboarding_repository.dart';
 
 class PositionsScreen extends ConsumerWidget {
   const PositionsScreen({super.key});
@@ -15,6 +16,8 @@ class PositionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final positions = ref.watch(positionsProvider);
     final connection = ref.watch(perplConnectionProvider);
+    final canTrade = ref.watch(onboardingProvider).maybeWhen(
+        data: (progress) => progress.canOpenTrade, orElse: () => false);
     return Scaffold(
       appBar: AppBar(title: const Text('Positions'), actions: [
         IconButton(
@@ -26,9 +29,17 @@ class PositionsScreen extends ConsumerWidget {
       ]),
       body: positions.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => ErrorStateCard(
-            message: friendlyError(error),
-            onRetry: () => ref.invalidate(positionsProvider)),
+        error: (error, _) =>
+            ListView(padding: const EdgeInsets.all(16), children: [
+          ErrorStateCard(
+              message: friendlyError(error),
+              onRetry: () => ref.invalidate(positionsProvider)),
+          OutlinedButton(
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                      builder: (_) => const TradingEntryRoute())),
+              child: const Text('CONTINUE ACCOUNT SETUP')),
+        ]),
         data: (items) => RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(positionsProvider);
@@ -47,9 +58,10 @@ class PositionsScreen extends ConsumerWidget {
                 OutlinedButton.icon(
                     onPressed: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                            builder: (_) => const OpeningScreen())),
+                            builder: (_) => const TradingEntryRoute())),
                     icon: const Icon(Icons.add_chart),
-                    label: const Text('Open position')),
+                    label: Text(
+                        canTrade ? 'Open position' : 'Continue account setup')),
                 const SizedBox(height: EyelerSpacing.md),
                 // Successful position retrieval is authoritative proof that the
                 // configured server-side Perpl stream is usable. The validate

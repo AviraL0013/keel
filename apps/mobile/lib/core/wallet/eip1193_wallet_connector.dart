@@ -4,6 +4,10 @@ import 'wallet_types.dart';
 typedef WalletRequest = Future<Object?> Function(String method,
     [List<Object?>? params]);
 
+const _mainnetDeployment =
+    String.fromEnvironment('EYELER_DEPLOYMENT', defaultValue: 'testnet') ==
+        'mainnet';
+
 class Eip1193Exception implements Exception {
   const Eip1193Exception(this.code, [this.detail = '']);
   final int? code;
@@ -15,11 +19,11 @@ class Eip1193Exception implements Exception {
 class WalletNetworkConfig {
   const WalletNetworkConfig({
     this.chainId = const int.fromEnvironment('EYELER_CHAIN_ID',
-        defaultValue:
-            int.fromEnvironment('KEEL_CHAIN_ID', defaultValue: 10143)),
+        defaultValue: int.fromEnvironment('KEEL_CHAIN_ID',
+            defaultValue: _mainnetDeployment ? 143 : 10143)),
     this.chainName = const String.fromEnvironment('EYELER_CHAIN_NAME',
         defaultValue: String.fromEnvironment('KEEL_CHAIN_NAME',
-            defaultValue: 'Monad Testnet')),
+            defaultValue: _mainnetDeployment ? 'Monad' : 'Monad Testnet')),
     this.rpcUrl = const String.fromEnvironment('EYELER_MONAD_RPC_URL',
         defaultValue: String.fromEnvironment('KEEL_MONAD_RPC_URL')),
     this.currencyName = const String.fromEnvironment(

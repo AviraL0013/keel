@@ -4,6 +4,25 @@ class EyelerException implements Exception {
   final int? statusCode;
   final PolicyRejection? policyRejection;
   String get userMessage {
+    if (statusCode == 429) {
+      return 'Too many requests. Wait a minute and try again.';
+    }
+    if (message == 'PERPL_NOT_CONNECTED') {
+      return 'Perpl positions could not be verified. Continue account setup in Home or refresh the connection.';
+    }
+    if (message == 'WALLET_NOT_ALLOWED') {
+      return 'This deployment is limited to approved wallets. Use an approved wallet or ask the operator to enable your wallet.';
+    }
+    if (message == 'WALLET_ALLOWLIST_NOT_CONFIGURED') {
+      return 'Wallet access has not been configured on this server.';
+    }
+    if (message == 'AUTH_CHALLENGE_INVALID') {
+      return 'The sign-in request expired or was already used. Sign in again.';
+    }
+    if (message == 'AUTH_SIGNATURE_INVALID' ||
+        message == 'AUTH_MESSAGE_INVALID') {
+      return 'The wallet could not verify this sign-in request. Start sign-in again with the same wallet.';
+    }
     if (statusCode == 401) {
       return 'Your EYELER session expired. Connect your wallet again.';
     }

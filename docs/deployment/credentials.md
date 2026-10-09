@@ -20,8 +20,8 @@ Per-user testnet enrollment (only when `EYELER_PERPL_ACCOUNT_MODE=per-user`):
 - `EYELER_KEY_ENCRYPTION_KEY` is for local development/test only. A deployed environment rejects it.
 
 - `PERPL_ENROLLMENT_ORIGIN` — exact HTTPS origin allowlisted by Perpl for payload/enroll requests.
-- `EYELER_KEY_TTL_DAYS` — enrolled key lifetime, default 90.
-- `EYELER_EGRESS_CIDRS` — optional comma-separated CIDRs, at most four.
+- `EYELER_KEY_TTL_DAYS` — enrolled key lifetime, 1–90 days; default 90, matching the native signer.
+- `EYELER_EGRESS_CIDRS` — leave unset. Nonempty restrictions are rejected at startup until Perpl's signed serialization has been verified independently.
 - `EYELER_BUILDER_ID` and `EYELER_MAX_BUILDER_FEE_PER_100K` — optional paired builder terms; both must be set together.
 
 EYELER never revokes a key at Perpl. Disconnect shreds local credentials and directs the user to the Perpl key page for venue-side revocation. Mainnet enrollment is disabled until production custody exists.

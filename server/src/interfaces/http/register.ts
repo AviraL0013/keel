@@ -68,9 +68,9 @@ export function registerRoutes(context: HttpContext) {
   const authToken = (request: FastifyRequest) => {
     const bearer = request.headers.authorization
     return (
+      (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined) ??
       request.cookies.eyeler_session ??
-      request.cookies.keel_session ??
-      (typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : undefined)
+      request.cookies.keel_session
     )
   }
   const session = async (request: FastifyRequest): Promise<Session | null> => {
@@ -200,12 +200,42 @@ export function registerRoutes(context: HttpContext) {
     if (!context.telegramLinks) throw new InfrastructureError('TELEGRAM_NOT_CONFIGURED')
     return context.telegramLinks.handle(request.headers['x-telegram-bot-api-secret-token'], request.body)
   })
-  app.post<{ Body: { address: string } }>('/auth/challenge', async (request) => {
-    if (!isAddress(request.body.address)) throw new ValidationError('INVALID_WALLET_ADDRESS')
-    return auth.challenge(request.body.address)
-  })
+  app.post<{ Body: { address: string } }>(
+    '/auth/challenge',
+    {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      schema: {
+        body: {
+          type: 'object',
+          required: ['address'],
+          additionalProperties: false,
+          properties: { address: { type: 'string', pattern: '^0x[0-9a-fA-F]{40}$' } },
+        },
+      },
+    },
+    async (request) => {
+      if (!isAddress(request.body.address)) throw new ValidationError('INVALID_WALLET_ADDRESS')
+      return auth.challenge(request.body.address)
+    },
+  )
   app.post<{ Body: { address: string; nonce: string; message: string; signature: `0x${string}` } }>(
     '/auth/verify',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: {
+        body: {
+          type: 'object',
+          required: ['address', 'nonce', 'message', 'signature'],
+          additionalProperties: false,
+          properties: {
+            address: { type: 'string', pattern: '^0x[0-9a-fA-F]{40}$' },
+            nonce: { type: 'string', minLength: 1, maxLength: 128 },
+            message: { type: 'string', minLength: 1, maxLength: 2048 },
+            signature: { type: 'string', pattern: '^0x[0-9a-fA-F]{130}$' },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const result = await auth.verify(
         request.body.address,
@@ -216,7 +246,7 @@ export function registerRoutes(context: HttpContext) {
       reply.setCookie('eyeler_session', result.token, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: config.environment === 'mainnet',
+        secure: ['mainnet', 'testnet'].includes(config.environment),
         path: '/',
         maxAge: 7 * 24 * 60 * 60,
       })
@@ -231,8 +261,17 @@ export function registerRoutes(context: HttpContext) {
   app.post('/auth/logout', async (request, reply) => {
     const selected = authToken(request)
     await auth.revoke(selected)
+    if (request.cookies.eyeler_session && request.cookies.eyeler_session !== selected)
+      await auth.revoke(request.cookies.eyeler_session)
     if (request.cookies.keel_session && request.cookies.keel_session !== selected)
       await auth.revoke(request.cookies.keel_session)
+    reply.clearCookie('eyeler_session', { path: '/' })
+    reply.clearCookie('keel_session', { path: '/' })
+    return { ok: true }
+  })
+  app.post('/auth/logout-all', async (request, reply) => {
+    const current = await requireSession(request)
+    await auth.revokeAll(current.userId)
     reply.clearCookie('eyeler_session', { path: '/' })
     reply.clearCookie('keel_session', { path: '/' })
     return { ok: true }

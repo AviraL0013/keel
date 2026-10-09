@@ -19,6 +19,7 @@ export type Store = {
   createSession(token: string, session: StoredSession): Promise<void>
   getSession(token: string): Promise<StoredSession | null>
   revokeSession(token: string): Promise<void>
+  revokeUserSessions(userId: string): Promise<void>
   updateBookControls(
     userId: string,
     bookId: string,
@@ -75,6 +76,9 @@ export class PostgresStore implements Store {
   }
   async revokeSession(token: string) {
     await this.pool.query('UPDATE sessions SET revoked_at=now() WHERE id=$1', [token])
+  }
+  async revokeUserSessions(userId: string) {
+    await this.pool.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId])
   }
   async createBook(userId: string, input: CreateBookInput) {
     const client = await this.pool.connect()
@@ -410,6 +414,9 @@ export class UnconfiguredStore implements Store {
     throw new Error('DATABASE_NOT_CONFIGURED')
   }
   async revokeSession(): Promise<void> {
+    throw new Error('DATABASE_NOT_CONFIGURED')
+  }
+  async revokeUserSessions(): Promise<void> {
     throw new Error('DATABASE_NOT_CONFIGURED')
   }
   async updateBookControls(): Promise<Book | null> {

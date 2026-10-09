@@ -891,6 +891,13 @@ describe('development Perpl enrollment foundation', () => {
     expect(() => new DevelopmentKeyCustody('bad')).toThrow('INVALID_EYELER_KEY_ENCRYPTION_KEY')
     const config = loadConfig({ EYELER_ENV: 'testnet' })
     const base = { PERPL_ENROLLMENT_ORIGIN: origin }
+    expect(loadEnrollmentConfig({ ...base, EYELER_KEY_TTL_DAYS: '90' }, config).ttlDays).toBe(90)
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_KEY_TTL_DAYS: '91' }, config)).toThrow(
+      'INVALID_EYELER_KEY_TTL_DAYS',
+    )
+    expect(() => loadEnrollmentConfig({ ...base, EYELER_EGRESS_CIDRS: '192.0.2.1/32' }, config)).toThrow(
+      'PERPL_CIDR_ENROLLMENT_NOT_SUPPORTED',
+    )
     expect(() => loadEnrollmentConfig({ ...base, EYELER_KEY_TTL_DAYS: '0' }, config)).toThrow(
       'INVALID_EYELER_KEY_TTL_DAYS',
     )

@@ -27,6 +27,11 @@ export class MemoryStore implements Store {
   async revokeSession(token: string) {
     this.sessions.delete(token)
   }
+  async revokeUserSessions(userId: string) {
+    for (const [token, session] of this.sessions) {
+      if (session.userId === userId) this.sessions.delete(token)
+    }
+  }
   async updateBookControls(
     userId: string,
     bookId: string,

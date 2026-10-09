@@ -14,18 +14,18 @@ The operator selected a new Mera wallet only. Existing-wallet import, recovery-p
 
 A new Mera address remains read-only until Perpl approves its origin and Eyeler has a per-user Perpl connection for that address. The server-wide Perpl account must never be used for an unrelated Mera address.
 
-## Build slices
+## Implemented build slices
 
 - Capital: read Agora AUSD token separately from Perpl collateral. Use chain-specific token address, exact six-decimal formatting, source, freshness, and an explicit unavailable state.
-- Mera: add a native passkey/PRF adapter for Android first, then iOS. Derive standard Mera EVM path (`m/44'/60'/0'/0/0`) client-side. Keep key material in a short-lived signing session and zero it on lock/logout.
-- Auth: add WebAuthn/Mera registration and assertion flow. Store only credential public data and application user ID. Never store PRF output or private keys server-side.
-- Perpl binding: keep trading blocked until Mera address has matching Perpl connection and origin approval. Reuse existing bounded action and confirmation paths after binding; add no bypass.
-- Demo mode: testnet only, fake venue in automated tests, no live action during development.
+- Mera: native Android passkey creation and PRF assertion adapter, with standard Mera EVM path (`m/44'/60'/0'/0/0`) derived client-side. Key material remains in the connector's in-memory signing session and is cleared on disposal/logout. The JavaScript Mera SDK is not bundled; a reference vector verifies derivation parity. iOS release/device support is not demonstrated.
+- Auth: the credential ceremony runs on the device; the backend verifies a wallet signature over its one-time, wallet/network/app-bound challenge. It does not validate WebAuthn attestation or store passkey credential records. The server persists the user, wallet address and session only; PRF output and wallet private keys never reach it.
+- Perpl binding: trading stays blocked until the Mera address has a matching, active read/trade connection and authenticated forwarding state. Owner-bound previews, explicit confirmations and existing bounded execution checks are reused without bypass.
+- Demo mode: automated tests use fake external transports only. Mainnet code paths are implemented, but no live action is performed during development. A testnet USD demo alone must not be presented as real mainnet AUSD/Perpl evidence.
 
 ## Required external inputs
 
 - Perpl approval for `https://app.eyeler.xyz`, testnet API enrollment, and exact Mera-derived address if separate-wallet mode is used.
-- Agora confirmation that installed Flutter Android/iOS builds satisfy bounty wording and whether Monad testnet trade is accepted for judging.
+- Agora confirmation that the installed Flutter Android Mera-compatible adapter satisfies bounty wording, including whether use of the JavaScript Mera SDK is mandatory and whether Monad testnet trading is accepted for judging.
 - Android release package ID and signing certificate SHA-256 for Digital Asset Links, or iOS bundle ID and Apple Team ID for associated domain.
 - Physical Android/iOS device or configured emulator with passkey support.
 - User performs local passkey creation, AUSD faucet/deposit to the new address, and wallet confirmation. No seed, key, token, or signature is sent to Eyeler support.
@@ -39,8 +39,8 @@ A new Mera address remains read-only until Perpl approves its origin and Eyeler 
 - An unbound Mera address cannot create Books, arm automation, or submit actions.
 - A bound address uses existing read-only, manual, and bounded execution checks without risk-engine dependence on Agora metrics.
 - Reconnect, logout, failed passkey, stale RPC, and Perpl outage fail closed.
-- Android debug/release, iOS build, backend tests, Flutter tests, lint, format, typecheck, build, and smoke checks pass before deployment.
+- Android debug compilation in CI, locally signed Android release, backend tests, Flutter tests, lint, format, production/server typecheck, build, and smoke checks pass before deployment. Do not claim an iOS build or native device ceremony from the Android/web gates.
 
 ## Explicit non-goals
 
-No Agora deposit, mint, redeem, transfer, custody, write scope, or risk-policy input ships in this bounty slice.
+No Agora issuer mint/redeem API, token-transfer-out feature, custody of the user's Mera wallet, or Agora risk-policy input ships in this bounty slice. Perpl activation does include explicitly confirmed AUSD approval and deposit transactions into the Perpl Exchange; those are not Agora issuer mint/redeem operations. See [the submission evidence map](../product/agora-submission.md) for implementation proof and live release gates.

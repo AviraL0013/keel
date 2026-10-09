@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from 'node:crypto'
 import { verifyMessage, isAddress } from 'viem'
 import type { Store } from './infrastructure/database/postgres-store.js'
 import type { WalletAccess } from './config/index.js'
-import { AuthorizationError } from './application/errors.js'
+import { AuthorizationError, ValidationError } from './application/errors.js'
 export type Session = { userId: string; walletAddress: string; expiresAt: number }
 export class AuthService {
   constructor(
@@ -28,17 +28,25 @@ export class AuthService {
   }
   // An old challenge expires after five minutes; its exact stored message and signature remain required.
   async verify(address: string, nonce: string, message: string, signature: `0x${string}`) {
-    if (!isAddress(address)) throw new Error('INVALID_WALLET_ADDRESS')
+    if (!isAddress(address)) throw new ValidationError('INVALID_WALLET_ADDRESS')
     if (
       !['Eyeler', 'Keel'].some((brand) =>
         message.startsWith(`${brand} wants to verify wallet ownership.\nNonce: ${nonce}\nExpires: `),
       )
     )
-      throw new Error('AUTH_MESSAGE_INVALID')
-    if (!(await this.store.consumeChallenge(address, nonce, message))) throw new Error('AUTH_CHALLENGE_INVALID')
-    if (!(await verifyMessage({ address: address as `0x${string}`, message, signature })))
-      throw new Error('AUTH_SIGNATURE_INVALID')
+      throw new ValidationError('AUTH_MESSAGE_INVALID')
+    let validSignature = false
+    try {
+      validSignature = await verifyMessage({ address: address as `0x${string}`, message, signature })
+    } catch {
+      // Bad curve points/recovery bits are failed authentication, not a 500.
+    }
+    if (!validSignature) throw new ValidationError('AUTH_SIGNATURE_INVALID')
     this.requireWalletAccess(address)
+    // Only a valid owner signature may consume a challenge. Atomic consumption
+    // still makes simultaneous valid submissions and replays single-use.
+    if (!(await this.store.consumeChallenge(address, nonce, message)))
+      throw new ValidationError('AUTH_CHALLENGE_INVALID')
     const userId = await this.store.ensureUser(address)
     const token = createHmac('sha256', this.secret)
       .update(`${userId}:${Date.now()}:${randomBytes(16).toString('hex')}`)
@@ -53,5 +61,8 @@ export class AuthService {
   }
   async revoke(token?: string) {
     if (token) await this.store.revokeSession(token)
+  }
+  async revokeAll(userId: string) {
+    await this.store.revokeUserSessions(userId)
   }
 }

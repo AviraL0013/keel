@@ -66,4 +66,4 @@ For rollback, disable openings and execution first. Restore the prior web deploy
 
 ## Unverified external proof
 
-Live `https://app.eyeler.xyz/.well-known/assetlinks.json` returned 404 on 2026-10-07 because this branch is not deployed. No phone was connected and no passkey ceremony, mainnet approval, deposit, order, or Perpl enrollment was attempted. Current main does not include `feat/opening-trades`, so this branch alone cannot satisfy the bounty trade requirement. No Railway KMS role/key or mainnet per-user service is configured yet.
+At the original branch check on 2026-10-07, live `https://app.eyeler.xyz/.well-known/assetlinks.json` returned 404. No phone was connected and no passkey ceremony, mainnet approval, deposit, order, or Perpl enrollment was attempted. Main commit `481e87b` subsequently merged guarded opening trades and Mera mainnet activation; the guided-onboarding candidate builds on that implementation. These merges do not verify a live trade or deployed association file. Railway KMS workload access and the mainnet per-user service still require the external checks above.
