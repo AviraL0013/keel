@@ -25,6 +25,7 @@ import {
   type PublicMarket,
 } from '../../../infrastructure/analytics/perpl-public.js'
 import { WalletChainAnalytics } from '../../../infrastructure/analytics/wallet-chain.js'
+import { chainConfigs } from '../../../../../packages/chain/src/index.js'
 
 const windows = new Set(['24h', '7d', '30d', 'all'])
 const metrics = new Set(['volume', 'oi', 'tvl', 'fees', 'active_users', 'net_flows'])
@@ -190,17 +191,17 @@ export interface AnalyticsRouteDependencies {
   wallet?: WalletChainAnalytics
 }
 
+export const analyticsWalletRpcUrl = (env: NodeJS.ProcessEnv): string =>
+  env.EYELER_ANALYTICS_RPC_URL || chainConfigs.mainnet.rpcUrl
+
 export function registerAnalyticsRoutes(
   app: FastifyInstance,
   pool: pg.Pool | null,
   dependencies: AnalyticsRouteDependencies = {},
 ): void {
   const publicData = dependencies.publicData ?? new PerplPublicAnalytics(process.env.ANALYTICS_PERPL_API_URL)
-  const wallet =
-    dependencies.wallet ??
-    (process.env.EYELER_ANALYTICS_RPC_URL ? new WalletChainAnalytics(process.env.EYELER_ANALYTICS_RPC_URL) : null)
+  const wallet = dependencies.wallet ?? new WalletChainAnalytics(analyticsWalletRpcUrl(process.env))
   const walletProfile = (address: string, context: Parameters<WalletChainAnalytics['profile']>[1]) => {
-    if (!wallet) throw fail('EYELER_ANALYTICS_RPC_URL_REQUIRED', 503)
     return wallet.profile(address, context)
   }
   const cache = new ResponseCache()

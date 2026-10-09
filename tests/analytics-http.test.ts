@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import Fastify from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { chainConfigs } from '../packages/chain/src/index.js'
 import { PerplPublicAnalytics } from '../server/src/infrastructure/analytics/perpl-public.js'
 import { WalletChainAnalytics } from '../server/src/infrastructure/analytics/wallet-chain.js'
-import { registerAnalyticsRoutes } from '../server/src/interfaces/http/routes/analytics.js'
+import { analyticsWalletRpcUrl, registerAnalyticsRoutes } from '../server/src/interfaces/http/routes/analytics.js'
 import { databaseFixture } from './helpers/database.js'
 
 const live = JSON.parse(readFileSync('packages/analytics/fixtures/mainnet-public.json', 'utf8')) as {
@@ -28,6 +29,12 @@ const mockFetch = async (input: string | URL | Request) => {
 }
 
 describe('Analytics v1 public HTTP routes', () => {
+  it('uses the public mainnet RPC for read-only wallet views unless overridden', () => {
+    expect(analyticsWalletRpcUrl({})).toBe(chainConfigs.mainnet.rpcUrl)
+    expect(analyticsWalletRpcUrl({ EYELER_ANALYTICS_RPC_URL: 'https://fixture.invalid' })).toBe(
+      'https://fixture.invalid',
+    )
+  })
   const app = Fastify()
   let db: Awaited<ReturnType<typeof databaseFixture>>
   beforeAll(async () => {
