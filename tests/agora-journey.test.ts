@@ -17,8 +17,9 @@ import {
   type EnrollmentPayloadRequest,
 } from '../server/src/infrastructure/perpl/enrollment-client.js'
 import { PerplEnrollmentService } from '../server/src/infrastructure/perpl/enrollment-service.js'
+import { TelegramNotifier } from '../server/src/infrastructure/telegram/notifier.js'
 import { registerRoutes } from '../server/src/interfaces/http/register.js'
-import type { RuntimeVenue } from '../server/src/runtime.js'
+import { EyelerRuntime, type RuntimeVenue } from '../server/src/runtime.js'
 import { databaseFixture } from './helpers/database.js'
 import { perplEnrollmentPayload } from './helpers/perpl-enrollment.js'
 
@@ -49,7 +50,7 @@ async function login(app: FastifyInstance, account: LocalAccount = wallet) {
   return response.json() as { token: string; userId: string }
 }
 
-it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-only trade over HTTP with fake external transports', async () => {
+it('joins Mera identity, AUSD, one opening, Protect, bounded EXIT and linked alert through fake transports', async () => {
   vi.stubEnv('EYELER_EXECUTION_DISABLED', 'false')
   const { db, store } = await databaseFixture()
   const app = Fastify()
@@ -158,16 +159,29 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
       },
     }
   })
+  const bookSubmissionIds: string[] = []
   const scoped: RuntimeVenue = {
     accountId: 12,
     ready: () => true,
     submitOpening,
     openingMarketSnapshot: async () => snapshot,
-    submit: async () => {
-      throw new Error('NO_LIVE_ORDER')
+    submit: async (action) => {
+      expect(action.kind).toBe('EXIT')
+      bookSubmissionIds.push(action.id)
+      return { venueReference: '12:46', status: 'SUBMITTED' }
     },
-    reconcile: async (action) => action,
-    refresh: async () => {},
+    reconcile: async (action) => {
+      await db.query("UPDATE positions SET status='CLOSED',observed_at=$2 WHERE book_id=$1", [
+        action.bookId,
+        new Date().toISOString(),
+      ])
+      return { ...action, status: 'CONFIRMED', confirmedAt: new Date().toISOString() }
+    },
+    refresh: async (book) => {
+      const at = new Date().toISOString()
+      await db.query('UPDATE positions SET observed_at=$2 WHERE book_id=$1', [book.id, at])
+      await db.query('UPDATE risk_snapshots SET timestamp=$2,freshness_detail=NULL WHERE book_id=$1', [book.id, at])
+    },
     close: async () => {},
     capital: async (address, userId) => ({
       ...(await publicCapital(address!, userId!)),
@@ -184,6 +198,50 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
         averagePrice: '100000.0',
         positionId: 98,
         txHash: `0x${'a'.repeat(64)}`,
+      }
+    },
+    loadBookSetup: async (marketId, accountId, positionId) => {
+      expect(confirmed).toBe(true)
+      expect([marketId, accountId, positionId]).toEqual([7, 12, 98])
+      const at = Date.now()
+      return {
+        market: 'BTC',
+        reserveAvailable: 1000,
+        position: {
+          side: 'LONG',
+          size: 0.001,
+          entryPrice: 100000,
+          markPrice: 100000,
+          liquidationPrice: 80000,
+          leverage: 5,
+          unrealizedPnl: 0,
+          margin: 20,
+          status: 'OPEN',
+          timestamp: at,
+        },
+        telemetry: {
+          mark: 100000,
+          oracle: 100000,
+          bid: 99999.9,
+          ask: 100000.1,
+          mid: 100000,
+          spreadBps: 0.02,
+          fundingRate: 0,
+          depthNotional: 10000,
+          volatility: 0.01,
+          volume24h: 100000,
+          openInterest: 100000,
+          block: 101,
+          timestamp: at,
+          source: 'fake-venue',
+        },
+        capital: {
+          environment: 'mainnet',
+          accountId: 12,
+          free: '1000.000000',
+          observedAt: at,
+          observedBlock: 100,
+        },
       }
     },
     listPositions: async () => {
@@ -206,11 +264,11 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
             status: 'OPEN',
           },
           bookCreation: {
-            allowed: false,
-            code: 'MARKET_TELEMETRY_UNKNOWN',
-            reason: 'FIXTURE_NO_TELEMETRY',
-            market: { status: 'UNKNOWN', thresholdMs: 10000 },
-            position: { status: 'UNKNOWN', thresholdMs: 10000 },
+            allowed: true,
+            code: 'READY',
+            reason: 'Fresh fake-venue telemetry.',
+            market: { status: 'FRESH', thresholdMs: 10000 },
+            position: { status: 'FRESH', thresholdMs: 10000 },
           },
         },
       ]
@@ -325,8 +383,64 @@ it('joins Mera identity, exact mainnet AUSD, enrollment and one confirmed owner-
     expect((await app.inject({ url: `/openings/${result.id}`, headers: strangerHeaders })).statusCode).toBe(404)
     expect((await app.inject({ url: '/connections/perpl/positions', headers })).json()).toMatchObject({
       status: 'VALID',
-      positions: [{ accountId: 12, positionId: 98 }],
+      positions: [{ accountId: 12, positionId: 98, bookCreation: { allowed: true, code: 'READY' } }],
     })
+    const protect = await app.inject({
+      method: 'POST',
+      url: '/books',
+      headers,
+      payload: {
+        market: 'BTC',
+        marketId: 7,
+        venueAccountId: 12,
+        venuePositionId: 98,
+        side: 'LONG',
+        stance: 'DEFEND',
+        liquidationFloor: 6,
+        defenseCap: 5,
+        timeLimitMs: 3_600_000,
+        automationEnabled: true,
+        reserveAvailable: 10,
+      },
+    })
+    expect(protect.statusCode, JSON.stringify(protect.json())).toBe(200)
+    expect(protect.json()).toMatchObject({
+      status: 'ACTIVE',
+      automationEnabled: true,
+      venueAccountId: 12,
+      venuePositionId: 98,
+      perplConnectionId: connectionId.value,
+    })
+    expect((await app.inject({ url: `/books/${protect.json().id}`, headers: strangerHeaders })).statusCode).toBe(404)
+    await db.query('INSERT INTO telegram_links(user_id,telegram_user_id,chat_id) VALUES($1,101,101)', [owner.userId])
+    await db.query('UPDATE books SET created_at=$2 WHERE id=$1', [
+      protect.json().id,
+      new Date(Date.now() - 7_200_000).toISOString(),
+    ])
+    const runtime = new EyelerRuntime(store, venue)
+    Object.assign(runtime, { lease: { query: async () => ({ rows: [] }) } })
+    await (runtime as unknown as { tick(): Promise<void> }).tick()
+    expect(
+      (await db.query('SELECT kind,status FROM actions WHERE book_id=$1', [protect.json().id])).rows,
+    ).toMatchObject([{ kind: 'EXIT', status: 'CONFIRMED' }])
+    const restarted = new EyelerRuntime(store, venue)
+    Object.assign(restarted, { lease: { query: async () => ({ rows: [] }) } })
+    await (restarted as unknown as { tick(): Promise<void> }).tick()
+    expect(bookSubmissionIds).toHaveLength(1)
+    const sent: Array<{ chat_id: string; text: string }> = []
+    const notifier = new TelegramNotifier(
+      store.pool,
+      { botToken: 'fake-bot-token', appUrl: origin, mode: 'per-user' },
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        sent.push(JSON.parse(String(init?.body)))
+        return Response.json({ ok: true })
+      }) as typeof fetch,
+      Date.now,
+      async () => undefined,
+    )
+    await notifier.pollOnce()
+    expect(sent.length).toBeGreaterThan(0)
+    expect(sent.every((message) => message.chat_id === '101' && message.text.includes(protect.json().id))).toBe(true)
     expect((await app.inject({ method: 'POST', url: '/auth/logout-all', headers })).statusCode).toBe(200)
     expect((await app.inject({ url: '/capital', headers })).statusCode).toBe(401)
     expect(submitOpening).toHaveBeenCalledOnce()

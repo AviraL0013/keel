@@ -8,10 +8,13 @@ import 'package:eyeler_mobile/features/positions/data/positions_repository.dart'
 import 'package:eyeler_mobile/features/positions/domain/position.dart';
 import 'package:eyeler_mobile/features/capital/data/capital_repository.dart';
 import 'package:eyeler_mobile/features/capital/domain/capital_snapshot.dart';
+import 'package:eyeler_mobile/features/books/data/books_repository.dart';
+import 'package:eyeler_mobile/features/books/domain/book.dart';
 import 'package:eyeler_mobile/core/config/environment.dart';
 import 'package:eyeler_mobile/core/networking/api_client.dart';
 import 'package:eyeler_mobile/core/storage/session_storage.dart';
 import 'package:eyeler_mobile/core/errors/eyeler_exception.dart';
+import 'package:eyeler_mobile/shared/models/telemetry_freshness.dart';
 import 'package:http/http.dart' as http;
 
 class FakeOpeningRepository extends OpeningRepository {
@@ -95,6 +98,22 @@ class StaticPositionsRepository extends PositionsRepository {
   final Position position;
   @override
   Future<List<Position>> list() async => [position];
+}
+
+class CapturingBooksRepository extends BooksRepository {
+  CapturingBooksRepository()
+      : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
+            const SessionStorage(), http.Client()));
+  final pending = Completer<Book>();
+  Position? submittedPosition;
+  BookConfiguration? submittedConfig;
+
+  @override
+  Future<Book> create(Position position, BookConfiguration config) {
+    submittedPosition = position;
+    submittedConfig = config;
+    return pending.future;
+  }
 }
 
 void main() {
@@ -290,9 +309,19 @@ void main() {
         liquidationPrice: 90000,
         leverage: 5,
         margin: 20,
-        status: 'OPEN');
+        status: 'OPEN',
+        bookCreation: BookCreationReadiness(
+          allowed: true,
+          code: 'READY',
+          reason: 'Fresh venue telemetry.',
+          market: TelemetryFreshnessPoint(status: 'FRESH', thresholdMs: 10000),
+          position:
+              TelemetryFreshnessPoint(status: 'FRESH', thresholdMs: 10000),
+        ));
+    final books = CapturingBooksRepository();
     await tester.pumpWidget(ProviderScope(overrides: [
       openingRepositoryProvider.overrideWithValue(repository),
+      booksRepositoryProvider.overrideWithValue(books),
       positionsRepositoryProvider
           .overrideWithValue(StaticPositionsRepository(position)),
       capitalProvider.overrideWith((ref) async => CapitalSnapshot.fromJson({
@@ -308,6 +337,29 @@ void main() {
     await tester.tap(find.text('Protect this position'));
     await tester.pumpAndSettle();
     expect(find.text('Configure Book'), findsOneWidget);
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), '6');
+    await tester.enterText(fields.at(1), '5');
+    await tester.enterText(fields.at(2), '10');
+    await tester.enterText(fields.at(3), '1');
+    await tester.ensureVisible(find.byType(DropdownButtonFormField<String>));
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('DEFEND').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Automation'));
+    await tester.tap(find.text('Automation'));
+    await tester.pump();
+    await tester.ensureVisible(find.text('Review Book'));
+    await tester.tap(find.text('Review Book'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review Book'), findsOneWidget);
+    await tester.tap(find.text('Create Book'));
+    await tester.pump();
+    expect(books.submittedPosition?.positionId, 98);
+    expect(books.submittedPosition?.accountId, 12);
+    expect(books.submittedConfig?.reserve, 10);
+    expect(books.submittedConfig?.automation, isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }
