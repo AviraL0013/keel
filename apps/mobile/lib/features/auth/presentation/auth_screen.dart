@@ -221,8 +221,21 @@ class AuthScreen extends ConsumerWidget {
                                         const SizedBox(
                                             height: EyelerSpacing.sm),
                                         const Text(
-                                            'Request access for this wallet, then sign in with the same passkey:'),
-                                        SelectableText(auth.address!),
+                                            'Ask the operator to add this address.'),
+                                        const SizedBox(
+                                            height: EyelerSpacing.sm),
+                                        Row(children: [
+                                          Expanded(
+                                              child: SelectableText(
+                                                  auth.address!)),
+                                          IconButton(
+                                              tooltip: 'Copy wallet address',
+                                              onPressed: () =>
+                                                  Clipboard.setData(
+                                                      ClipboardData(
+                                                          text: auth.address!)),
+                                              icon: const Icon(Icons.copy)),
+                                        ]),
                                       ],
                                       if (auth.loading) ...[
                                         const SizedBox(
