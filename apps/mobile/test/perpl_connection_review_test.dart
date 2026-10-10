@@ -198,6 +198,60 @@ void main() {
     expect(wallet.events, isEmpty);
   });
 
+  testWidgets('a failed disconnect shows only the safe server error code',
+      (tester) async {
+    final wallet = _Wallet();
+    final client = MockClient((request) async {
+      if (request.url.path == '/connections/perpl/capabilities') {
+        return http.Response(
+            jsonEncode({
+              'status': 'AVAILABLE',
+              'environment': 'mainnet',
+              'builderId': 25,
+            }),
+            200);
+      }
+      if (request.url.path == '/connections') {
+        return http.Response(
+            jsonEncode([
+              {
+                'id': 'failed-1',
+                'environment': 'mainnet',
+                'status': 'ERROR',
+                'lastError': 'ENROLLED_NOT_SAVED',
+              }
+            ]),
+            200);
+      }
+      if (request.url.path == '/connections/perpl/failed-1/disconnect') {
+        return http.Response(
+            jsonEncode({'error': 'PERPL_CONNECTION_EXECUTION_UNRESOLVED'}),
+            409);
+      }
+      throw StateError('Unexpected request ${request.url.path}');
+    });
+    addTearDown(client.close);
+    final api = EyelerApiClient(
+        const EyelerConfig(apiBaseUrl: 'https://fixture.invalid'),
+        _Storage(),
+        client);
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(api),
+          authProvider.overrideWith((_) => _Auth(api, wallet)),
+        ],
+        child: const MaterialApp(
+            home: Scaffold(
+                body: SingleChildScrollView(child: PerplConnectionPanel())))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('DISCONNECT ACCESS'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('DISCONNECT'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('PERPL_CONNECTION_EXECUTION_UNRESOLVED'),
+        findsOneWidget);
+  });
+
   testWidgets('only explicit review advances to fingerprint and enrollment',
       (tester) async {
     final wallet = _Wallet();

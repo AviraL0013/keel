@@ -187,6 +187,26 @@ describe('development Perpl enrollment foundation', () => {
     }
   }, 20_000)
 
+  it('disconnects an unsaved enrollment after its Perpl key is revoked', async () => {
+    const value = await fixture(200, false, Date.now, false, { builder_id: 26 })
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await expect(
+        value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData)),
+      ).rejects.toThrow('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
+      await expect(value.service.disconnect(value.userId, pending.connectionId)).resolves.toMatchObject({
+        status: 'REVOKED',
+      })
+      const row = (
+        await value.db.query('SELECT status,revoked_at FROM perpl_connections WHERE id=$1', [pending.connectionId])
+      ).rows[0]
+      expect(row.status).toBe('REVOKED')
+      expect(row.revoked_at).not.toBeNull()
+    } finally {
+      await value.close()
+    }
+  }, 20_000)
+
   it('rejects a missing or changed builder identity and any nonzero returned fee', async () => {
     for (const responseFields of [
       {},
