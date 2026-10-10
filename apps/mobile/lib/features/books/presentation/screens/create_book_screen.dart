@@ -35,10 +35,14 @@ class _CreateBookScreenState extends ConsumerState<CreateBookScreen> {
   bool positionRefreshFailed = false;
   bool get telemetryReady =>
       selectedPosition.status == 'OPEN' &&
+      selectedPosition.market.trim().isNotEmpty &&
       positionAvailable &&
       !positionRefreshFailed &&
       selectedPosition.bookCreation?.allowed == true;
   String get telemetryReason {
+    if (selectedPosition.market.trim().isEmpty) {
+      return 'Market identity is unavailable. Refresh the position before creating a Book.';
+    }
     if (!positionAvailable) {
       return 'Selected Perpl position is no longer available.';
     }
@@ -199,7 +203,9 @@ class BookReviewScreen extends ConsumerWidget {
   final Position position;
   final BookConfiguration config;
 
-  bool get telemetryReady => position.bookCreation?.allowed == true;
+  bool get telemetryReady =>
+      position.market.trim().isNotEmpty &&
+      position.bookCreation?.allowed == true;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -216,12 +222,14 @@ class BookReviewScreen extends ConsumerWidget {
           const SizedBox(height: 16),
           Text('Risk limits', style: Theme.of(context).textTheme.titleLarge),
           Text(
-            'Floor ${config.liquidationFloor} / cap ${config.defenseCap} / reserve ${config.reserve} / ${config.timeLimit.inHours}h / ${config.stance} / automation ${config.automation ? 'on' : 'off'}',
+            'Floor ${config.liquidationFloor} / cap ${config.defenseCap} / reserve ${config.reserve} / ${_formatBookDuration(config.timeLimit)} / ${config.stance} / automation ${config.automation ? 'on' : 'off'}',
           ),
           if (!telemetryReady) ...[
             const SizedBox(height: 12),
-            Text(position.bookCreation?.reason ??
-                'Backend has not confirmed live telemetry readiness.'),
+            Text(position.market.trim().isEmpty
+                ? 'Market identity is unavailable. Refresh the position before creating a Book.'
+                : position.bookCreation?.reason ??
+                    'Backend has not confirmed live telemetry readiness.'),
           ],
           const SizedBox(height: 16),
           _CapitalPreview(snapshot: ref.watch(capitalProvider)),
@@ -258,6 +266,14 @@ class BookReviewScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+String _formatBookDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  if (hours == 0) return '$minutes min';
+  if (minutes == 0) return '${hours}h';
+  return '${hours}h $minutes min';
 }
 
 class _CapitalPreview extends StatelessWidget {

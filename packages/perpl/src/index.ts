@@ -55,6 +55,7 @@ export type PerplContext = {
   markets: Array<{
     id: number
     symbol: string
+    name?: string
     instance_id?: number
     order_ttl_blocks?: number
     funding_interval_blocks?: number
@@ -185,7 +186,16 @@ export class PerplAdapter implements VenueAdapter {
     this.marketStream = new PerplMarketStream(this.config.wsUrl)
   }
   async getProtocolContext() {
-    return this.http.get<PerplContext>('/v1/pub/context')
+    const context = await this.http.get<PerplContext>('/v1/pub/context')
+    return {
+      ...context,
+      markets: context.markets.map((market) => ({
+        ...market,
+        // Some venue markets publish an empty symbol but a valid name.
+        // Keep the numeric binding and all telemetry unchanged; never guess a label from the ID.
+        symbol: market.symbol?.trim() || market.name?.trim() || '',
+      })),
+    }
   }
   /** Keep metadata from REST, but prefer newer, unscaled market-state frames for opening quotes. */
   async getOpeningMarketContext(marketId: number, context?: PerplContext): Promise<PerplContext> {
