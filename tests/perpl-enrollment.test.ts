@@ -22,11 +22,23 @@ const wallet = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const other = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 const origin = 'https://eyeler.example'
 
-async function fixture(enrollStatus = 200, domainOrder = false, now: () => number = Date.now, asyncCustody = false) {
+async function fixture(
+  enrollStatus = 200,
+  domainOrder = false,
+  now: () => number = Date.now,
+  asyncCustody = false,
+  builderResponseFields?: Record<string, unknown>,
+) {
   const { db, store } = await databaseFixture()
   const userId = await store.ensureUser(wallet.address)
   const custody = new DevelopmentKeyCustody('33'.repeat(32))
-  const config = loadEnrollmentConfig({ PERPL_ENROLLMENT_ORIGIN: origin }, loadConfig({ EYELER_ENV: 'test' }))
+  const config = loadEnrollmentConfig(
+    {
+      PERPL_ENROLLMENT_ORIGIN: origin,
+      ...(builderResponseFields === undefined ? {} : { EYELER_BUILDER_ID: '25', EYELER_MAX_BUILDER_FEE_PER_100K: '0' }),
+    },
+    loadConfig({ EYELER_ENV: 'test' }),
+  )
   const requests: Array<{ path: string; headers: Headers; body: Record<string, unknown> }> = []
   let onEnroll: (() => Promise<void>) | undefined
   let walletStatus = 200
@@ -82,6 +94,7 @@ async function fixture(enrollStatus = 200, domainOrder = false, now: () => numbe
         label: 'EYELER',
         origin,
         expires_at: requests[0].body.expires_at,
+        ...(builderResponseFields ?? {}),
       },
     })
   }) as typeof fetch
@@ -162,6 +175,48 @@ describe('authenticated forwarding state', () => {
 })
 
 describe('development Perpl enrollment foundation', () => {
+  it('accepts a zero-fee builder response with its optional zero ceiling omitted', async () => {
+    const value = await fixture(200, false, Date.now, false, { builder_id: 25 })
+    try {
+      const pending = await value.service.start(value.userId, wallet.address)
+      await expect(
+        value.service.complete(value.userId, wallet.address, pending.connectionId, await value.sign(pending.typedData)),
+      ).resolves.toMatchObject({ status: 'ACTIVE' })
+    } finally {
+      await value.close()
+    }
+  }, 20_000)
+
+  it('rejects a missing or changed builder identity and any nonzero returned fee', async () => {
+    for (const responseFields of [
+      {},
+      { builder_id: 26 },
+      { builder_id: 25, max_builder_fee_per_100k: 1 },
+      { builder_id: 25, address: null },
+    ]) {
+      const value = await fixture(200, false, Date.now, false, responseFields)
+      try {
+        const pending = await value.service.start(value.userId, wallet.address)
+        await expect(
+          value.service.complete(
+            value.userId,
+            wallet.address,
+            pending.connectionId,
+            await value.sign(pending.typedData),
+          ),
+        ).rejects.toThrow('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
+        const row = (
+          await value.db.query('SELECT status,last_error,sealed_api_token FROM perpl_connections WHERE id=$1', [
+            pending.connectionId,
+          ])
+        ).rows[0]
+        expect(row).toMatchObject({ status: 'ERROR', last_error: 'ENROLLED_NOT_SAVED', sealed_api_token: null })
+      } finally {
+        await value.close()
+      }
+    }
+  }, 30_000)
+
   it('awaits asynchronous custody and binds all sealed fields to the authenticated owner and credential', async () => {
     const f = await fixture(200, false, Date.now, true)
     try {
