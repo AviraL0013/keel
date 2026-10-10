@@ -91,6 +91,31 @@ class DelayedOpeningRepository extends FakeOpeningRepository {
   Future<List<OpeningMarket>> listMarkets() => result.future;
 }
 
+class RecoveringOpeningRepository extends FakeOpeningRepository {
+  RecoveringOpeningRepository()
+      : super(const [OpeningMarket(id: 7, symbol: 'BTC', status: 'OPEN')]);
+  int snapshotCalls = 0;
+  bool stalePreview = true;
+  @override
+  Future<Map<String, dynamic>> snapshot(int marketId) async {
+    snapshotCalls++;
+    if (snapshotCalls == 1) {
+      throw const EyelerException('PERPL_OPEN_MARKET_STALE', statusCode: 500);
+    }
+    return super.snapshot(marketId);
+  }
+
+  @override
+  Future<OpeningPreview> preview(int marketId, String side, String size,
+      String leverage, int slippageBps) async {
+    if (stalePreview) {
+      previewCalls++;
+      throw const EyelerException('PERPL_OPEN_MARKET_STALE', statusCode: 500);
+    }
+    return super.preview(marketId, side, size, leverage, slippageBps);
+  }
+}
+
 class StaticPositionsRepository extends PositionsRepository {
   StaticPositionsRepository(this.position)
       : super(EyelerApiClient(const EyelerConfig(apiBaseUrl: 'http://unused'),
@@ -117,6 +142,49 @@ class CapturingBooksRepository extends BooksRepository {
 }
 
 void main() {
+  test('stale opening prices are not reported as a server outage', () {
+    const failure = EyelerException('PERPL_OPEN_MARKET_STALE', statusCode: 500);
+    expect(failure.userMessage, contains('Fresh Perpl prices'));
+    expect(failure.userMessage,
+        contains('No order was submitted by this request'));
+    expect(failure.userMessage, isNot(contains('server unavailable')));
+  });
+  testWidgets(
+      'market retry preserves inputs and preview failure never confirms an order',
+      (tester) async {
+    final repository = RecoveringOpeningRepository();
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          openingRepositoryProvider.overrideWithValue(repository),
+        ],
+        child: const MaterialApp(
+            home: OpeningOrderScreen(
+                market: OpeningMarket(id: 7, symbol: 'BTC', status: 'OPEN')))));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Fresh Perpl prices'), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Exact size'), '0.00002');
+    await tester.enterText(find.widgetWithText(TextField, 'Leverage'), '1');
+    tester.testTextInput.hide();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Refresh market'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Best bid'), findsOneWidget);
+    expect(find.text('0.00002'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    final previewButton = find.widgetWithText(FilledButton, 'Preview order');
+    await tester.ensureVisible(previewButton);
+    await tester.tap(previewButton);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Fresh Perpl prices'), findsOneWidget);
+    expect(find.text('Confirm order'), findsNothing);
+    expect(repository.confirmCalls, 0);
+    repository.stalePreview = false;
+    await tester.tap(previewButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm order'), findsOneWidget);
+    expect(repository.confirmCalls, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   test('opening status decodes PostgreSQL bigint IDs without losing ownership',
       () {
     final order = OpeningOrder.fromJson({
@@ -148,7 +216,8 @@ void main() {
           const EyelerException('PERPL_MARKET_UNAVAILABLE', statusCode: 503));
       await tester.pumpAndSettle();
       expect(
-          find.text('EYELER server unavailable. Check the backend and retry.'),
+          find.text(
+              'Perpl market data is unavailable or incomplete. Refresh the market before trying again.'),
           findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
       expect(tester.takeException(), isNull);

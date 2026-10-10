@@ -519,21 +519,50 @@ export function createPerplRuntime(
     async openingMarketSnapshot(marketId) {
       if (!trading.isReady()) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
       const accountId = Number(env.PERPL_ACCOUNT_ID)
-      const account = trading.stateSnapshot().accounts.find((item) => item.id === accountId)
-      const heartbeat = trading.heartbeat()
-      const observedAt = trading.heartbeatObservedAt()
-      if (!account || !heartbeat || !observedAt || !account.fw || account.fr)
-        throw new Error('PERPL_ACCOUNT_STATE_UNAVAILABLE')
-      const [protocol, balance] = await Promise.all([adapter.getProtocolContext(), adapter.getBalance(accountId)])
-      return openingMarketSnapshot(
-        protocol,
-        marketId,
-        accountId,
-        environment,
-        balance,
-        { head: heartbeat.head, observedAt },
-        account.ft,
-      )
+      const epoch = trading.heartbeat()?.epoch
+      if (!epoch) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
+      // Public REST context can lag the streamed ticker. Acquire the balance
+      // once per attempt, then briefly wait for actual market/head alignment.
+      // No orders are submitted here and no freshness limits are widened.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const [protocol, balance] = await Promise.all([
+          adapter.getOpeningMarketContext(marketId),
+          adapter.getBalance(accountId),
+        ])
+        for (let poll = 0; ; poll++) {
+          const current = await adapter.getOpeningMarketContext(marketId, protocol)
+          // Capture authority AFTER the async reads, not before them: REST
+          // and market frames can advance while a request is in flight.
+          const heartbeat = trading.heartbeat()
+          const observedAt = trading.heartbeatObservedAt()
+          if (!trading.isReady() || !heartbeat || heartbeat.epoch !== epoch)
+            throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
+          const account = trading.stateSnapshot().accounts.find((item) => item.id === accountId)
+          if (!account || !observedAt || !account.fw || account.fr) throw new Error('PERPL_ACCOUNT_STATE_UNAVAILABLE')
+          try {
+            return openingMarketSnapshot(
+              current,
+              marketId,
+              accountId,
+              environment,
+              balance,
+              { head: heartbeat.head, observedAt },
+              account.ft,
+            )
+          } catch (error) {
+            const transient =
+              error instanceof Error &&
+              ['PERPL_OPEN_MARKET_STALE', 'PERPL_FREE_BALANCE_UNAVAILABLE'].includes(error.message)
+            if (!transient) throw error
+            if (poll >= 10) {
+              if (attempt === 1) throw error
+              break
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100))
+          }
+        }
+      }
+      throw new Error('PERPL_OPEN_MARKET_STALE')
     },
     async reconcileOpening(intent) {
       if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')

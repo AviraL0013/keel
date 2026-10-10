@@ -29,6 +29,18 @@ class EyelerException implements Exception {
     if (message == 'OPENING_DISABLED') {
       return 'Opening trades are not enabled for this account.';
     }
+    if (message == 'PERPL_OPEN_MARKET_STALE') {
+      return 'Fresh Perpl prices could not be verified. Refresh the market and try preview again. No order was submitted by this request.';
+    }
+    if (message == 'PERPL_OPEN_MARKET_UNAVAILABLE' ||
+        message == 'PERPL_MARKET_UNAVAILABLE') {
+      return 'Perpl market data is unavailable or incomplete. Refresh the market before trying again.';
+    }
+    if (message == 'PERPL_TRADING_STATE_UNTRUSTED' ||
+        message == 'PERPL_CONNECTION_UNAVAILABLE' ||
+        message == 'PERPL_ACCOUNT_STATE_UNAVAILABLE') {
+      return 'Your live Perpl connection could not be verified. Refresh account setup in Home before trying again.';
+    }
     if (message == 'PERPL_ORDER_FORWARDING_DISABLED') {
       return 'Perpl order forwarding is disabled for this account. Enable it in Perpl before submitting actions.';
     }

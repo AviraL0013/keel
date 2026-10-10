@@ -187,6 +187,40 @@ export class PerplAdapter implements VenueAdapter {
   async getProtocolContext() {
     return this.http.get<PerplContext>('/v1/pub/context')
   }
+  /** Keep metadata from REST, but prefer newer, unscaled market-state frames for opening quotes. */
+  async getOpeningMarketContext(marketId: number, context?: PerplContext): Promise<PerplContext> {
+    const protocol = context ?? (await this.getProtocolContext())
+    if (!context) {
+      try {
+        // Opening quotes need market-state, not an unrelated depth snapshot.
+        await this.marketStream.ensure([])
+      } catch {
+        // A REST observation is still eligible only if the unchanged quote
+        // validator proves its source block is fresh. Never fabricate a stamp.
+        return protocol
+      }
+    }
+    const streamed = (await this.marketStream.snapshot(marketId, 0))?.market
+    const streamedBlock = (streamed?.at as { b?: number } | undefined)?.b
+    return {
+      ...protocol,
+      markets: protocol.markets.map((market) => {
+        const contextBlock = (market.state.at as { b?: number } | undefined)?.b
+        if (
+          market.id !== marketId ||
+          !streamed ||
+          !Number.isSafeInteger(streamedBlock) ||
+          streamedBlock! <= 0 ||
+          !Number.isSafeInteger(contextBlock) ||
+          streamedBlock! < contextBlock!
+        )
+          return market
+        // Do not rewrite the venue stamp or scale prices; the quote validator
+        // still checks this exact source block against the authenticated head.
+        return { ...market, state: streamed }
+      }),
+    }
+  }
   async getMarket(marketId: number) {
     const context = await this.getProtocolContext()
     return context.markets.find((market) => market.id === marketId) ?? null

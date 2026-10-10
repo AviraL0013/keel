@@ -100,7 +100,7 @@ export class PerplMarketStream {
       this.reconnectTimer = undefined
     }
     this.connecting = new Promise<void>((resolve, reject) => {
-      const socket = new WS(`${this.wsUrl}/ws/v1/market-data`)
+      const socket = new WS(`${this.wsUrl}/ws/v1/market-data`, { handshakeTimeout: 5000 })
       this.socket = socket
       socket.on('open', () => {
         if (this.socket !== socket) return

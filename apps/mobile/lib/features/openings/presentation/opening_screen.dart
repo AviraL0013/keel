@@ -106,6 +106,12 @@ class _OpeningOrderScreenState extends ConsumerState<OpeningOrderScreen> {
     super.dispose();
   }
 
+  void refreshMarket() => setState(() {
+        error = null;
+        snapshot =
+            ref.read(openingRepositoryProvider).snapshot(widget.market.id);
+      });
+
   String? price(Map<String, dynamic> data, String key) {
     final raw = data[key], decimals = data['priceDecimals'];
     if (raw is! int || decimals is! int || decimals < 0 || decimals > 18) {
@@ -149,7 +155,12 @@ class _OpeningOrderScreenState extends ConsumerState<OpeningOrderScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text('Open ${widget.market.symbol}')),
+        appBar: AppBar(title: Text('Open ${widget.market.symbol}'), actions: [
+          IconButton(
+              tooltip: 'Refresh market',
+              onPressed: busy ? null : refreshMarket,
+              icon: const Icon(Icons.refresh)),
+        ]),
         body: ListView(
             padding: const EdgeInsets.all(EyelerSpacing.md),
             children: [
@@ -162,7 +173,15 @@ class _OpeningOrderScreenState extends ConsumerState<OpeningOrderScreen> {
                       return const LinearProgressIndicator();
                     }
                     if (value.hasError) {
-                      return Text(friendlyError(value.error!));
+                      return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(friendlyError(value.error!)),
+                            OutlinedButton.icon(
+                                onPressed: busy ? null : refreshMarket,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Refresh market')),
+                          ]);
                     }
                     final bid = price(value.data!, 'bidRaw'),
                         ask = price(value.data!, 'askRaw');
