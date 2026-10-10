@@ -77,7 +77,6 @@ export function validateEnrollmentPayload(
       throw new Error()
     const expected = {
       signer: request.address.toLowerCase(),
-      publicKey: request.public_key,
       scope: String(request.scope_mask),
       label: request.label,
       expiresAt: String(request.expires_at),
@@ -89,6 +88,12 @@ export function validateEnrollmentPayload(
       const actual = message[key]
       if (typeof actual !== 'string' || (key === 'signer' ? actual.toLowerCase() : actual) !== wanted) throw new Error()
     }
+    // Perpl serializes the requested 32 Ed25519 public-key bytes as base64url
+    // inside the signed payload, while the request uses hex.
+    if (!/^0x[\da-f]{64}$/i.test(request.public_key)) throw new Error()
+    const keyBytes = Buffer.from(request.public_key.slice(2), 'hex')
+    const venueKey = keyBytes.toString('base64url')
+    if (message.publicKey !== venueKey && message.publicKey !== request.public_key) throw new Error()
     // Nonempty CIDR serialization has not been verified against Perpl's payload contract.
     // Do not silently normalize potentially different signed restrictions.
     if (request.ip_cidrs?.length || message.ipCidrs !== '') throw new Error()

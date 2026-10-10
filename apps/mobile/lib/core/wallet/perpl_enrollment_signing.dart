@@ -61,7 +61,7 @@ Uint8List perplEnrollmentPreimage(
         message['label'] != 'EYELER' ||
         message['origin'] != origin ||
         message['ipCidrs'] != '' ||
-        !RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch('${message['publicKey']}') ||
+        !_validPublicKey(message['publicKey']) ||
         message['maxBuilderFeePer100K'] != '0' ||
         !['0', '25'].contains(message['builderId'])) {
       throw const FormatException();
@@ -89,6 +89,15 @@ Uint8List perplEnrollmentPreimage(
     throw const WalletException(
         'Perpl enrollment terms do not match this wallet, network or zero-fee permission.');
   }
+}
+
+bool _validPublicKey(Object? value) {
+  if (value is! String) return false;
+  if (RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(value)) return true;
+  if (!RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(value)) return false;
+  final bytes = base64Url.decode(base64Url.normalize(value));
+  return bytes.length == 32 &&
+      base64Url.encode(bytes).replaceAll('=', '') == value;
 }
 
 bool _keys(Map object, List<String> names) =>

@@ -40,6 +40,11 @@ class SummaryRepository extends BooksRepository {
 }
 
 void main() {
+  test('Book cap caption names mainnet AUSD and preserves testnet label', () {
+    expect(bookCapSourceLabel('mainnet'), 'Mainnet AUSD - not wallet balance');
+    expect(bookCapSourceLabel('testnet'), 'Testnet USD - not wallet balance');
+  });
+
   test('plain labels preserve execution and risk priority', () {
     final active = book('a', 'BTC', 'ACTIVE');
     expect(
@@ -118,9 +123,13 @@ void main() {
     ], child: MaterialApp(theme: EyelerTheme.dark, home: const BooksScreen())));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('Good morning, operator'), findsNothing);
     expect(find.text('Current Book defense caps'), findsOneWidget);
     expect(find.text('\$15.00'), findsOneWidget);
-    expect(find.text('Testnet USD - not wallet balance'), findsOneWidget);
+    final capCaption = find.text('Testnet USD - not wallet balance');
+    expect(capCaption, findsOneWidget);
+    expect(tester.getTopLeft(capCaption).dy,
+        greaterThanOrEqualTo(tester.getBottomLeft(find.text('\$15.00')).dy));
     expect(find.text('TESTNET'), findsOneWidget);
     expect(find.byKey(const ValueKey('book-card-safe')), findsOneWidget);
     expect(find.byKey(const ValueKey('book-card-active')), findsOneWidget);

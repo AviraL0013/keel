@@ -136,6 +136,31 @@ class PerplActivationGateway {
     return BigInt.parse(value.substring(2), radix: 16);
   }
 
+  int? _accountId(Object? value, String expectedAddress) {
+    if (value == null) return null;
+    // getAccountByAddr returns a static, nine-word AccountInfo tuple.
+    if (value is! String || !RegExp(r'^0x[0-9a-fA-F]{576}$').hasMatch(value)) {
+      throw const WalletException('Perpl account data unavailable.');
+    }
+    final id = _quantity('0x${value.substring(2, 66)}');
+    if (id == BigInt.zero) {
+      if (RegExp(r'[1-9a-fA-F]').hasMatch(value.substring(2))) {
+        throw const WalletException('Perpl account data unavailable.');
+      }
+      return null;
+    }
+    if (id > BigInt.from(0x7fffffff)) {
+      throw const WalletException('Perpl account ID unavailable.');
+    }
+    final ownerWord = value.substring(2 + 64 * 4, 2 + 64 * 5);
+    if (!ownerWord.startsWith('0' * 24) ||
+        '0x${ownerWord.substring(24)}'.toLowerCase() !=
+            expectedAddress.toLowerCase()) {
+      throw const WalletException('Perpl account identity mismatch.');
+    }
+    return id.toInt();
+  }
+
   Future<LoadedPerplActivation> load(String address,
       {bool? forwardingEnabled, bool pendingTransaction = false}) async {
     if (!RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(address)) {
@@ -173,14 +198,11 @@ class PerplActivationGateway {
           'latest'
         ],
         noAccountRevert: true);
-    final account = rawAccount == null ? BigInt.zero : _quantity(rawAccount);
-    if (account > BigInt.from(0x7fffffff)) {
-      throw const WalletException('Perpl account ID unavailable.');
-    }
+    final accountId = _accountId(rawAccount, address);
     return LoadedPerplActivation(
         context,
         PerplActivationState(
-            accountId: account == BigInt.zero ? null : account.toInt(),
+            accountId: accountId,
             ausdMicros: balance,
             allowanceMicros: allowance,
             forwardingEnabled: forwardingEnabled,
