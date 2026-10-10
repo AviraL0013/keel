@@ -265,10 +265,11 @@ class _PerplConnectionPanelState extends ConsumerState<PerplConnectionPanel> {
       await ref
           .read(apiClientProvider)
           .post('/connections/perpl/$id/disconnect', decode: (_) => true);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
+        final reason = _enrollmentFailure(error);
         setState(() => message =
-            'Disconnect failed. Resolve pending executions and refresh status.');
+            'Disconnect failed: $reason${reason == 'UNEXPECTED_FAILURE' ? ' (${error.runtimeType})' : ''}. Resolve pending executions and refresh status.');
       }
     } finally {
       if (mounted) {
