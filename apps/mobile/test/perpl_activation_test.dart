@@ -192,6 +192,63 @@ void main() {
       client.close();
     });
   }
+  test('fake RPC decodes existing account struct and binds its owner',
+      () async {
+    const wallet = '0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F';
+    String word(BigInt value) => value.toRadixString(16).padLeft(64, '0');
+    String accountResult(String owner) => '0x${word(BigInt.from(5438))}'
+        '${word(BigInt.from(1500000))}'
+        '${word(BigInt.zero)}'
+        '${word(BigInt.zero)}'
+        '${owner.substring(2).toLowerCase().padLeft(64, '0')}'
+        "${'0' * 256}";
+    var account = accountResult(wallet);
+    final client = MockClient((request) async {
+      if (request.method == 'GET') {
+        return http.Response(
+            jsonEncode({
+              'chain': {'chain_id': 143},
+              'instances': [
+                {
+                  'id': 1,
+                  'address': exchange,
+                  'collateral_token_id': 1,
+                  'min_account_open_amount': '10000000'
+                }
+              ],
+              'tokens': [
+                {'id': 1, 'address': token, 'symbol': 'AUSD', 'decimals': 6}
+              ]
+            }),
+            200);
+      }
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final method = body['method'] as String;
+      Object? result;
+      if (method == 'eth_chainId') result = '0x8f';
+      if (method == 'eth_call') {
+        final call = (body['params'] as List).first as Map;
+        final data = call['data'] as String;
+        if (data.startsWith('0x70a08231')) result = '0x81b320';
+        if (data.startsWith('0xdd62ed3e')) result = '0x0';
+        if (data.startsWith('0x12e8eb2c')) result = account;
+      }
+      return http.Response(
+          jsonEncode({'jsonrpc': '2.0', 'id': body['id'], 'result': result}),
+          200);
+    });
+    final gateway = PerplActivationGateway(client);
+    final loaded = await gateway.load(wallet);
+    expect(loaded.state.accountId, 5438);
+    expect(planPerplActivation(loaded.context, loaded.state),
+        ActivationStep.connectPerpl);
+
+    account = accountResult('0x${'11' * 20}');
+    await expectLater(gateway.load(wallet), throwsException);
+    account = '0x${word(BigInt.from(5438))}';
+    await expectLater(gateway.load(wallet), throwsException);
+    client.close();
+  });
   test('fake receipt distinguishes pending, success and revert', () async {
     Object? receipt;
     final client = MockClient((request) async {

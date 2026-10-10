@@ -1,10 +1,25 @@
 import 'package:eyeler_mobile/features/positions/data/positions_repository.dart';
 import 'package:eyeler_mobile/features/positions/presentation/positions_screen.dart';
+import 'package:eyeler_mobile/core/errors/eyeler_exception.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('unconnected account does not claim the server is down',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(overrides: [
+      positionsProvider.overrideWith(
+          (ref) async => throw const EyelerException('PERPL_NOT_CONNECTED')),
+      perplConnectionProvider.overrideWith(
+          (ref) async => const PerplConnectionState(status: 'NOT_CONNECTED')),
+    ], child: const MaterialApp(home: PositionsScreen())));
+    await tester.pumpAndSettle();
+    expect(find.text('PERPL ACCOUNT NOT CONNECTED'), findsOneWidget);
+    expect(find.text('EYELER SERVER UNAVAILABLE'), findsNothing);
+    expect(find.text('CONTINUE ACCOUNT SETUP'), findsOneWidget);
+  });
+
   testWidgets(
       'connected testnet account with no positions has clear empty state',
       (tester) async {

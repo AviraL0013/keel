@@ -31,9 +31,21 @@ class PositionsScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) =>
             ListView(padding: const EdgeInsets.all(16), children: [
-          ErrorStateCard(
-              message: friendlyError(error),
-              onRetry: () => ref.invalidate(positionsProvider)),
+          if (error is EyelerException &&
+              error.message == 'PERPL_NOT_CONNECTED')
+            EmptyStateCard(
+                icon: Icons.link_off,
+                title: 'PERPL ACCOUNT NOT CONNECTED',
+                message:
+                    'Connect this wallet to its Perpl account to verify positions.',
+                action: OutlinedButton.icon(
+                    onPressed: () => ref.invalidate(positionsProvider),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('RETRY')))
+          else
+            ErrorStateCard(
+                message: friendlyError(error),
+                onRetry: () => ref.invalidate(positionsProvider)),
           OutlinedButton(
               onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
