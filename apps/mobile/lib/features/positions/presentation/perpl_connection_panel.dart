@@ -1,13 +1,43 @@
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/errors/eyeler_exception.dart';
 import '../../../core/networking/api_client.dart';
 import '../../../core/wallet/perpl_enrollment_signing.dart';
+import '../../../core/wallet/wallet_types.dart';
 import '../../../shared/widgets/eyeler_widgets.dart';
+import '../../activation/perpl_activation.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../capital/data/capital_repository.dart';
 import '../data/positions_repository.dart';
 import '../data/perpl_connection_repository.dart';
 export '../data/perpl_connection_repository.dart' show enrollmentProvider;
+
+/// Reads the account ID and owner from Monad before requesting signed terms.
+final perplEnrollmentAccountProvider =
+    Provider<Future<int?> Function(String)>((_) => (address) async {
+          final client = http.Client();
+          try {
+            return (await PerplActivationGateway(client).load(address))
+                .state
+                .accountId;
+          } finally {
+            client.close();
+          }
+        });
+
+String _enrollmentFailure(Object error) {
+  if (error is EyelerException) {
+    if (RegExp(r'^[A-Z][A-Z0-9_]+$').hasMatch(error.message)) {
+      return error.message;
+    }
+    return error.statusCode == null
+        ? 'REQUEST_FAILED'
+        : 'HTTP_${error.statusCode}';
+  }
+  if (error is WalletException) return error.message;
+  return 'UNEXPECTED_FAILURE';
+}
 
 class PerplConnectionPanel extends ConsumerStatefulWidget {
   const PerplConnectionPanel({super.key});
@@ -87,6 +117,9 @@ class _PerplConnectionPanelState extends ConsumerState<PerplConnectionPanel> {
   }
 
   Future<void> _enroll(Map<String, dynamic> capability) async {
+    String stage = 'account verification';
+    String? pendingId;
+    var signatureSubmitted = false;
     setState(() {
       busy = true;
       message = null;
@@ -94,23 +127,46 @@ class _PerplConnectionPanelState extends ConsumerState<PerplConnectionPanel> {
     try {
       final address = ref.read(authProvider).address;
       if (address == null) throw StateError('Sign in again.');
-      final wallet = ref.read(walletConnectorProvider);
-      final connection = await wallet.connect();
-      if (connection.address.toLowerCase() != address.toLowerCase() ||
-          connection.chainId != capability['chainId']) {
-        throw StateError('The wallet or network differs from this session.');
+      final chainId = capability['chainId'];
+      final origin = capability['origin'];
+      if (chainId is! int ||
+          origin is! String ||
+          capability['scope'] != 'read,trade' ||
+          capability['withdrawals'] != false ||
+          capability['maxBuilderFeePer100K'] != 0 ||
+          (capability['environment'] == 'mainnet' &&
+              (chainId != 143 ||
+                  origin != 'https://app.eyeler.xyz' ||
+                  capability['builderId'] != 25))) {
+        throw const WalletException('Perpl trade-only capability mismatch.');
       }
+      final accountId = capability['environment'] == 'mainnet'
+          ? await ref.read(perplEnrollmentAccountProvider)(address)
+          : null;
+      if (capability['environment'] == 'mainnet' &&
+          (accountId == null || accountId <= 0)) {
+        throw const WalletException('Owner-bound Perpl account unavailable.');
+      }
+      stage = 'terms request';
       final api = ref.read(apiClientProvider);
       final pending = await api.post('/connections/perpl/enrollment',
           decode: (v) => Map<String, dynamic>.from(v as Map));
+      pendingId = pending['connectionId'] as String;
       final typed = Map<String, Object?>.from(pending['typedData'] as Map);
       perplEnrollmentPreimage(typed,
           address: address,
-          chainId: connection.chainId,
-          origin: capability['origin'] as String,
+          chainId: chainId,
+          origin: origin,
           now: DateTime.now());
-      if (!mounted) return;
-      final terms = typed['message'] as Map;
+      final terms = Map<String, dynamic>.from(typed['message'] as Map);
+      if (terms['builderId'] != '${capability['builderId']}' ||
+          terms['maxBuilderFeePer100K'] != '0' ||
+          terms['origin'] != origin ||
+          terms['scope'] != '3') {
+        throw const WalletException('Perpl trade-only terms mismatch.');
+      }
+      if (!mounted) throw StateError('Enrollment screen closed.');
+      stage = 'terms review';
       final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -121,14 +177,15 @@ class _PerplConnectionPanelState extends ConsumerState<PerplConnectionPanel> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                         Text(
-                            '${capability['environment'].toString().toUpperCase()} · Chain ${connection.chainId}'),
+                            '${capability['environment'].toString().toUpperCase()} · Chain $chainId · Account $accountId'),
                         SelectableText(address),
                         const SizedBox(height: 12),
                         Text(terms['statement'] as String),
-                        const Text(
-                            'Read and trade permission. No withdrawals. Builder fee ceiling: 0%.'),
+                        const Text('Read and trade only. No withdrawals.'),
+                        Text('Origin: $origin'),
+                        Text('Builder ${terms['builderId']} · Fee 0%'),
                         Text(
-                            'Expires: ${DateTime.fromMillisecondsSinceEpoch(int.parse(terms['expiresAt'] as String)).toLocal()}'),
+                            'Expiry: ${DateTime.fromMillisecondsSinceEpoch(int.parse(terms['expiresAt'] as String), isUtc: true).toIso8601String()} UTC'),
                         const Text(
                             'API credentials are encrypted on the Eyeler server. Disconnecting blocks further Eyeler use; revoke the key on Perpl to remove its venue permission.'),
                       ])),
@@ -138,27 +195,46 @@ class _PerplConnectionPanelState extends ConsumerState<PerplConnectionPanel> {
                         child: const Text('CANCEL')),
                     FilledButton(
                         onPressed: () => Navigator.pop(context, true),
-                        child: const Text('AUTHORIZE'))
+                        child: const Text('CONTINUE TO FINGERPRINT'))
                   ]));
       if (confirmed != true) {
-        await api.post(
-            '/connections/perpl/${pending['connectionId']}/disconnect',
+        await api.post('/connections/perpl/$pendingId/disconnect',
             decode: (_) => true);
+        pendingId = null;
         return;
       }
+      stage = 'passkey unlock';
+      final wallet = ref.read(walletConnectorProvider);
+      final connection = await wallet.connect();
+      if (connection.address.toLowerCase() != address.toLowerCase() ||
+          connection.chainId != chainId) {
+        throw const WalletException(
+            'The passkey wallet or network differs from this session.');
+      }
+      stage = 'trade-only signature';
       final signature = await wallet.signTypedData(address, typed);
-      await api.post(
-          '/connections/perpl/enrollment/${pending['connectionId']}/complete',
-          body: {'signature': signature},
-          decode: (_) => true);
+      stage = 'Perpl enrollment';
+      signatureSubmitted = true;
+      await api.post('/connections/perpl/enrollment/$pendingId/complete',
+          body: {'signature': signature}, decode: (_) => true);
+      pendingId = null;
       if (mounted) {
         setState(() => message =
             'Perpl key connected. Refresh Positions to verify the account.');
       }
-    } catch (_) {
+    } catch (error) {
+      if (pendingId != null && !signatureSubmitted) {
+        try {
+          await ref.read(apiClientProvider).post(
+              '/connections/perpl/$pendingId/disconnect',
+              decode: (_) => true);
+        } catch (_) {
+          // Keep the pending state visible for a manual refresh/review.
+        }
+      }
       if (mounted) {
         setState(() => message =
-            'Connection not completed. Refresh status before retrying. No trade was placed.');
+            'Connection not completed at $stage: ${_enrollmentFailure(error)}. Refresh status before retrying. No trade was placed.');
       }
     } finally {
       if (mounted) {
