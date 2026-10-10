@@ -347,15 +347,23 @@ export class PerplEnrollmentService {
       throw error
     }
     const key = enrolled.api_key
-    if (
-      key.address.toLowerCase() !== walletAddress.toLowerCase() ||
-      key.scope_mask !== 3 ||
-      key.label !== row.label ||
-      key.origin !== row.origin ||
-      key.expires_at !== new Date(row.expires_at as string).getTime() ||
-      key.builder_id !== (row.builder_id ?? undefined) ||
-      key.max_builder_fee_per_100k !== (row.builder_fee_ceiling ?? undefined)
-    ) {
+    const builderId = row.builder_id == null ? undefined : Number(row.builder_id)
+    const feeCeiling = row.builder_fee_ceiling == null ? undefined : Number(row.builder_fee_ceiling)
+    // Perpl may omit an optional zero fee ceiling. Only zero can be inferred;
+    // builder identity and every other permission must still match exactly.
+    const returnedFee = key.max_builder_fee_per_100k ?? (builderId !== undefined && feeCeiling === 0 ? 0 : undefined)
+    const mismatches = [
+      typeof key.address === 'string' && key.address.toLowerCase() === walletAddress.toLowerCase() ? null : 'address',
+      key.scope_mask === 3 ? null : 'scope_mask',
+      key.label === row.label ? null : 'label',
+      key.origin === row.origin ? null : 'origin',
+      key.expires_at === new Date(row.expires_at as string).getTime() ? null : 'expires_at',
+      key.builder_id === builderId ? null : 'builder_id',
+      returnedFee === feeCeiling ? null : 'max_builder_fee_per_100k',
+    ].filter((field): field is string => field !== null)
+    if (mismatches.length) {
+      // Field names only: never log the returned API token or credential data.
+      console.warn(`PERPL_ENROLLMENT_RESPONSE_MISMATCH_FIELDS:${mismatches.join(',')}`)
       await this.markEnrollmentError(id, userId, 'ENROLLED_NOT_SAVED')
       throw new InfrastructureError('PERPL_ENROLLMENT_RESPONSE_MISMATCH')
     }
