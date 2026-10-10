@@ -6,6 +6,7 @@ import 'package:eyeler_mobile/core/wallet/mera_wallet_connector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:passkeys/authenticator.dart';
 import 'package:passkeys/types.dart';
+import 'package:web3dart/crypto.dart';
 
 class FixtureAuthenticator extends PasskeyAuthenticator {
   bool noCredential = false;
@@ -131,6 +132,16 @@ void main() {
     final typed = fixture['typedData'] as Map<String, dynamic>;
     expect(await connector.signTypedData(wallet.address, typed),
         fixture['signature']);
+    final venueTyped = jsonDecode(jsonEncode(typed)) as Map<String, dynamic>;
+    final venueMessage = venueTyped['message'] as Map<String, dynamic>;
+    venueMessage['publicKey'] = base64Url
+        .encode(hexToBytes(venueMessage['publicKey'] as String))
+        .replaceAll('=', '');
+    expect((await connector.signTypedData(wallet.address, venueTyped)).length,
+        132);
+    venueMessage['publicKey'] = '${venueMessage['publicKey']}=';
+    await expectLater(
+        connector.signTypedData(wallet.address, venueTyped), throwsException);
     for (final mutation in <void Function(Map<String, dynamic>)>[
       (t) => t['message']['scope'] = '7',
       (t) => t['message']['maxBuilderFeePer100K'] = '1',

@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:web3dart/crypto.dart';
 
 const _address = '0xF9297b542BDb5DA50C364f9AE4Cbe1F3933bA40F';
 
@@ -57,6 +58,9 @@ Map<String, dynamic> _typedData() {
   domain['chainId'] = '0x8f';
   typed['domain'] = domain;
   final message = Map<String, dynamic>.from(typed['message'] as Map);
+  message['publicKey'] = base64Url
+      .encode(hexToBytes(message['publicKey'] as String))
+      .replaceAll('=', '');
   final now = DateTime.now().millisecondsSinceEpoch;
   message['time'] = '0x${now.toRadixString(16)}';
   message['expiresAt'] = '${now + 86400000}';

@@ -1,6 +1,6 @@
 import type { EnrollmentPayloadRequest } from '../../server/src/infrastructure/perpl/enrollment-client.js'
 
-// Schema observed from Perpl's unsigned /v1/api-key/payload on 2026-10-06.
+// Schema observed from Perpl's unsigned /v1/api-key/payload on 2026-10-10.
 // All keys, salt and addresses here are synthetic test inputs.
 export function perplEnrollmentPayload(request: EnrollmentPayloadRequest, origin: string, now: number) {
   return {
@@ -40,7 +40,8 @@ export function perplEnrollmentPayload(request: EnrollmentPayloadRequest, origin
         request.builder_id === undefined
           ? 'I authorize the creation of Perpl API key with the specified scope and parameters'
           : `Authorize Eyeler (builder code ${request.builder_id}) to place orders from this wallet and to charge a builder fee of up to 0.000% per order. This does not permit withdrawals.`,
-      publicKey: request.public_key,
+      // Perpl signs the same 32 Ed25519 public-key bytes as canonical base64url.
+      publicKey: Buffer.from(request.public_key.slice(2), 'hex').toString('base64url'),
       scope: String(request.scope_mask),
       label: request.label,
       expiresAt: String(request.expires_at),

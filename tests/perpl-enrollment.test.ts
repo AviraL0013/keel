@@ -222,6 +222,12 @@ describe('development Perpl enrollment foundation', () => {
           t.message.publicKey = `0x${'ff'.repeat(32)}`
         },
         (t: any) => {
+          t.message.publicKey = Buffer.alloc(32, 0xff).toString('base64url')
+        },
+        (t: any) => {
+          t.message.publicKey = `${t.message.publicKey}=`
+        },
+        (t: any) => {
           t.message.expiresAt = '9999999999999'
         },
         (t: any) => {
