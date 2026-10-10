@@ -521,16 +521,39 @@ export function createPerplRuntime(
       const accountId = Number(env.PERPL_ACCOUNT_ID)
       const epoch = trading.heartbeat()?.epoch
       if (!epoch) throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
-      // Public REST context can lag the streamed ticker. Acquire the balance
-      // once per attempt, then briefly wait for actual market/head alignment.
-      // No orders are submitted here and no freshness limits are widened.
+      const startedAt = Date.now()
+      const deadline = startedAt + 8000
+      // Retain real observations while the authenticated head catches up. Always
+      // chasing the latest public frame can keep the quote ahead of that head.
+      const candidates = new Map<number, { state: Record<string, unknown>; observedAt: number }>()
       for (let attempt = 0; attempt < 2; attempt++) {
-        const [protocol, balance] = await Promise.all([
+        const [protocol, initialBalance] = await Promise.all([
           adapter.getOpeningMarketContext(marketId),
           adapter.getBalance(accountId),
         ])
+        let balance = initialBalance
+        let nextBalanceReadAt = Date.now() + 500
         for (let poll = 0; ; poll++) {
           const current = await adapter.getOpeningMarketContext(marketId, protocol)
+          const latest = current.markets.find((item) => item.id === marketId)?.state
+          const latestBlock = (latest?.at as { b?: number } | undefined)?.b
+          if (latest && Number.isSafeInteger(latestBlock) && latestBlock! > 0 && !candidates.has(latestBlock!))
+            candidates.set(latestBlock!, { state: latest, observedAt: Date.now() })
+          while (candidates.size > 32) candidates.delete(candidates.keys().next().value!)
+          // A market pause must not leave us holding a wallet snapshot that has
+          // fallen behind the head. Re-read it; never rewrite its source stamp.
+          const beforeReadHead = trading.heartbeat()?.head
+          if (
+            Date.now() >= nextBalanceReadAt &&
+            Date.now() < deadline &&
+            ((beforeReadHead !== undefined &&
+              balance.observedBlock !== undefined &&
+              beforeReadHead - balance.observedBlock > 3) ||
+              Date.now() - (balance.updatedAt ?? 0) > 4000)
+          ) {
+            balance = await adapter.getBalance(accountId, protocol)
+            nextBalanceReadAt = Date.now() + 500
+          }
           // Capture authority AFTER the async reads, not before them: REST
           // and market frames can advance while a request is in flight.
           const heartbeat = trading.heartbeat()
@@ -539,9 +562,25 @@ export function createPerplRuntime(
             throw new Error('PERPL_TRADING_STATE_UNTRUSTED')
           const account = trading.stateSnapshot().accounts.find((item) => item.id === accountId)
           if (!account || !observedAt || !account.fw || account.fr) throw new Error('PERPL_ACCOUNT_STATE_UNAVAILABLE')
+          const eligible = [...candidates.entries()]
+            .filter(
+              ([block, candidate]) =>
+                block <= heartbeat.head && heartbeat.head - block <= 3 && Date.now() - candidate.observedAt <= 5000,
+            )
+            .sort(([a], [b]) => b - a)[0]
+          const quoteContext = eligible
+            ? {
+                ...current,
+                markets: current.markets.map((market) =>
+                  market.id === marketId ? { ...market, state: eligible[1].state } : market,
+                ),
+              }
+            : current
           try {
-            return openingMarketSnapshot(
-              current,
+            const candidate = eligible?.[1] ?? (latestBlock === undefined ? undefined : candidates.get(latestBlock))
+            if (candidate && Date.now() - candidate.observedAt > 5000) throw new Error('PERPL_OPEN_MARKET_STALE')
+            const snapshot = openingMarketSnapshot(
+              quoteContext,
               marketId,
               accountId,
               environment,
@@ -549,13 +588,42 @@ export function createPerplRuntime(
               { head: heartbeat.head, observedAt },
               account.ft,
             )
+            // Keep the observation's original receipt time during acquisition.
+            if (eligible) snapshot.marketObservedAt = eligible[1].observedAt
+            logger.info(
+              {
+                marketId,
+                marketBlock: snapshot.marketBlock,
+                headBlock: snapshot.headBlock,
+                balanceBlock: snapshot.balanceBlock,
+                elapsedMs: Date.now() - startedAt,
+              },
+              'Perpl opening quote verified',
+            )
+            return snapshot
           } catch (error) {
             const transient =
               error instanceof Error &&
               ['PERPL_OPEN_MARKET_STALE', 'PERPL_FREE_BALANCE_UNAVAILABLE'].includes(error.message)
             if (!transient) throw error
-            if (poll >= 10) {
-              if (attempt === 1) throw error
+            if (poll >= 40 || Date.now() >= deadline) {
+              if (attempt === 1 || Date.now() >= deadline) {
+                logger.warn(
+                  {
+                    code: error.message,
+                    marketId,
+                    latestMarketBlock: latestBlock,
+                    selectedMarketBlock: eligible?.[0],
+                    headBlock: heartbeat.head,
+                    headAgeMs: Date.now() - observedAt,
+                    balanceBlock: balance.observedBlock,
+                    balanceAgeMs: Date.now() - (balance.updatedAt ?? 0),
+                    elapsedMs: Date.now() - startedAt,
+                  },
+                  'Perpl opening quote acquisition exhausted',
+                )
+                throw error
+              }
               break
             }
             await new Promise((resolve) => setTimeout(resolve, 100))

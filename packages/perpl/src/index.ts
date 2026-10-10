@@ -333,14 +333,14 @@ export class PerplAdapter implements VenueAdapter {
     const token = context.tokens.find((item) => item.id === instance?.collateral_token_id)
     return normalizePerplPosition(row, market, token?.decimals ?? 6)
   }
-  async getBalance(accountId: number): Promise<PerplBalance> {
+  async getBalance(accountId: number, protocol?: PerplContext): Promise<PerplBalance> {
     if (!this.history) throw new Error('PERPL_SIGNER_NOT_CONFIGURED')
     const snapshot = await this.history.wallet()
     if (!snapshot.at || !Number.isSafeInteger(snapshot.at.b) || snapshot.at.b! <= 0 || !Array.isArray(snapshot.as))
       throw new Error('PERPL_WALLET_SNAPSHOT_INVALID')
     const account = snapshot.as.find((item) => item.id === accountId)
     if (!account) throw new Error('PERPL_ACCOUNT_SNAPSHOT_REQUIRED')
-    const context = await this.getProtocolContext()
+    const context = protocol ?? (await this.getProtocolContext())
     const instance = context.instances.find((item) =>
       context.tokens.some((token) => token.id === item.collateral_token_id),
     )

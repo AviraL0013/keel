@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PerplAdapter } from '../packages/perpl/src/index.js'
 import { PerplMarketStream } from '../packages/perpl/src/marketStream.js'
 import { PerplTradingClient } from '../packages/perpl/src/trading.js'
+import { PerplHistory } from '../packages/perpl/src/history.js'
+import { Ed25519PerplSigner } from '../packages/perpl/src/signer.js'
 import { createPerplRuntime } from '../server/src/infrastructure/perpl/runtime.js'
 import type { PostgresStore } from '../server/src/infrastructure/database/postgres-store.js'
 
@@ -70,7 +72,98 @@ beforeEach(() => {
 
 afterEach(async () => {
   await venue?.close()
+  vi.useRealTimers()
   vi.restoreAllMocks()
+})
+
+it('waits for a genuinely fresh tick after a multi-second market pause and refreshes the balance', async () => {
+  vi.useFakeTimers()
+  head = 110
+  setTimeout(() => {
+    head = marketBlock = 120
+  }, 2500)
+  const check = expect(venue!.openingMarketSnapshot!(1)).resolves.toMatchObject({
+    headBlock: 120,
+    marketBlock: 120,
+    balanceBlock: 120,
+  })
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
+
+it('retains an observed future tick until the real head verifies it instead of chasing newer ticks', async () => {
+  vi.useFakeTimers()
+  vi.mocked(PerplMarketStream.prototype.snapshot).mockImplementation(async () => ({
+    market: protocol(head + 1).markets[0].state,
+    fundingRate: 0,
+    candleCloses: [],
+  }))
+  vi.mocked(PerplAdapter.prototype.getProtocolContext).mockResolvedValue(protocol(90))
+  setTimeout(() => {
+    head = 101
+  }, 250)
+  const check = expect(venue!.openingMarketSnapshot!(1)).resolves.toMatchObject({
+    headBlock: 101,
+    marketBlock: 101,
+  })
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
+
+it('reacquires the balance while waiting for a new market tick rather than retaining an old block', async () => {
+  vi.useFakeTimers()
+  head = 110
+  vi.mocked(PerplAdapter.prototype.getBalance).mockImplementation(async () => ({
+    available: '10.000000',
+    locked: '0.000000',
+    decimals: 6,
+    updatedAt: Date.now(),
+    observedBlock: vi.mocked(PerplAdapter.prototype.getBalance).mock.calls.length === 1 ? 100 : head,
+  }))
+  setTimeout(() => {
+    marketBlock = head
+  }, 300)
+  const check = expect(venue!.openingMarketSnapshot!(1)).resolves.toMatchObject({ balanceBlock: 110 })
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
+
+it('does not freshen a retained quote when the head only catches up after five seconds', async () => {
+  vi.useFakeTimers()
+  head = 99
+  setTimeout(() => {
+    head = 100
+  }, 6000)
+  const check = expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
+
+it('preserves the first observation time when an ahead-of-head quote becomes eligible', async () => {
+  vi.useFakeTimers()
+  const observedAt = Date.now()
+  marketBlock = 101
+  setTimeout(() => {
+    head = 101
+  }, 300)
+  const check = expect(venue!.openingMarketSnapshot!(1)).resolves.toMatchObject({
+    marketBlock: 101,
+    headBlock: 101,
+    marketObservedAt: observedAt,
+  })
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
+
+it('refreshes signed wallet data with existing metadata without another public context request', async () => {
+  vi.mocked(PerplAdapter.prototype.getBalance).mockRestore()
+  vi.spyOn(PerplHistory.prototype, 'wallet').mockResolvedValue({
+    at: { b: 110 },
+    as: [{ id: 5448, b: '10000000', lb: '0' }],
+  } as never)
+  const adapter = new PerplAdapter('mainnet', new Ed25519PerplSigner('fixture-only', '11'.repeat(32), 143))
+  await expect(adapter.getBalance(5448, protocol(100))).resolves.toMatchObject({
+    available: '10.000000',
+    observedBlock: 110,
+    decimals: 6,
+  })
+  expect(PerplAdapter.prototype.getProtocolContext).not.toHaveBeenCalled()
+  adapter.close()
 })
 
 it('reads the current heartbeat after asynchronous market and wallet reads', async () => {
@@ -127,18 +220,23 @@ it('fails closed if the authenticated stream reconnects during quote acquisition
 })
 
 it('keeps stale-market rejection and bounds retries when no fresh source arrives', async () => {
+  vi.useFakeTimers()
   head = 110
-  await expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  const check = expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  await Promise.all([check, vi.runAllTimersAsync()])
   expect(PerplAdapter.prototype.getBalance).toHaveBeenCalledTimes(2)
-}, 5000)
+})
 
 it('keeps a permanently future market block and stale heartbeat blocked', async () => {
+  vi.useFakeTimers()
   marketBlock = 101
-  await expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  let check = expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  await Promise.all([check, vi.runAllTimersAsync()])
   marketBlock = 100
   vi.mocked(PerplTradingClient.prototype.heartbeatObservedAt).mockImplementation(() => Date.now() - 5001)
-  await expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
-}, 7000)
+  check = expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
 
 it('refreshes an old balance instead of making its receipt timestamp look fresh', async () => {
   const fresh = { available: '10.000000', locked: '0.000000', decimals: 6, updatedAt: Date.now(), observedBlock: 100 }
@@ -156,9 +254,11 @@ it('does not prefer an older stream frame over a newer REST observation', async 
 })
 
 it('allows REST fallback only when the source block passes the existing freshness checks', async () => {
+  vi.useFakeTimers()
   vi.mocked(PerplMarketStream.prototype.ensure).mockRejectedValue(new Error('PERPL_MARKET_STREAM_CLOSED'))
   vi.mocked(PerplMarketStream.prototype.snapshot).mockResolvedValue(null)
   await expect(venue!.openingMarketSnapshot!(1)).resolves.toMatchObject({ marketBlock: 100 })
   head = 110
-  await expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
-}, 5000)
+  const check = expect(venue!.openingMarketSnapshot!(1)).rejects.toThrow('PERPL_OPEN_MARKET_STALE')
+  await Promise.all([check, vi.runAllTimersAsync()])
+})
