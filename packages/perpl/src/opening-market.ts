@@ -5,6 +5,7 @@ import type { PerplBalance } from './index.js'
 type Market = {
   id: number
   symbol: string
+  name?: string
   instance_id?: number
   order_ttl_blocks?: number
   config: Record<string, unknown>
@@ -25,18 +26,21 @@ export type OpeningMarketDetail = OpeningMarketSnapshot & {
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value)
 const positive = (value: unknown): value is number => integer(value) && value > 0
 const raw = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value)
+const marketSymbol = (market: Market): string =>
+  (typeof market.symbol === 'string' ? market.symbol.trim() : '') ||
+  (typeof market.name === 'string' ? market.name.trim() : '')
 
 export function listOpeningMarkets(context: Context) {
   if (
     !Array.isArray(context.markets) ||
     context.markets.some(
-      (market) => !positive(market.id) || !market.symbol || typeof market.config?.is_open !== 'boolean',
+      (market) => !positive(market.id) || !marketSymbol(market) || typeof market.config?.is_open !== 'boolean',
     )
   )
     throw new Error('PERPL_OPEN_MARKET_UNAVAILABLE')
   return context.markets.map((market) => ({
     id: market.id,
-    symbol: market.symbol,
+    symbol: marketSymbol(market),
     status: market.config.is_open ? ('OPEN' as const) : ('CLOSED' as const),
   }))
 }
@@ -53,6 +57,7 @@ export function openingMarketSnapshot(
   now = Date.now(),
 ): OpeningMarketDetail {
   const market = context.markets.find((item) => item.id === marketId)
+  const symbol = market ? marketSymbol(market) : ''
   const config = market?.config,
     state = market?.state
   const instance = context.instances.find((item) => item.id === market?.instance_id)
@@ -66,6 +71,7 @@ export function openingMarketSnapshot(
   const fee = Array.isArray(fees) ? fees[feeTier] : config?.taker_fee
   if (
     !market ||
+    !symbol ||
     !positive(accountId) ||
     !token?.symbol ||
     !integer(token.decimals) ||
@@ -132,7 +138,7 @@ export function openingMarketSnapshot(
     environment,
     accountId,
     marketId,
-    symbol: market.symbol,
+    symbol,
     collateralAsset: token.symbol,
     priceDecimals,
     sizeDecimals,

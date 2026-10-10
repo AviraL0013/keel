@@ -49,6 +49,16 @@ it('lists the venue market and exposes exact fresh prices, fee tier and computed
   })
 })
 
+it('uses the market name when Perpl leaves the symbol empty', () => {
+  const market = { ...protocol.markets[0], symbol: '', name: 'BTC' }
+  const context = { ...protocol, markets: [market] }
+  expect(listOpeningMarkets(context)).toEqual([{ id: 7, symbol: 'BTC', status: 'OPEN' }])
+  expect(openingMarketSnapshot(context, 7, 12, 'testnet', balance, head, 1, now).symbol).toBe('BTC')
+  expect(() => listOpeningMarkets({ ...context, markets: [{ ...market, name: '' }] })).toThrow(
+    'PERPL_OPEN_MARKET_UNAVAILABLE',
+  )
+})
+
 it('fails closed on stale stamps, missing fee tier or price, and an unverified wallet balance', () => {
   for (const changed of [
     { state: { ...protocol.markets[0].state, at: { b: 97 } } },
