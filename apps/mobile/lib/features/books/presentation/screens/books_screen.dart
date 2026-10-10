@@ -20,6 +20,12 @@ enum _BookFilter { all, active, safetyPaused, paused }
 const _deployment =
     String.fromEnvironment('EYELER_DEPLOYMENT', defaultValue: 'testnet');
 
+String bookCapSourceLabel(String deployment) => switch (deployment) {
+      'mainnet' => 'Mainnet AUSD - not wallet balance',
+      'sandbox' => 'Sandbox USD - not wallet balance',
+      _ => 'Testnet USD - not wallet balance',
+    };
+
 class BooksScreen extends ConsumerStatefulWidget {
   const BooksScreen({super.key});
   @override
@@ -382,7 +388,7 @@ class _WalletOverview extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
-                child: Text('Good morning, operator',
+                child: Text('Your risk workspace',
                     style: EyelerTypography.body.copyWith(color: muted))),
             Container(
                 padding:
@@ -406,19 +412,11 @@ class _WalletOverview extends StatelessWidget {
           Text('Current Book defense caps',
               style: EyelerTypography.body.copyWith(color: muted)),
           const SizedBox(height: 2),
-          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('\$${reserveCap.toStringAsFixed(2)}',
-                style: EyelerTypography.display
-                    .copyWith(fontSize: 40, color: ink)),
-            const SizedBox(width: 10),
-            Flexible(
-                child: Padding(
-                    padding: const EdgeInsets.only(bottom: 7),
-                    child: Text(
-                        '${_deployment == 'sandbox' ? 'Sandbox' : 'Testnet'} USD - not wallet balance',
-                        overflow: TextOverflow.ellipsis,
-                        style: EyelerTypography.body.copyWith(color: muted))))
-          ]),
+          Text('\$${reserveCap.toStringAsFixed(2)}',
+              style:
+                  EyelerTypography.display.copyWith(fontSize: 40, color: ink)),
+          Text(bookCapSourceLabel(_deployment),
+              style: EyelerTypography.body.copyWith(color: muted)),
           const SizedBox(height: EyelerSpacing.md),
           Row(children: [
             _OverviewMetric(label: 'ACTIVE', value: '$active', positive: true),
