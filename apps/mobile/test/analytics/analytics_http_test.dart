@@ -153,12 +153,19 @@ void main() {
         position['unrealizedPnl'] = null;
         position['liquidationPrice'] = null;
       }
+      if (Uri.parse(path).path.endsWith('/wallets/$address/performance')) {
+        final data =
+            (raw as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+        data['unavailableReason'] = 'ACCOUNT_ENUMERATION_UNVERIFIED';
+        data['currentStreak'] = 0;
+      }
       return raw;
     });
     final wallet = await repository.wallet(address);
     expect(wallet.margin.equity, isNull);
     expect(wallet.positions.first.unrealizedPnl, isNull);
     expect(wallet.positions.first.liquidationDistance, isNull);
+    expect(wallet.performance.currentStreak, 'Unavailable');
   });
 
   test('refuses foreign price identity and leaves missing prices null',

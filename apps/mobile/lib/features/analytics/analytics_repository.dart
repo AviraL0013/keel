@@ -289,7 +289,9 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
             p.winRatePct,
             p.profitFactor,
             p.maxDrawdownPct,
-            p.currentStreak.toString(),
+            p.unavailableReason == null
+                ? p.currentStreak.toString()
+                : 'Unavailable',
             _hours(p.averageHoldSeconds),
             p.bestMarketId == null ? null : await _symbol(p.bestMarketId!),
             p.worstMarketId == null ? null : await _symbol(p.worstMarketId!),

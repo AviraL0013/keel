@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { getAddress, isAddress } from 'viem'
+import { getAddress, isAddress, type Hex } from 'viem'
 import { formatMoney } from '../../../../../packages/ausd/src/money.js'
 import { notionalMicros, signedMoney, sumMicros } from '../../../../../packages/analytics/src/aggregate.js'
 import { EXCHANGE_DEPLOYMENT_BLOCK } from '../../../../../packages/analytics/src/decoder.js'
@@ -25,6 +25,15 @@ import {
   type PublicMarket,
 } from '../../../infrastructure/analytics/perpl-public.js'
 import { WalletChainAnalytics } from '../../../infrastructure/analytics/wallet-chain.js'
+import { WalletReceiptReader } from '../../../infrastructure/analytics/wallet-receipt.js'
+import {
+  attributeTakerFills,
+  pageVerifiedWalletTrades,
+  walletTakerTrades,
+  type VerifiedHistoryTrade,
+} from '../../../infrastructure/analytics/wallet-completion.js'
+import { WalletOnDemandAnalytics, walletOnDemandFromEnv } from '../../../infrastructure/analytics/wallet-ondemand.js'
+import { readCoveredRollups } from '../../../infrastructure/analytics/rollup-repository.js'
 import { completePublicProtocol } from '../../../infrastructure/analytics/protocol-completion.js'
 import { chainConfigs } from '../../../../../packages/chain/src/index.js'
 
@@ -194,6 +203,8 @@ class ResponseCache {
 export interface AnalyticsRouteDependencies {
   publicData?: PerplPublicAnalytics
   wallet?: WalletChainAnalytics
+  receipts?: Pick<WalletReceiptReader, 'read'>
+  walletOnDemand?: WalletOnDemandAnalytics
 }
 
 export const analyticsWalletRpcUrl = (env: NodeJS.ProcessEnv): string =>
@@ -206,6 +217,12 @@ export function registerAnalyticsRoutes(
 ): void {
   const publicData = dependencies.publicData ?? new PerplPublicAnalytics(process.env.ANALYTICS_PERPL_API_URL)
   const wallet = dependencies.wallet ?? new WalletChainAnalytics(analyticsWalletRpcUrl(process.env))
+  const receipts = dependencies.receipts ?? new WalletReceiptReader(analyticsWalletRpcUrl(process.env))
+  const onDemand =
+    dependencies.walletOnDemand ??
+    (process.env.EYELER_ANALYTICS_WALLET_ONDEMAND_ENABLED === 'true' && process.env.EYELER_HYPERSYNC_TOKEN
+      ? walletOnDemandFromEnv(analyticsWalletRpcUrl(process.env))
+      : null)
   const walletProfile = (address: string, context: Parameters<WalletChainAnalytics['profile']>[1]) => {
     return wallet.profile(address, context)
   }
@@ -222,6 +239,34 @@ export function registerAnalyticsRoutes(
   const db = () => {
     if (!pool) throw fail('ANALYTICS_DATABASE_UNAVAILABLE', 503)
     return pool
+  }
+  const windowRollup = (window: Window) => {
+    if (!pool || window === 'all' || process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED !== 'true')
+      return Promise.resolve(null)
+    const grain = window === '24h' ? 'hour' : 'day'
+    const step = grain === 'hour' ? 3_600_000 : 86_400_000
+    const days = window === '24h' ? 1 : window === '7d' ? 7 : 30
+    const to = Math.floor(Date.now() / step) * step
+    return cache.get(`rollup:${window}:${to}`, 60_000, () =>
+      readCoveredRollups(pool, { grain, from: new Date(to - days * 86_400_000), to: new Date(to) }),
+    )
+  }
+  const wallet30 = async (address: string, context: Parameters<WalletChainAnalytics['profile']>[1]) => {
+    if (!onDemand) return null
+    const profile = await wallet.profile(address, context)
+    const rows = pool
+      ? await pool.query('SELECT account_id::text AS account_id FROM analytics_accounts WHERE address=$1', [
+          address.toLowerCase(),
+        ])
+      : { rows: [] }
+    const accountIds = [
+      ...new Set([
+        ...rows.rows.map((row: { account_id: string }) => row.account_id),
+        ...(profile?.data.accountIds ?? []),
+      ]),
+    ]
+    // Creation-address and current-account lookup cannot prove past transfers.
+    return onDemand.load({ address, accountIds, accountsComplete: false, context })
   }
   const routeConfig = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }
   void app.register(
@@ -253,6 +298,8 @@ export function registerAnalyticsRoutes(
           const prevFull = prevFrom !== null && covered(meta, prevFrom, from)
           const current = pool && full ? await summarySlice(pool, from, now) : null
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
+          const rollup = !current ? await windowRollup(window) : null
+          const protocolRollup = rollup?.markets.find((market) => market.marketId === -1)
           let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
           if ((window === 'all' || window === '7d' || window === '30d') && !current) {
             const through = Math.floor(Date.now() / 86_400_000) * 86_400_000
@@ -299,28 +346,47 @@ export function registerAnalyticsRoutes(
                   ? { note: completion.publicHistoryGaps.volume.note }
                   : {}),
             },
-            fees: current ? change(current.fees, previous?.fees ?? null) : completion.publicHistoryGaps.fees,
+            fees: current
+              ? change(current.fees, previous?.fees ?? null)
+              : protocolRollup
+                ? { ...change(protocolRollup.feesMicros, null), note: `${rollup?.label} · complete UTC buckets` }
+                : completion.publicHistoryGaps.fees,
             revenue: current
               ? change(current.revenue, previous?.revenue ?? null)
-              : completion.publicHistoryGaps.revenue,
+              : protocolRollup
+                ? { ...change(protocolRollup.revenueMicros, null), note: `${rollup?.label} · complete UTC buckets` }
+                : completion.publicHistoryGaps.revenue,
             activeUsers:
               current?.users !== null && current?.users !== undefined
                 ? change(current.users, previous?.users ?? null, true)
-                : completion.publicHistoryGaps.activeUsers,
+                : rollup
+                  ? { ...change(rollup.activeUsers, null, true), note: `${rollup.label} · complete UTC buckets` }
+                  : completion.publicHistoryGaps.activeUsers,
             liquidations: current
               ? change(current.liquidations, previous?.liquidations ?? null, true)
-              : completion.publicHistoryGaps.liquidations,
+              : protocolRollup
+                ? {
+                    ...change(protocolRollup.liquidationCount, null, true),
+                    note: `${rollup?.label} · complete UTC buckets`,
+                  }
+                : completion.publicHistoryGaps.liquidations,
             openInterest: completion.live.openInterest,
             tvl: completion.live.tvl,
-            netFlows: current ? change(net, prevNet) : completion.publicHistoryGaps.netFlows,
+            netFlows: current
+              ? change(net, prevNet)
+              : protocolRollup
+                ? { ...change(protocolRollup.netFlowsMicros, null), note: `${rollup?.label} · complete UTC buckets` }
+                : completion.publicHistoryGaps.netFlows,
           }
           return wrap(
             data,
-            full ? 'derived' : 'perpl_api',
-            full ? meta.asOf : ctx.asOf,
-            full ? meta.block : ctx.block,
+            full || rollup ? 'derived' : 'perpl_api',
+            full ? meta.asOf : (rollup?.to ?? ctx.asOf),
+            full ? meta.block : rollup ? Number(rollup.throughBlock) : ctx.block,
             ctx.stale || !full || (window !== 'all' && !prevFull),
-            coverage(meta),
+            rollup && !full
+              ? { from: rollup.from, through: rollup.to, completeHistory: false, label: rollup.label }
+              : coverage(meta),
           )
         })
       })
@@ -421,6 +487,41 @@ export function registerAnalyticsRoutes(
           const meta = await dbMeta(pool, ctx.block)
           const now = !meta.stale && meta.through ? meta.through.getTime() + 1 : Date.now()
           const from = window === 'all' ? (meta.completeFrom?.getTime() ?? now) : now - duration[window]
+          if (window !== 'all' && !covered(meta, from, now)) {
+            const rollup = await windowRollup(window)
+            const protocol = rollup?.markets.find((market) => market.marketId === -1)
+            if (rollup && protocol) {
+              const byTime = new Map(rollup.flowBuckets.map((bucket) => [bucket.time, bucket]))
+              const buckets = []
+              const step = window === '24h' ? 3_600_000 : 86_400_000
+              for (let time = Date.parse(rollup.from); time < Date.parse(rollup.to); time += step) {
+                const at = new Date(time).toISOString()
+                const bucket = byTime.get(at)
+                const deposits = bucket?.depositsMicros ?? 0n
+                const withdrawals = bucket?.withdrawalsMicros ?? 0n
+                buckets.push({
+                  time: at,
+                  deposits: formatMoney(deposits),
+                  withdrawals: formatMoney(withdrawals),
+                  net: signedMoney(deposits - withdrawals),
+                })
+              }
+              return wrap(
+                {
+                  window,
+                  deposits: formatMoney(protocol.depositsMicros),
+                  withdrawals: formatMoney(protocol.withdrawalsMicros),
+                  net: signedMoney(protocol.netFlowsMicros),
+                  buckets,
+                },
+                'derived',
+                rollup.to,
+                Number(rollup.throughBlock),
+                false,
+                { from: rollup.from, through: rollup.to, completeHistory: false, label: rollup.label },
+              )
+            }
+          }
           if (!pool || !covered(meta, from, now))
             return wrap(
               { window, deposits: null, withdrawals: null, net: null, buckets: [] },
@@ -698,16 +799,38 @@ export function registerAnalyticsRoutes(
         async (request, reply) => {
           const address = addressParam(request.params.address)
           const limit = numberParam(request.query.limit, 50, 1, 100)
-          const cursor = parseCursor(request.query.cursor)
+          if (onDemand) {
+            const ctx = await publicData.context()
+            const result = await wallet30(address, ctx.value)
+            if (!result) throw fail('ANALYTICS_WALLET_HISTORY_UNAVAILABLE', 503)
+            const sorted = [...result.trades].sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id))
+            if (request.query.cursor && request.query.cursor.length > 256) throw fail('INVALID_CURSOR')
+            const after = request.query.cursor ? Buffer.from(request.query.cursor, 'base64url').toString('utf8') : null
+            const start = after === null ? 0 : sorted.findIndex((trade) => trade.id === after) + 1
+            if (after !== null && start === 0) throw fail('INVALID_CURSOR')
+            const items = sorted.slice(start, start + limit)
+            const nextCursor =
+              start + limit < sorted.length && items.length
+                ? Buffer.from(items[items.length - 1].id).toString('base64url')
+                : null
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              { items, nextCursor, unavailableReason: result.unavailableReason },
+              'monad_exchange',
+              result.through,
+              result.block,
+              true,
+              { from: result.from, through: result.through, completeHistory: false, label: 'Last 30 days' },
+            )
+          }
+          parseCursor(request.query.cursor)
           const ctx = await publicData.context()
-          const precision = new Map(
-            [...publicData.precision(ctx.value).values()].map((market) => [market.marketId, market]),
-          )
-          const params: unknown[] = [address.toLowerCase()]
-          const keyset = cursor ? `AND (f.block_number,r.transaction_index,f.log_index) < ($2,$3,$4)` : ''
-          if (cursor) params.push(...cursor)
-          params.push(limit + 1)
+          const byPerpetual = publicData.precision(ctx.value)
+          const precision = new Map([...byPerpetual.values()].map((market) => [market.marketId, market]))
           const meta = await dbMeta(pool, ctx.block)
+          // Static creation-address rows narrow candidates only. Every emitted trade gets
+          // a separate owner proof at its own canonical block.
+          const maxCandidates = 500
           const rows = await db().query(
             `SELECT f.*,r.transaction_index,r.block_hash AS proof_block_hash,p.side,p.action,
             CASE WHEN cf.fill_count=1 THEN p.realized_pnl_micros ELSE NULL END AS realized_pnl_micros
@@ -721,13 +844,26 @@ export function registerAnalyticsRoutes(
             count(*) AS event_count FROM analytics_position_events e
             WHERE e.transaction_hash=f.transaction_hash AND e.account_id=f.account_id AND e.market_id=f.market_id
               AND e.action IN ('open','increase','reduce','close','liquidation')) p ON p.event_count=1
-          WHERE a.address=$1 ${keyset}
-          ORDER BY f.block_number DESC,r.transaction_index DESC,f.log_index DESC LIMIT $${params.length}`,
-            params,
+          WHERE a.address=$1 AND f.block_number <= $2
+          ORDER BY f.block_number DESC,r.transaction_index DESC,f.log_index DESC LIMIT $3`,
+            [address.toLowerCase(), ctx.block ?? Number.MAX_SAFE_INTEGER, maxCandidates + 1],
           )
-          const page = rows.rows.slice(0, limit)
+          const takerRows = await db().query(
+            `SELECT t.block_number,t.transaction_hash,t.transaction_index,t.log_index,t.block_hash,p.account_id
+             FROM analytics_position_events p
+             JOIN analytics_accounts a ON a.account_id=p.account_id
+             JOIN analytics_raw_events t ON t.block_number=p.block_number
+               AND t.transaction_hash=p.transaction_hash AND t.log_index=p.log_index+1
+             WHERE a.address=$1 AND p.block_number <= $2
+               AND p.action IN ('open','increase','reduce')
+               AND t.event_name IN ('TakerOrderFilled','TakerOrderFilledV2')
+             ORDER BY t.block_number DESC,t.transaction_index DESC,t.log_index DESC LIMIT $3`,
+            [address.toLowerCase(), ctx.block ?? Number.MAX_SAFE_INTEGER, maxCandidates + 1],
+          )
+          if (rows.rows.length > maxCandidates || takerRows.rows.length > maxCandidates)
+            throw fail('ANALYTICS_WALLET_SCAN_LIMIT', 503)
           const proven: Array<Record<string, unknown>> = []
-          for (const row of page as Array<Record<string, unknown>>) {
+          for (const row of rows.rows as Array<Record<string, unknown>>) {
             const accountId = BigInt(String(row.account_id))
             const blockNumber = BigInt(String(row.block_number))
             const blockHash = String(row.proof_block_hash)
@@ -746,34 +882,68 @@ export function registerAnalyticsRoutes(
               throw fail('ANALYTICS_OWNER_PROOF_MISMATCH', 503)
             if (getAddress(proof.address) === address) proven.push(row)
           }
-          const items = proven.map((row) => {
+          const maker: VerifiedHistoryTrade[] = proven.map((row) => {
             const market = precision.get(Number(row.market_id))
             if (!market) throw fail('MARKET_PRECISION_UNAVAILABLE', 503)
             return {
-              id: `${row.block_number}:${row.transaction_hash}:${row.log_index}`,
-              time: new Date(String(row.occurred_at)).toISOString(),
-              marketId: Number(row.market_id),
-              side: row.side as 'long' | 'short',
-              action: row.action as 'open' | 'increase' | 'reduce' | 'close',
-              size: scaledText(BigInt(String(row.size_raw)), market.sizeDecimals),
-              price: scaledText(BigInt(String(row.price_raw)), market.priceDecimals),
-              notional: formatMoney(BigInt(String(row.notional_micros))),
-              fee: formatMoney(BigInt(String(row.fee_micros))),
-              realizedPnl:
-                row.realized_pnl_micros === null ? null : signedMoney(BigInt(String(row.realized_pnl_micros))),
-              transactionHash: String(row.transaction_hash),
+              block: BigInt(String(row.block_number)),
+              transactionIndex: Number(row.transaction_index),
+              logIndex: Number(row.log_index),
+              trade: {
+                id: `${row.block_number}:${row.transaction_hash}:${row.log_index}`,
+                time: new Date(String(row.occurred_at)).toISOString(),
+                marketId: Number(row.market_id),
+                side: row.side as 'long' | 'short',
+                action: row.action as 'open' | 'increase' | 'reduce' | 'close',
+                size: scaledText(BigInt(String(row.size_raw)), market.sizeDecimals),
+                price: scaledText(BigInt(String(row.price_raw)), market.priceDecimals),
+                notional: formatMoney(BigInt(String(row.notional_micros))),
+                fee: formatMoney(BigInt(String(row.fee_micros))),
+                realizedPnl:
+                  row.realized_pnl_micros === null ? null : signedMoney(BigInt(String(row.realized_pnl_micros))),
+                transactionHash: String(row.transaction_hash),
+              },
             }
           })
+          const taker: VerifiedHistoryTrade[] = []
+          const candidatesByTx = new Map<string, Array<Record<string, unknown>>>()
+          for (const row of takerRows.rows as Array<Record<string, unknown>>) {
+            const hash = String(row.transaction_hash).toLowerCase()
+            candidatesByTx.set(hash, [...(candidatesByTx.get(hash) ?? []), row])
+          }
+          for (const [hash, candidates] of candidatesByTx) {
+            let receipt: Awaited<ReturnType<WalletReceiptReader['read']>>
+            try {
+              receipt = await receipts.read(hash as Hex)
+            } catch {
+              throw fail('ANALYTICS_RECEIPT_UNAVAILABLE', 503)
+            }
+            if (
+              receipt.transactionHash.toLowerCase() !== hash ||
+              candidates.some(
+                (row) =>
+                  receipt.blockNumber !== BigInt(String(row.block_number)) ||
+                  receipt.blockHash.toLowerCase() !== String(row.block_hash).toLowerCase() ||
+                  receipt.transactionIndex !== Number(row.transaction_index),
+              )
+            )
+              throw fail('ANALYTICS_RECEIPT_MISMATCH', 503)
+            const attributed = attributeTakerFills(receipt, byPerpetual)
+            const eligible = attributed.fills.filter((fill) =>
+              candidates.some(
+                (row) => fill.logIndex === Number(row.log_index) && fill.accountId === BigInt(String(row.account_id)),
+              ),
+            )
+            try {
+              taker.push(...(await walletTakerTrades(address, eligible, wallet.ownerAt.bind(wallet))))
+            } catch {
+              throw fail('ANALYTICS_OWNER_PROOF_UNAVAILABLE', 503)
+            }
+          }
+          const page = pageVerifiedWalletTrades([...maker, ...taker], limit, request.query.cursor)
           await assertHistoryUnchanged(pool, ctx.block, meta)
           reply.header('Cache-Control', 'public, max-age=15')
-          return wrap(
-            { items, nextCursor: rows.rows.length > limit ? cursorFor(page.at(-1)!) : null },
-            'monad_exchange',
-            meta.asOf,
-            meta.block,
-            true,
-            coverage(meta),
-          )
+          return wrap(page, 'monad_exchange', meta.asOf, meta.block, true, coverage(meta))
         },
       )
 
@@ -783,6 +953,23 @@ export function registerAnalyticsRoutes(
         async (request, reply) => {
           const address = addressParam(request.params.address)
           const ctx = await publicData.context()
+          if (onDemand) {
+            const result = await wallet30(address, ctx.value)
+            if (!result) throw fail('ANALYTICS_WALLET_HISTORY_UNAVAILABLE', 503)
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              {
+                ...(result.performance ?? unavailablePerformance(address)),
+                unavailableReason: result.unavailableReason,
+                maxDrawdownUnavailableReason: result.maxDrawdownUnavailableReason,
+              },
+              'monad_exchange',
+              result.through,
+              result.block,
+              true,
+              { from: result.from, through: result.through, completeHistory: false, label: 'Last 30 days' },
+            )
+          }
           const meta = await dbMeta(pool, ctx.block)
           const result = await cache.get(`performance:${address}:${meta.revision}`, 15_000, () =>
             performance(db(), address, meta.completeHistory, meta.block),
@@ -934,6 +1121,10 @@ async function performance(
       /* Incomplete episode reconstruction must not publish a partial performance total. */
     }
   }
+  return unavailablePerformance(address)
+}
+
+function unavailablePerformance(address: string): WalletPerformance {
   return {
     address,
     realizedPnl: null,
