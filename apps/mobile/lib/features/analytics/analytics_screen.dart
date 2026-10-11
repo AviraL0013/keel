@@ -6,71 +6,15 @@ import 'analytics_models.dart';
 import 'analytics_repository.dart';
 import 'analytics_widgets.dart';
 import 'wallet_screen.dart';
+import 'dashboard_screen.dart';
+import 'dashboard_style.dart';
+import 'dashboard_wallet.dart';
+import 'dashboard_market.dart';
 
-class AnalyticsScreen extends StatefulWidget {
+class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
   @override
-  State<AnalyticsScreen> createState() => _AnalyticsScreenState();
-}
-
-class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  int selected = 0;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Analytics')),
-        body: Column(
-          children: [
-            if (analyticsFixtureMode)
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-                color: EyelerColors.accent.withValues(alpha: .14),
-                child: const Text(
-                  'Sample data · analytics API pending',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-              child: Row(
-                children: [
-                  for (final (index, label, icon) in [
-                    (0, 'Protocol', Icons.analytics_outlined),
-                    (1, 'Wallet', Icons.account_balance_wallet_outlined),
-                    (2, 'Watchlist', Icons.bookmark_outline),
-                  ])
-                    Expanded(
-                      child: TextButton.icon(
-                        key: Key('analytics_tab_$index'),
-                        onPressed: () => setState(() => selected = index),
-                        icon: Icon(icon, size: 18),
-                        label:
-                            Text(label, style: const TextStyle(fontSize: 11)),
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(0, 48),
-                          foregroundColor: selected == index
-                              ? Theme.of(context).colorScheme.onSurface
-                              : Theme.of(context).textTheme.bodyMedium?.color,
-                          backgroundColor: selected == index
-                              ? Theme.of(context).colorScheme.surface
-                              : null,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: switch (selected) {
-                0 => const ProtocolOverviewScreen(),
-                1 => const AnalyticsWalletSearchScreen(),
-                _ => const AnalyticsWatchlistScreen(),
-              },
-            ),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) => const AnalyticsDashboard();
 }
 
 class ProtocolOverviewScreen extends ConsumerStatefulWidget {
@@ -488,23 +432,24 @@ class _SkewBar extends StatelessWidget {
 void openAnalyticsMarket(BuildContext context, String symbol) =>
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => AnalyticsMarketScreen(symbol: symbol),
+        builder: (_) => DashboardMarketScreen(symbol: symbol),
       ),
     );
 
 void openAnalyticsWallet(BuildContext context, String address) =>
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => AnalyticsWalletScreen(address: address),
+        builder: (_) => DashboardWalletProfile(address: address),
       ),
     );
 
 void openAnalyticsWalletSearch(BuildContext context) =>
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => Scaffold(
+      builder: (_) => AnalyticsDark(
+          child: Scaffold(
         appBar: AppBar(title: const Text('Wallet lookup')),
         body: const AnalyticsWalletSearchScreen(),
-      ),
+      )),
     ));
 
 class AnalyticsLiquidationRow extends StatelessWidget {
