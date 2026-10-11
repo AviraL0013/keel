@@ -31,7 +31,9 @@ export interface ProtocolSummary {
   window: Window
   volume: WindowValue
   fees: WindowValue
-  revenue: WindowValue
+  revenue: WindowValue & {
+    history?: Envelope<{ interval: '1d'; from: string; to: string; points: TimePoint[] }>
+  }
   activeUsers: WindowValue
   liquidations: WindowValue
   openInterest: WindowValue // end-of-window snapshot, compared with prior boundary
@@ -115,6 +117,7 @@ export interface LiquidationPage {
   items: Liquidation[]
   nextCursor: string | null
   summary: { count: number | null; notional: Money | null }
+  dailyNotional?: { interval: '1d'; from: string; to: string; points: TimePoint[] }
 }
 
 export interface WalletSearch {
@@ -138,7 +141,14 @@ export interface Position {
 export interface WalletProfile {
   address: string
   accountIds: string[]
-  margin: { balance: Money | null; locked: Money | null; free: Money | null; equity: Money | null }
+  margin: {
+    balance: Money | null
+    locked: Money | null
+    free: Money | null
+    equity: Money | null
+    used?: Money | null
+    usedUnavailableReason?: string | null
+  }
   positions: Position[]
 }
 export interface Trade {
