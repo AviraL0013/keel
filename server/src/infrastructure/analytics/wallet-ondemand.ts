@@ -135,6 +135,14 @@ function safeNumber(value: unknown): number {
   if (!Number.isSafeInteger(number) || number < 0) throw Error('HYPERSYNC_NUMBER_INVALID')
   return number
 }
+function safeTimestamp(value: unknown): number {
+  if (typeof value === 'string' && /^0x[0-9a-f]+$/i.test(value)) {
+    const seconds = BigInt(value)
+    if (seconds > BigInt(Number.MAX_SAFE_INTEGER)) throw Error('HYPERSYNC_TIMESTAMP_INVALID')
+    return Number(seconds)
+  }
+  return safeNumber(value)
+}
 function hex(value: unknown): Hex {
   if (typeof value !== 'string' || !/^0x[0-9a-f]*$/i.test(value)) throw Error('HYPERSYNC_HEX_INVALID')
   return value as Hex
@@ -299,7 +307,7 @@ export class WalletOnDemandAnalytics {
       for (const block of page.data.flatMap((batch) => batch.blocks ?? [])) {
         const number = safeNumber(block.number)
         const hash = hex(block.hash)
-        const at = safeNumber(block.timestamp) * 1000
+        const at = safeTimestamp(block.timestamp) * 1000
         if (!hashPattern.test(hash) || !Number.isSafeInteger(at) || number < cursor || number >= next)
           throw Error('HYPERSYNC_BLOCK_INVALID')
         const prior = blocks.get(number)

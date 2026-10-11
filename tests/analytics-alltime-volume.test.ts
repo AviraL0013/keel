@@ -94,6 +94,26 @@ it('keeps pre-listing days in daily charts but refuses a missing post-listing ca
       '3.000000',
       null,
     ])
+    expect(response.json().data.marketSeries).toEqual([
+      {
+        marketId: context.markets[0].id,
+        symbol: context.markets[0].name,
+        points: [
+          { time: new Date(start).toISOString(), value: '1.000000' },
+          { time: new Date(start + day).toISOString(), value: '1.000000' },
+          { time: new Date(start + 2 * day).toISOString(), value: null },
+        ],
+      },
+      {
+        marketId: context.markets[1].id,
+        symbol: context.markets[1].name,
+        points: [
+          { time: new Date(start).toISOString(), value: '0.000000' },
+          { time: new Date(start + day).toISOString(), value: '2.000000' },
+          { time: new Date(start + 2 * day).toISOString(), value: null },
+        ],
+      },
+    ])
   } finally {
     await app.close()
   }

@@ -25,6 +25,7 @@ import { StrategyTelegramCommands, telegramCommandSender } from './infrastructur
 import { createPublicCapital } from './infrastructure/capital/snapshot.js'
 import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
 import { startAnalyticsRollups } from './workers/analytics-rollups.js'
+import { startAnalyticsSnapshots } from './workers/analytics-snapshots.js'
 
 export type ServerServices = {
   venue?: RuntimeVenue
@@ -84,6 +85,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       ? new SnapshotRetention(persistence.pool, snapshotRetentionConfig(process.env))
       : undefined
   let analyticsRollups: ReturnType<typeof startAnalyticsRollups> = null
+  let analyticsSnapshots: ReturnType<typeof startAnalyticsSnapshots> = null
   const origins = new Set(
     config.corsOrigin
       .split(',')
@@ -181,11 +183,13 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     telegram?.start()
     snapshotRetention?.start()
     analyticsRollups = startAnalyticsRollups(process.env, config.environment)
+    analyticsSnapshots = startAnalyticsSnapshots(process.env, config.environment)
   })
   app.addHook('onClose', async () => {
     enrollment?.stopCleanup()
     await snapshotRetention?.stop()
     await analyticsRollups?.stop()
+    await analyticsSnapshots?.stop()
     try {
       await runtime?.stop()
     } finally {

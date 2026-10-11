@@ -122,7 +122,7 @@ function fixture(
             blocks: [...new Set(found.map((item) => item.block_number))].map((number) => ({
               number,
               hash: blockHash(BigInt(number)),
-              timestamp: blockTime(BigInt(number)),
+              timestamp: `0x${blockTime(BigInt(number)).toString(16)}`,
             })),
           },
         ],
@@ -200,7 +200,7 @@ describe('wallet HyperSync on demand', () => {
       log('PositionLiquidated', 32, 2, 0, {
         posAccountId: 1n,
         liqLotLNS: 1n,
-        posLotLNS: 2n,
+        posLotLNS: 1n,
         liqPricePNS: 90n,
         deltaPnlCNS: -1_000_000n,
       }),

@@ -131,8 +131,10 @@ export function deriveEvent(event: DecodedExchangeEvent, markets: Map<number, Ma
       const market = precisionFor(event, markets)
       const priceRaw = integer(a, 'liqPricePNS')
       const lotRaw = integer(a, 'liqLotLNS')
-      const remainingLotRaw = integer(a, 'posLotLNS') - lotRaw
-      if (remainingLotRaw < 0n) throw new Error('INVALID_LIQUIDATION_SIZE')
+      // The event reports the position lot after liquidation. Fully liquidated
+      // mainnet positions emit posLotLNS=0 while liqLotLNS remains positive.
+      const remainingLotRaw = integer(a, 'posLotLNS')
+      if (lotRaw <= 0n || remainingLotRaw < 0n) throw new Error('INVALID_LIQUIDATION_SIZE')
       return {
         kind: 'liquidation',
         accountId: integer(a, 'posAccountId').toString(),

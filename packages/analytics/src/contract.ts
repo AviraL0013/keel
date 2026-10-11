@@ -49,6 +49,9 @@ export interface ProtocolTimeseries {
   from: string
   to: string
   points: TimePoint[]
+  marketSeries?: Array<{ marketId: number; symbol: string; points: TimePoint[] }>
+  historyStartedAt?: string | null
+  unavailableReason?: string | null
 }
 export interface FlowBucket {
   time: string
