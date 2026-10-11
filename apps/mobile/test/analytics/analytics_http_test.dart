@@ -87,6 +87,8 @@ void main() {
     expect(overview.windows.keys, containsAll(['24h', '7d', '30d', 'All']));
     expect(overview.windows['24h']!.first.value, '1200000.000000');
     expect(overview.markets.first.funding, '0.0012');
+    expect(overview.summarySources['24h'], 'Derived analytics');
+    expect(overview.volumeSources['24h'], isNotEmpty);
     expect(overview.liquidations.first.address, address);
     expect(overview.liquidationCount, 1);
     expect(paths.where((path) => path.contains('/protocol/summary?')),
@@ -120,6 +122,8 @@ void main() {
     final repository = HttpAnalyticsRepository(get,
         now: () => DateTime.parse('2026-10-07T16:00:00.000Z'));
     final market = await repository.market('BTC', '24h');
+    expect(market.marketSource, 'Perpl API');
+    expect(market.priceSource, 'Perpl API');
     expect(market.fundingHistory.first.value, '0.0012');
     expect(market.priceSeries.map((p) => p.value), ['85607.9', '85702.0']);
     expect(market.stale, isTrue);
@@ -127,6 +131,7 @@ void main() {
         isTrue);
     expect(paths.any((path) => path.contains('/markets/1/funding?')), isTrue);
     final wallet = await repository.wallet(address);
+    expect(wallet.walletSource, 'Monad Exchange');
     expect(wallet.margin.available, '8000.000000');
     expect(wallet.positions.first.liquidationDistance, '27.1');
     expect(wallet.performance.averageHoldHours, '1.5');

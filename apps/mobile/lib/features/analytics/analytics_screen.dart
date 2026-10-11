@@ -113,11 +113,14 @@ class _ProtocolOverviewScreenState
                     selected: window,
                     onSelected: (next) => setState(() => window = next),
                   ),
-                  if (value.historyLabels[window] case final label?)
-                    Text(label, style: Theme.of(context).textTheme.bodySmall),
-                  if (window == 'All' &&
-                      value.windows[window]!.first.note != null)
-                    Text('Volume: ${value.windows[window]!.first.note!}',
+                  Text(
+                      'Coverage: ${value.historyLabels[window] ?? 'Not reported'}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                      'Summary source: ${value.summarySources[window] ?? 'Unavailable'}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  if (value.windows[window]!.first.note != null)
+                    Text('Volume source: ${value.windows[window]!.first.note!}',
                         style: Theme.of(context).textTheme.bodySmall),
                   if (window == 'All')
                     Text('Charts show the latest two years.',
@@ -147,6 +150,12 @@ class _ProtocolOverviewScreenState
                             value: metric.value,
                             delta: metric.delta,
                             money: metric.key != 'activeUsers',
+                            trend: metric.key == 'volume'
+                                ? value.volumeSeriesByWindow[window] ??
+                                    value.volumeSeries
+                                : null,
+                            trendLabel: 'Observed trading volume',
+                            note: metric.note,
                           );
                         },
                       );
@@ -159,19 +168,39 @@ class _ProtocolOverviewScreenState
                       final charts = [
                         AnalyticsPanel(
                           title: 'Trading volume',
-                          child: AnalyticsChart(
-                            key: ValueKey('volume_$window'),
-                            points: value.volumeSeriesByWindow[window] ??
-                                value.volumeSeries,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  'Source: ${value.volumeSources[window] ?? 'Unavailable'}',
+                                  style: Theme.of(context).textTheme.bodySmall),
+                              const SizedBox(height: 8),
+                              AnalyticsChart(
+                                key: ValueKey('volume_$window'),
+                                label: 'Trading volume',
+                                points: value.volumeSeriesByWindow[window] ??
+                                    value.volumeSeries,
+                              ),
+                            ],
                           ),
                         ),
                         AnalyticsPanel(
                           title: 'Net inflow / outflow',
-                          child: AnalyticsChart(
-                            key: ValueKey('inflow_$window'),
-                            points: value.inflowSeriesByWindow[window] ??
-                                value.inflowSeries,
-                            color: EyelerColors.defend,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  'Source: ${value.flowSources[window] ?? 'Unavailable'}',
+                                  style: Theme.of(context).textTheme.bodySmall),
+                              const SizedBox(height: 8),
+                              AnalyticsChart(
+                                key: ValueKey('inflow_$window'),
+                                label: 'Net inflow and outflow',
+                                points: value.inflowSeriesByWindow[window] ??
+                                    value.inflowSeries,
+                                color: EyelerColors.defend,
+                              ),
+                            ],
                           ),
                         ),
                       ];
@@ -200,6 +229,9 @@ class _ProtocolOverviewScreenState
                     },
                   ),
                   const SizedBox(height: 8),
+                  Text('Market source: ${value.marketSource ?? 'Unavailable'}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 4),
                   AnalyticsPanel(
                     title: 'Markets',
                     child: value.markets.isEmpty
@@ -217,10 +249,15 @@ class _ProtocolOverviewScreenState
                                       dataRowMaxHeight: 62,
                                       columns: const [
                                         DataColumn(label: Text('Market')),
-                                        DataColumn(label: Text('24h volume')),
-                                        DataColumn(label: Text('OI')),
+                                        DataColumn(
+                                            label: Text('24h volume'),
+                                            numeric: true),
+                                        DataColumn(
+                                            label: Text('OI'), numeric: true),
                                         DataColumn(label: Text('Long / short')),
-                                        DataColumn(label: Text('Funding')),
+                                        DataColumn(
+                                            label: Text('Funding'),
+                                            numeric: true),
                                       ],
                                       rows: [
                                         for (final market in value.markets)
@@ -251,6 +288,7 @@ class _ProtocolOverviewScreenState
                                                   width: 105,
                                                   child: _SkewBar(
                                                     longShare: market.longShare,
+                                                    compact: true,
                                                   ),
                                                 ),
                                               ),
@@ -290,9 +328,15 @@ class _ProtocolOverviewScreenState
                             ? 'Recent liquidations (24h) · total unavailable'
                             : 'Recent liquidations (24h) · ${value.liquidationCount} events · ${AnalyticsNumbers.compact(value.liquidationTotal)}',
                         child: value.liquidations.isEmpty
-                            ? const Text('No recent liquidations')
+                            ? Text('No observed liquidations · '
+                                'source: ${value.liquidationSource ?? 'Unavailable'}')
                             : Column(
                                 children: [
+                                  Text(
+                                      'Source: ${value.liquidationSource ?? 'Unavailable'}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
                                   for (final item in value.liquidations)
                                     AnalyticsLiquidationRow(item: item),
                                 ],
@@ -381,37 +425,63 @@ class _WindowSelector extends StatelessWidget {
 }
 
 class _SkewBar extends StatelessWidget {
-  const _SkewBar({required this.longShare});
+  const _SkewBar({required this.longShare, this.compact = false});
   final String? longShare;
+  final bool compact;
   @override
   Widget build(BuildContext context) {
-    if (longShare == null) return const Text('Skew unavailable');
-    final long = (double.tryParse(longShare!) ?? 0).clamp(0, 100) / 100;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('$longShare% long', style: const TextStyle(fontSize: 11)),
-        const SizedBox(height: 3),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(5),
-          child: SizedBox(
-            height: 5,
-            child: Row(
-              children: [
-                Expanded(
-                  flex: (long * 100).round().clamp(1, 99),
-                  child: const ColoredBox(color: EyelerColors.defend),
+    final percent = double.tryParse(longShare ?? '');
+    if (percent == null || percent < 0 || percent > 100) {
+      return const Text('Unavailable · skew value missing');
+    }
+    final long = percent / 100;
+    final parts = longShare!.split('.');
+    final decimals = parts.length == 2 ? parts.last.length : 0;
+    final scale = BigInt.from(10).pow(decimals);
+    final shortUnits = BigInt.from(100) * scale - BigInt.parse(parts.join());
+    final short = decimals == 0
+        ? shortUnits.toString()
+        : '${shortUnits ~/ scale}.${(shortUnits % scale).toString().padLeft(decimals, '0')}';
+    return Semantics(
+        label:
+            'Long and short open interest skew: $longShare% long, $short% short',
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (compact)
+              Text('$longShare% long', style: const TextStyle(fontSize: 11))
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('$longShare% long'),
+                  Text('$short% short'),
+                ],
+              ),
+            const SizedBox(height: 7),
+            LayoutBuilder(
+              builder: (context, constraints) => ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  height: compact ? 7 : 12,
+                  width: constraints.maxWidth,
+                  child: Stack(
+                    children: [
+                      const Positioned.fill(
+                          child: ColoredBox(color: EyelerColors.exit)),
+                      SizedBox(
+                        width: constraints.maxWidth * long,
+                        height: double.infinity,
+                        child: const ColoredBox(color: EyelerColors.defend),
+                      ),
+                    ],
+                  ),
                 ),
-                Expanded(
-                  flex: 100 - (long * 100).round().clamp(1, 99),
-                  child: const ColoredBox(color: EyelerColors.exit),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ],
-    );
+          ],
+        ));
   }
 }
 
@@ -428,6 +498,14 @@ void openAnalyticsWallet(BuildContext context, String address) =>
         builder: (_) => AnalyticsWalletScreen(address: address),
       ),
     );
+
+void openAnalyticsWalletSearch(BuildContext context) =>
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Wallet lookup')),
+        body: const AnalyticsWalletSearchScreen(),
+      ),
+    ));
 
 class AnalyticsLiquidationRow extends StatelessWidget {
   const AnalyticsLiquidationRow({super.key, required this.item});
@@ -495,12 +573,22 @@ class _AnalyticsMarketScreenState extends ConsumerState<AnalyticsMarketScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                        'Source: ${value.marketSource ?? 'Unavailable'} · '
+                        'Coverage: ${value.coverageLabel ?? 'Not reported'}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: 8),
                     _WindowSelector(
                       selected: window,
                       values: const ['24h', '7d', '30d'],
                       onSelected: (next) => setState(() => window = next),
                     ),
                     const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: () => openAnalyticsWalletSearch(context),
+                      icon: const Icon(Icons.account_balance_wallet_outlined),
+                      label: const Text('Find wallet'),
+                    ),
                     AnalyticsPanel(
                       title: 'Price',
                       child: value.priceSeries.isEmpty
@@ -509,8 +597,20 @@ class _AnalyticsMarketScreenState extends ConsumerState<AnalyticsMarketScreen> {
                               child: Center(
                                   child: Text(
                                       'Price history unavailable from analytics API')))
-                          : AnalyticsChart(
-                              points: value.priceSeries, height: 210),
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    'Source: ${value.priceSource ?? 'Unavailable'}',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall),
+                                const SizedBox(height: 8),
+                                AnalyticsChart(
+                                    label: 'Price',
+                                    points: value.priceSeries,
+                                    height: 210),
+                              ],
+                            ),
                     ),
                     const SizedBox(height: 8),
                     AnalyticsPanel(
@@ -520,16 +620,28 @@ class _AnalyticsMarketScreenState extends ConsumerState<AnalyticsMarketScreen> {
                     const SizedBox(height: 8),
                     AnalyticsPanel(
                       title: 'Funding history',
-                      child: AnalyticsChart(
-                        points: value.fundingHistory,
-                        color: EyelerColors.reduce,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                              'Source: ${value.fundingSource ?? 'Unavailable'}',
+                              style: Theme.of(context).textTheme.bodySmall),
+                          const SizedBox(height: 8),
+                          AnalyticsChart(
+                            label: 'Funding rate',
+                            points: value.fundingHistory,
+                            percent: true,
+                            color: EyelerColors.reduce,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 8),
                     AnalyticsPanel(
                       title: 'Recent liquidations',
                       child: value.liquidations.isEmpty
-                          ? const Text('No recent liquidations')
+                          ? Text('No observed liquidations · '
+                              'source: ${value.liquidationSource ?? 'Unavailable'}')
                           : Column(
                               children: [
                                 for (final item in value.liquidations)
