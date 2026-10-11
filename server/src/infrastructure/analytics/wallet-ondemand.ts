@@ -22,6 +22,7 @@ import {
 } from '../../../../packages/analytics/src/performance.js'
 import { historicalAccountOwner, type HistoricalOwnerClient } from './owner-proof.js'
 import { scaledText, type PublicContext } from './perpl-public.js'
+import { HyperSyncRequestPacer, sharedHyperSyncPacer } from './hypersync-pacer.js'
 
 const DAY = 86_400_000
 const WINDOW = 30 * DAY
@@ -74,17 +75,24 @@ export class HyperSyncHttp implements HyperSyncTransport {
     private readonly token: string,
     private readonly baseUrl = 'https://monad.hypersync.xyz',
     private readonly fetcher: typeof fetch = fetch,
+    private readonly pacer: HyperSyncRequestPacer = sharedHyperSyncPacer,
   ) {
     if (!token) throw Error('EYELER_HYPERSYNC_TOKEN_REQUIRED')
     if (!/^https:\/\//.test(baseUrl)) throw Error('HYPERSYNC_URL_INVALID')
   }
   async height(): Promise<number> {
+    await this.pacer.wait()
     const response = await this.fetcher(`${this.baseUrl}/height`, { signal: AbortSignal.timeout(20_000) })
+    if (response.status === 429) {
+      const seconds = Number(response.headers.get('retry-after'))
+      this.pacer.cooldown(Number.isFinite(seconds) && seconds > 0 ? Math.max(60_000, seconds * 1_000) : 60_000)
+    }
     if (!response.ok) throw Error(`HYPERSYNC_HEIGHT_HTTP_${response.status}`)
     const body = (await response.json()) as { height?: unknown }
     return safeNumber(body.height)
   }
   async query(fromBlock: number, toBlock: number): Promise<HyperSyncPage> {
+    await this.pacer.wait()
     const response = await this.fetcher(`${this.baseUrl}/query`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
@@ -112,6 +120,10 @@ export class HyperSyncHttp implements HyperSyncTransport {
       }),
       signal: AbortSignal.timeout(30_000),
     })
+    if (response.status === 429) {
+      const seconds = Number(response.headers.get('retry-after'))
+      this.pacer.cooldown(Number.isFinite(seconds) && seconds > 0 ? Math.max(60_000, seconds * 1_000) : 60_000)
+    }
     if (!response.ok) throw Error(`HYPERSYNC_QUERY_HTTP_${response.status}`)
     return response.json() as Promise<HyperSyncPage>
   }

@@ -4,6 +4,7 @@ import { decodeExchangeLog, EXCHANGE, type ChainLog } from '../../../../packages
 import { exchangeEvents } from '../../../../packages/analytics/src/exchange-events.js'
 import { RollupAccumulator } from '../../../../packages/analytics/src/rollups.js'
 import { PerplPublicAnalytics } from './perpl-public.js'
+import { HyperSyncRequestPacer, sharedHyperSyncPacer } from './hypersync-pacer.js'
 import type { RollupCoverage } from './rollup-repository.js'
 
 const endpoint = 'https://monad.hypersync.xyz'
@@ -64,12 +65,14 @@ export class HyperSyncRollupSource {
   constructor(
     private readonly token: string,
     private readonly fetcher: typeof fetch = fetch,
+    private readonly pacer: HyperSyncRequestPacer = sharedHyperSyncPacer,
   ) {
     if (!token) throw new Error('EYELER_HYPERSYNC_TOKEN_REQUIRED')
   }
 
   private async request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     for (let attempt = 0; attempt < 5; attempt++) {
+      await this.pacer.wait()
       const response = await this.fetcher(`${endpoint}${path}`, {
         method: body ? 'POST' : 'GET',
         headers: body ? { 'content-type': 'application/json', authorization: `Bearer ${this.token}` } : undefined,
@@ -79,6 +82,11 @@ export class HyperSyncRollupSource {
       if (response.status !== 429 && response.status < 500) {
         if (!response.ok) throw new Error(`ROLLUP_HYPERSYNC_HTTP_${response.status}`)
         return response.json() as Promise<T>
+      }
+      if (response.status === 429) {
+        const seconds = Number(response.headers.get('retry-after'))
+        this.pacer.cooldown(Number.isFinite(seconds) && seconds > 0 ? Math.max(60_000, seconds * 1_000) : 60_000)
+        continue
       }
       await new Promise((resolve) => setTimeout(resolve, Math.min(15_000, 1000 * 2 ** attempt)))
     }
