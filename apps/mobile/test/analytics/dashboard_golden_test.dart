@@ -30,7 +30,10 @@ void main() {
     for (final (name, section) in [
       ('overview', 0),
       ('volume', 1),
+      ('oi', 2),
+      ('revenue', 3),
       ('flows', 4),
+      ('wallets', 5),
       ('wallet', -1)
     ]) {
       testWidgets('recorded mainnet $name ${width.toInt()} golden',
