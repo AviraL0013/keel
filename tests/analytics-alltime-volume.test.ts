@@ -42,6 +42,28 @@ it('sums exact Perpl daily volume across staggered listed markets and excludes u
   })
 })
 
+it('counts each returned market/day once and makes no claim about omitted markets or upstream fill sides', async () => {
+  const rows = {
+    1: [
+      { t: launch, v: '1000001' },
+      { t: launch, v: '1000001' },
+      { t: launch + day, v: '2000002' },
+      { t: launch + 2 * day, v: '3000003' },
+    ],
+  }
+  const listedOnly = await reader(rows).listedMarketVolume([markets[0]], through)
+  expect(listedOnly.micros).toBe(6_000_006n)
+  expect(Object.keys(listedOnly.firstByMarket)).toEqual(['1'])
+  expect(listedOnly.daily).toHaveLength(3)
+
+  await expect(
+    reader({
+      ...rows,
+      1: [{ t: launch, v: '1000001' }, { t: launch, v: '2000001' }, ...rows[1].slice(2)],
+    }).listedMarketVolume([markets[0]], through),
+  ).rejects.toThrow('PERPL_CANDLE_HISTORY_INCOMPLETE')
+})
+
 it('keeps pre-listing days in daily charts but refuses a missing post-listing candle', async () => {
   const fixture = JSON.parse(readFileSync('packages/analytics/fixtures/mainnet-public.json', 'utf8'))
   const context = { ...fixture.context, markets: fixture.context.markets.slice(0, 2) }
