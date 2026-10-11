@@ -14,7 +14,7 @@ import { evaluate, evaluateManualAction, telemetryFreshnessFailures } from '../.
 import type { VenueAdapter } from '../../packages/perpl/src/index.js'
 import type { OpeningMarketDetail } from '../../packages/perpl/src/opening-market.js'
 import type { PerplOrder, PerplSubmitResult } from '../../packages/perpl/src/trading.js'
-import type { OpeningReconciliation } from '../../packages/perpl/src/opening-reconciliation.js'
+import type { OpeningReconciliation, reconcileOpening } from '../../packages/perpl/src/opening-reconciliation.js'
 import { OpeningTrades } from './application/opening-trades.js'
 import { PostgresStore } from './infrastructure/database/postgres-store.js'
 import { PostgresExecutionRepository } from './infrastructure/database/execution-repository.js'
@@ -69,19 +69,7 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     verifyBeforeSend?: () => Promise<void>,
   ): Promise<PerplSubmitResult>
   strategyOrderEvidence?(intent: StrategyCommandIntent): Promise<StrategyOrderEvidence>
-  reconcileOpening?(intent: {
-    accountId: number
-    marketId: number
-    requestId: string
-    lastExecutionBlock: number
-    side: 'LONG' | 'SHORT'
-    sizeRaw: number
-    priceLimitRaw: number
-    leverageHundredths: number
-    sizeDecimals: number
-    priceDecimals: number
-    submittedAt: number
-  }): Promise<OpeningReconciliation>
+  reconcileOpening?(intent: Parameters<typeof reconcileOpening>[0]): Promise<OpeningReconciliation>
   capital?(walletAddress?: string, userId?: string): Promise<CapitalSnapshot>
   agoraActivity?(walletAddress?: string, cursor?: string): Promise<AgoraActivity>
   start?(): Promise<void>
@@ -309,7 +297,13 @@ export class EyelerRuntime {
         const active = await this.repository.getActiveAction(book.id)
         if (active) {
           // Recovery never re-submits an existing action, including after restart.
-          if (!active.venueReference) continue // Manual submission may still be persisting its reference.
+          if (!active.venueReference) {
+            // Fresh preparation may be in flight. After a bounded grace period,
+            // only the repository CAS may abort it; the sender cannot revive or
+            // persist/send that intent after reclamation. Never resend it here.
+            await this.repository.reclaimUnsentAction?.(active.id, new Date(this.now() - 180_000))
+            continue
+          }
           if (Date.now() < (this.reconciliationSchedule.get(book.id)?.nextAt ?? 0)) continue
           const venue = await resolveReconciliationVenue(this.venue, book.userId, book)
           if (!venue) throw new Error('VENUE_NOT_CONFIGURED')

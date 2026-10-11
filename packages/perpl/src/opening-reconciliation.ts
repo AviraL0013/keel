@@ -46,16 +46,43 @@ export function reconcileOpening(
     sizeDecimals: number
     priceDecimals: number
     submittedAt: number
+    priorOperations?: OpeningEvidence['operations']
   },
   evidence: OpeningEvidence,
   now = Date.now(),
 ): OpeningReconciliation {
   const pending = (error: string): OpeningReconciliation =>
     Number.isFinite(intent.submittedAt) && now - intent.submittedAt < 180_000
-      ? { status: 'VERIFYING' }
-      : { status: 'UNKNOWN', error }
+      ? { status: 'VERIFYING', evidence }
+      : { status: 'UNKNOWN', error, evidence }
   const type = intent.side === 'LONG' ? 1 : 2
-  const operations = evidence.operations.filter((item) => item.requestId === intent.requestId)
+  const operations = [
+    ...new Map(
+      [...evidence.operations, ...(intent.priorOperations ?? [])]
+        .filter((item) => item.requestId === intent.requestId)
+        .map(
+          (item) =>
+            [
+              JSON.stringify([
+                item.requestId,
+                item.type,
+                item.marketId,
+                item.block,
+                item.txHash,
+                item.sizeRaw,
+                item.positionId,
+                item.priceRaw,
+                item.leverageHundredths,
+                item.immediateOrCancel,
+                item.lastExecutionBlock,
+              ]),
+              item,
+            ] as const,
+        ),
+    ).values(),
+  ]
+  // Preserve positive receipts across lagging history polls without growing storage indefinitely.
+  evidence = { ...evidence, operations: operations.slice(0, 64) }
   if (
     operations.some(
       (item) =>
@@ -70,6 +97,7 @@ export function reconcileOpening(
     )
   )
     return { status: 'FAILED', error: 'PERPL_REQUEST_ID_SUPERSEDED', evidence }
+  if (operations.length > 64) return pending('OPENING_OPERATION_EVIDENCE_LIMIT')
   const matching = evidence.orders.filter(
     (order) =>
       order.acc === intent.accountId &&
@@ -88,6 +116,7 @@ export function reconcileOpening(
     !evidence.orders.length &&
     !evidence.fills.length &&
     !evidence.positions.length &&
+    !operations.length &&
     evidence.account &&
     evidence.account.block >= intent.lastExecutionBlock &&
     !forwardedRequestProcessed(intent.requestId, evidence.account.lfr)

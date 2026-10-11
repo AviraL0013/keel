@@ -33,7 +33,7 @@ export type ExecutionRepository = {
     priorDefenseEfficiency: number
     telemetry: NormalizedTelemetry
   }>
-  finalize?(action: Action): Promise<void>
+  finalize?(action: Action): Promise<void | Action>
   updateReserve(bookId: string, amount: number, actionId?: string, decisionId?: string): Promise<void>
 }
 export class ExecutionWorker {
@@ -87,6 +87,133 @@ export class ExecutionWorker {
     if (await this.repo.getActiveAction(decision.bookId)) throw new Error('ACTION_ALREADY_ACTIVE')
     if (await this.repo.getConflictingPositionAction?.(decision.bookId))
       throw new Error('POSITION_EXECUTION_UNRESOLVED')
+    const context = await this.validateDecision(decision, manualClose, manualAction)
+    const action: Action = {
+      id: crypto.randomUUID(),
+      bookId: decision.bookId,
+      decisionId: decision.id,
+      kind: decision.action as Action['kind'],
+      amount: decision.amount,
+      status: 'QUEUED',
+      idempotencyKey: key,
+      beforeState: {
+        position: context.position,
+        reserve: context.reserve,
+        telemetry: context.telemetry,
+        submissionProtocol: 'DURABLE_BOUND_V1',
+      },
+    }
+    await this.repo.saveAction(action)
+    let venueSubmissionInvoked = false
+    try {
+      await this.repo.addEvent({
+        id: crypto.randomUUID(),
+        bookId: action.bookId,
+        type: `${action.kind}_QUEUED`,
+        payload: {
+          actionId: action.id,
+          amount: action.amount,
+          origin:
+            manualClose ||
+            manualAction ||
+            decision.reasonCodes.some((code) => ['MANUAL_ACTION', 'USER_CLOSE'].includes(code))
+              ? 'MANUAL'
+              : 'AUTOMATION',
+        },
+        timestamp: new Date().toISOString(),
+      })
+      action.status = 'VALIDATING'
+      await this.repo.saveAction(action)
+      action.status = 'SUBMITTING'
+      await this.repo.saveAction(action)
+      if (this.executionDisabled()) throw new Error('EXECUTION_DISABLED')
+      venueSubmissionInvoked = true
+      const submitted = await this.venue.submit(action, async () => {
+        try {
+          await this.validateDecision(decision, manualClose, manualAction)
+        } catch (error) {
+          // The transport calls this after asynchronous venue reads and durable
+          // persistence, before any frame is sent. Refusal is not an unknown trade.
+          throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'BOOK_AUTHORITY_CHANGED')
+        }
+      })
+      action.venueReference = submitted.venueReference
+      action.venueProgress = submitted.venueProgress ?? action.venueProgress
+      action.submittedAt ??= new Date().toISOString()
+      if (submitted.status === 'FAILED') {
+        action.status = 'FAILED'
+        action.failedAt = new Date().toISOString()
+        action.error = submitted.reason ?? 'VENUE_REJECTED'
+        if (this.repo.finalize) return (await this.repo.finalize(action)) ?? action
+        else {
+          await this.repo.saveAction(action)
+          await this.repo.addEvent(this.event(action, 'ACTION_FAILED', { error: action.error }))
+        }
+        return action
+      }
+      action.status = submitted.status === 'UNKNOWN' ? 'UNKNOWN' : 'SUBMITTED'
+      if (submitted.status === 'UNKNOWN') action.error = submitted.reason ?? 'VENUE_OUTCOME_UNKNOWN'
+      await this.repo.saveAction(action)
+      action.status = 'VERIFYING'
+      await this.repo.saveAction(action)
+      const reconciledRaw = await this.venue.reconcile(action)
+      if (
+        reconciledRaw.status === 'VERIFYING' &&
+        ((action.kind === 'DEFEND' && submitted.status !== 'UNKNOWN') ||
+          (action.venueProgress?.requestedLastExecBlock ?? 0) > 0)
+      ) {
+        await this.repo.saveAction(reconciledRaw)
+        return reconciledRaw
+      }
+      const reconciled =
+        reconciledRaw.status === 'VERIFYING'
+          ? { ...reconciledRaw, status: 'UNKNOWN' as const, error: reconciledRaw.error ?? 'VENUE_OUTCOME_UNKNOWN' }
+          : reconciledRaw
+      if (reconciled.status === 'CONFIRMED' && action.kind === 'DEFEND') {
+        try {
+          await this.refreshAfterConfirmation?.(context.book)
+        } catch (error) {
+          await this.repo.addEvent(
+            this.event(action, 'POST_CONFIRMATION_REFRESH_DEFERRED', {
+              error: error instanceof Error ? error.message : 'REFRESH_FAILED',
+            }),
+          )
+        }
+      }
+      if (this.repo.finalize) {
+        return (await this.repo.finalize(reconciled)) ?? reconciled
+      }
+      await this.repo.saveAction(reconciled)
+      if (reconciled.status === 'CONFIRMED' && action.kind === 'DEFEND')
+        await this.repo.updateReserve(action.bookId, action.amount, action.id, action.decisionId)
+      await this.repo.addEvent(
+        this.event(action, `${action.kind}_${reconciled.status}`, { venueReference: action.venueReference }),
+      )
+      return reconciled
+    } catch (error) {
+      const preSubmissionFailure = !venueSubmissionInvoked || error instanceof PerplPreSubmissionError
+      action.status = preSubmissionFailure ? 'FAILED' : 'UNKNOWN'
+      action.error = error instanceof Error ? error.message : 'EXECUTION_UNKNOWN'
+      if (preSubmissionFailure) {
+        action.failedAt = new Date().toISOString()
+        action.venueReference = undefined
+        action.venueProgress = undefined
+        action.submittedAt = undefined
+      }
+      if (this.repo.finalize) return (await this.repo.finalize(action)) ?? action
+      else {
+        await this.repo.saveAction(action)
+        await this.repo.addEvent(
+          this.event(action, action.status === 'FAILED' ? 'ACTION_FAILED' : 'RECONCILIATION_FAILURE', {
+            error: action.error,
+          }),
+        )
+      }
+      return action
+    }
+  }
+  private async validateDecision(decision: Decision, manualClose: boolean, manualAction: boolean) {
+    if (this.executionDisabled()) throw new Error('EXECUTION_DISABLED')
     const context = await this.repo.getBookContext(decision.bookId)
     const features = deriveFeatures(
       context.book,
@@ -136,106 +263,8 @@ export class ExecutionWorker {
         moneyMicros(decision.amount) > moneyMicros(context.book.defenseCap))
     )
       throw new Error('RESERVE_CAP_EXCEEDED')
-    const action: Action = {
-      id: crypto.randomUUID(),
-      bookId: decision.bookId,
-      decisionId: decision.id,
-      kind: decision.action as Action['kind'],
-      amount: decision.amount,
-      status: 'QUEUED',
-      idempotencyKey: key,
-      beforeState: { position: context.position, reserve: context.reserve, telemetry: context.telemetry },
-    }
-    await this.repo.saveAction(action)
-    let venueSubmissionInvoked = false
-    try {
-      await this.repo.addEvent({
-        id: crypto.randomUUID(),
-        bookId: action.bookId,
-        type: `${action.kind}_QUEUED`,
-        payload: { actionId: action.id, amount: action.amount },
-        timestamp: new Date().toISOString(),
-      })
-      action.status = 'VALIDATING'
-      await this.repo.saveAction(action)
-      action.status = 'SUBMITTING'
-      await this.repo.saveAction(action)
-      if (this.executionDisabled()) throw new Error('EXECUTION_DISABLED')
-      venueSubmissionInvoked = true
-      const submitted = await this.venue.submit(action)
-      action.venueReference = submitted.venueReference
-      action.venueProgress = submitted.venueProgress
-      action.submittedAt = new Date().toISOString()
-      if (submitted.status === 'FAILED') {
-        action.status = 'FAILED'
-        action.failedAt = new Date().toISOString()
-        action.error = submitted.reason ?? 'VENUE_REJECTED'
-        if (this.repo.finalize) await this.repo.finalize(action)
-        else {
-          await this.repo.saveAction(action)
-          await this.repo.addEvent(this.event(action, 'ACTION_FAILED', { error: action.error }))
-        }
-        return action
-      }
-      action.status = submitted.status === 'UNKNOWN' ? 'UNKNOWN' : 'SUBMITTED'
-      if (submitted.status === 'UNKNOWN') action.error = submitted.reason ?? 'VENUE_OUTCOME_UNKNOWN'
-      await this.repo.saveAction(action)
-      action.status = 'VERIFYING'
-      await this.repo.saveAction(action)
-      const reconciledRaw = await this.venue.reconcile(action)
-      if (
-        reconciledRaw.status === 'VERIFYING' &&
-        ((action.kind === 'DEFEND' && submitted.status !== 'UNKNOWN') ||
-          (action.venueProgress?.requestedLastExecBlock ?? 0) > 0)
-      ) {
-        await this.repo.saveAction(reconciledRaw)
-        return reconciledRaw
-      }
-      const reconciled =
-        reconciledRaw.status === 'VERIFYING'
-          ? { ...reconciledRaw, status: 'UNKNOWN' as const, error: reconciledRaw.error ?? 'VENUE_OUTCOME_UNKNOWN' }
-          : reconciledRaw
-      if (reconciled.status === 'CONFIRMED' && action.kind === 'DEFEND') {
-        try {
-          await this.refreshAfterConfirmation?.(context.book)
-        } catch (error) {
-          await this.repo.addEvent(
-            this.event(action, 'POST_CONFIRMATION_REFRESH_DEFERRED', {
-              error: error instanceof Error ? error.message : 'REFRESH_FAILED',
-            }),
-          )
-        }
-      }
-      if (this.repo.finalize) {
-        await this.repo.finalize(reconciled)
-        return reconciled
-      }
-      await this.repo.saveAction(reconciled)
-      if (reconciled.status === 'CONFIRMED' && action.kind === 'DEFEND')
-        await this.repo.updateReserve(action.bookId, action.amount, action.id, action.decisionId)
-      await this.repo.addEvent(
-        this.event(action, `${action.kind}_${reconciled.status}`, { venueReference: action.venueReference }),
-      )
-      return reconciled
-    } catch (error) {
-      const preSubmissionFailure = !venueSubmissionInvoked || error instanceof PerplPreSubmissionError
-      action.status = preSubmissionFailure ? 'FAILED' : 'UNKNOWN'
-      action.error = error instanceof Error ? error.message : 'EXECUTION_UNKNOWN'
-      if (preSubmissionFailure) {
-        action.failedAt = new Date().toISOString()
-        action.venueReference = undefined
-      }
-      if (this.repo.finalize) await this.repo.finalize(action)
-      else {
-        await this.repo.saveAction(action)
-        await this.repo.addEvent(
-          this.event(action, action.status === 'FAILED' ? 'ACTION_FAILED' : 'RECONCILIATION_FAILURE', {
-            error: action.error,
-          }),
-        )
-      }
-      return action
-    }
+    if (this.executionDisabled()) throw new Error('EXECUTION_DISABLED')
+    return context
   }
   private event(action: Action, type: string, payload: Record<string, unknown>): AutopsyEvent {
     return {

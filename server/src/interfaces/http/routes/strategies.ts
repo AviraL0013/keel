@@ -21,6 +21,7 @@ const uuid = (value: unknown): value is string =>
   typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 
 export function registerStrategyRoutes(context: Context): void {
+  const paperEnabled = process.env.EYELER_STRATEGIES_ENABLED === 'true'
   const repo = context.persistence ? new StrategyStore(context.persistence.pool, context.environment) : null
   const owned = async (request: FastifyRequest, id: unknown) => {
     const current = await context.session(request)
@@ -98,6 +99,8 @@ export function registerStrategyRoutes(context: Context): void {
   for (const operation of ['start', 'resume', 'pause', 'stop'] as const)
     context.app.post<{ Params: { id: string } }>(`/strategies/:id/${operation}`, async (request) => {
       const { userId } = await owned(request, request.params.id)
+      if ((operation === 'start' || operation === 'resume') && !paperEnabled)
+        throw new InfrastructureError('STRATEGY_WORKER_DISABLED')
       try {
         return operation === 'start' || operation === 'resume'
           ? await repo!.start(userId, request.params.id)
@@ -129,16 +132,29 @@ export function registerStrategyRoutes(context: Context): void {
       },
       state: row.state,
       killed: await repo!.killed(userId),
+      paperEnabled,
       liveEnabled: false,
     }
   })
   context.app.get<{ Params: { id: string } }>('/strategies/:id/pnl', async (request) => {
     const { row } = await owned(request, request.params.id)
+    if (row.mode === 'LIVE')
+      return {
+        mode: row.mode,
+        simulated: false,
+        mark: null,
+        equity: null,
+        pnl: null,
+        inventory: null,
+        feesPaid: null,
+        fundingPaid: null,
+        reason: 'LIVE_PERFORMANCE_UNAVAILABLE',
+      }
     const mark = row.state.lastMark
     const equity = mark === undefined ? null : strategyEquity(row.state, mark)
     return {
       mode: row.mode,
-      simulated: row.mode !== 'LIVE',
+      simulated: true,
       mark: mark ?? null,
       equity,
       pnl: equity === null ? null : equity - row.state.capital,
