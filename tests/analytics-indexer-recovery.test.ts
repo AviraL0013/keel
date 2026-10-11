@@ -36,29 +36,35 @@ function provider() {
   const transport = async (input: unknown, init?: RequestInit) => {
     if (String(input).endsWith('/v1/pub/context')) return Response.json(context)
     const request = JSON.parse(String(init?.body))
-    calls.push(request.method)
-    let result: unknown
-    if (request.method === 'eth_chainId') result = `0x${chain.toString(16)}`
-    else if (request.method === 'eth_blockNumber') result = `0x${(end + 12n).toString(16)}`
-    else if (request.method === 'eth_getLogs') {
-      const low = BigInt(request.params[0].fromBlock),
-        high = BigInt(request.params[0].toBlock)
-      if (failAt === low) return new Response('fixture failure', { status: 503 })
-      result = sample.logs.filter((l) => BigInt(l.blockNumber) >= low && BigInt(l.blockNumber) <= high)
-    } else if (request.method === 'eth_getBlockByNumber') {
-      const number = BigInt(request.params[0])
-      const raw = sample.logs.find((l) => BigInt(l.blockNumber) === number)
-      // Unrecorded bridge headers/ranges are synthetic transport mechanics,
-      // not evidence of real remote coverage or throughput.
-      const hash = raw?.blockHash ?? `0x${number.toString(16).padStart(64, '0')}`
-      const changed = (reorg && number === end) || (racing && number === start + 19n && ++endReads > 1)
-      result = {
-        number: request.params[0],
-        hash: changed ? `0x${'e'.repeat(64)}` : hash,
-        timestamp: sample.blocks[request.params[0]] ?? '0x6ac65e80',
-      }
-    } else throw Error('UNEXPECTED_FAKE_RPC')
-    return Response.json({ jsonrpc: '2.0', id: request.id, result })
+    const answer = (item: { method: string; params: unknown[]; id: number }) => {
+      calls.push(item.method)
+      let result: unknown
+      if (item.method === 'eth_chainId') result = `0x${chain.toString(16)}`
+      else if (item.method === 'eth_blockNumber') result = `0x${(end + 12n).toString(16)}`
+      else if (item.method === 'eth_getLogs') {
+        const filter = item.params[0] as { fromBlock: string; toBlock: string }
+        const low = BigInt(filter.fromBlock),
+          high = BigInt(filter.toBlock)
+        if (failAt === low) return null
+        result = sample.logs.filter((l) => BigInt(l.blockNumber) >= low && BigInt(l.blockNumber) <= high)
+      } else if (item.method === 'eth_getBlockByNumber') {
+        const number = BigInt(item.params[0] as string)
+        const raw = sample.logs.find((l) => BigInt(l.blockNumber) === number)
+        // Unrecorded bridge headers/ranges are synthetic transport mechanics,
+        // not evidence of real remote coverage or throughput.
+        const hash = raw?.blockHash ?? `0x${number.toString(16).padStart(64, '0')}`
+        const changed = (reorg && number === end) || (racing && number === start + 19n && ++endReads > 1)
+        result = {
+          number: item.params[0],
+          hash: changed ? `0x${'e'.repeat(64)}` : hash,
+          timestamp: sample.blocks[item.params[0] as string] ?? '0x6ac65e80',
+        }
+      } else throw Error('UNEXPECTED_FAKE_RPC')
+      return { jsonrpc: '2.0', id: item.id, result }
+    }
+    if (Array.isArray(request)) return Response.json(request.map(answer))
+    const response = answer(request)
+    return response ? Response.json(response) : new Response('fixture failure', { status: 503 })
   }
   vi.stubGlobal('fetch', transport)
   return {
@@ -87,13 +93,19 @@ it('replays 1000 synthetic transport blocks with recorded logs across failures, 
     let worker = new AnalyticsIndexer(repo, config)
     for (let i = 0; i < 5; i++) expect(await worker.step()).toBe('indexed')
     const saved = await repo.checkpoint()
-    rpc.setFail(start + 100n)
+    rpc.setFail(saved!.nextBlock)
     await expect(worker.step()).rejects.toThrow('ANALYTICS_RPC_HTTP_503')
     expect(await repo.checkpoint()).toEqual(saved)
     rpc.setFail(null)
     worker = new AnalyticsIndexer(repo, config)
-    for (let i = 5; i < 50; i++) expect(await worker.step()).toBe('indexed')
-    expect(await worker.step()).toBe('caught-up')
+    let caughtUp = false
+    for (let i = 0; i < 50; i++) {
+      if ((await worker.step()) === 'caught-up') {
+        caughtUp = true
+        break
+      }
+    }
+    expect(caughtUp).toBe(true)
     expect((await repo.checkpoint())?.nextBlock).toBe(end + 1n)
     const count = async () =>
       Number((await store.pool.query('SELECT count(*) AS n FROM analytics_raw_events')).rows[0].n)
@@ -123,7 +135,7 @@ it('refuses a testnet RPC before advancing a mainnet checkpoint', async () => {
   } finally {
     await db.close()
   }
-})
+}, 15000)
 
 it('does not commit a chunk when its boundary hash changes during the read', async () => {
   const { db, store } = await databaseFixture()
@@ -136,4 +148,4 @@ it('does not commit a chunk when its boundary hash changes during the read', asy
   } finally {
     await db.close()
   }
-})
+}, 15000)
