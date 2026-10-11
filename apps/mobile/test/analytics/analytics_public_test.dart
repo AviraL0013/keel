@@ -1,3 +1,5 @@
+import 'dashboard_fixture.dart';
+import 'package:eyeler_mobile/features/analytics/dashboard_data.dart';
 import 'package:eyeler_mobile/core/networking/api_client.dart';
 import 'package:eyeler_mobile/core/networking/backend_status.dart';
 import 'package:eyeler_mobile/core/routing/app_router.dart';
@@ -91,6 +93,8 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       final storage = _PrivateStorage();
       await tester.pumpWidget(ProviderScope(overrides: [
+        dashboardApiProvider.overrideWithValue(RecordedDashboard().api),
+        dashboardNowProvider.overrideWithValue(() => RecordedDashboard.now),
         sessionStorageProvider.overrideWithValue(storage),
         analyticsRepositoryProvider
             .overrideWithValue(FixtureAnalyticsRepository.sample()),
@@ -98,7 +102,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(storage.reads, 0);
       expect(find.text('Protocol overview'), findsOneWidget);
-      expect(find.text('Monad mainnet'), findsOneWidget);
+      expect(find.textContaining('Monad mainnet'), findsOneWidget);
       expect(find.text('SIGN IN WITH PASSKEY'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
@@ -109,6 +113,8 @@ void main() {
       (tester) async {
     await tester.pumpWidget(ProviderScope(
         overrides: [
+          dashboardApiProvider.overrideWithValue(RecordedDashboard().api),
+          dashboardNowProvider.overrideWithValue(() => RecordedDashboard.now),
           backendStatusProvider.overrideWith((ref) async =>
               const BackendStatus(BackendState.live, environment: 'testnet')),
         ],

@@ -9,7 +9,10 @@ import 'analytics_widgets.dart';
 import 'analytics_screen.dart' show openAnalyticsMarket, openAnalyticsWallet;
 
 class AnalyticsWalletSearchScreen extends ConsumerStatefulWidget {
-  const AnalyticsWalletSearchScreen({super.key});
+  const AnalyticsWalletSearchScreen(
+      {super.key, this.initialQuery = '', this.autofocus = false});
+  final String initialQuery;
+  final bool autofocus;
   @override
   ConsumerState<AnalyticsWalletSearchScreen> createState() =>
       _AnalyticsWalletSearchScreenState();
@@ -27,6 +30,10 @@ class _AnalyticsWalletSearchScreenState
   void initState() {
     super.initState();
     _loadRecent();
+    controller.text = widget.initialQuery;
+    if (widget.initialQuery.isNotEmpty) {
+      Future.microtask(() => _search(widget.initialQuery));
+    }
   }
 
   Future<void> _loadRecent() async {
@@ -42,6 +49,10 @@ class _AnalyticsWalletSearchScreenState
     final query = raw.trim();
     if (!RegExp(r'^0x[0-9a-fA-F]{6,40}$').hasMatch(query)) {
       setState(() => error = 'Enter at least six hexadecimal digits after 0x.');
+      return;
+    }
+    if (isAnalyticsAddress(query)) {
+      await _open(query);
       return;
     }
     setState(() {
@@ -103,6 +114,7 @@ class _AnalyticsWalletSearchScreenState
                       const SizedBox(height: 20),
                       TextField(
                           controller: controller,
+                          autofocus: widget.autofocus,
                           autocorrect: false,
                           enableSuggestions: false,
                           textInputAction: TextInputAction.search,

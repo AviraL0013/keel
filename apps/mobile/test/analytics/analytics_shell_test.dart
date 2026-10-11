@@ -1,3 +1,5 @@
+import 'dashboard_fixture.dart';
+import 'package:eyeler_mobile/features/analytics/dashboard_data.dart';
 import 'package:eyeler_mobile/core/theme/app_theme.dart';
 import 'package:eyeler_mobile/features/analytics/analytics_repository.dart';
 import 'package:eyeler_mobile/features/books/data/books_repository.dart';
@@ -20,6 +22,8 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
       await tester.pumpWidget(ProviderScope(overrides: [
+        dashboardApiProvider.overrideWithValue(RecordedDashboard().api),
+        dashboardNowProvider.overrideWithValue(() => RecordedDashboard.now),
         booksProvider.overrideWith((ref) async => []),
         positionsProvider.overrideWith((ref) async => []),
         perplConnectionProvider.overrideWith((ref) async =>

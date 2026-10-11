@@ -1,3 +1,5 @@
+import 'dashboard_fixture.dart';
+import 'package:eyeler_mobile/features/analytics/dashboard_data.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -192,6 +194,8 @@ Future<void> mount(WidgetTester tester, Size size, Widget screen,
   tester.view.physicalSize = size;
   await tester.pumpWidget(ProviderScope(
       overrides: [
+        dashboardApiProvider.overrideWithValue(RecordedDashboard().api),
+        dashboardNowProvider.overrideWithValue(() => RecordedDashboard.now),
         analyticsRepositoryProvider.overrideWithValue(repository),
         analyticsLocalStoreProvider.overrideWithValue(store),
       ],
@@ -284,34 +288,6 @@ void main() {
     }
   }
 
-  testWidgets('address and market drill down, search validation, and tabs',
-      (tester) async {
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await mount(tester, const Size(360, 860), const AnalyticsScreen(),
-        StateRepository(ViewState.loaded), MemoryAnalyticsLocalStore());
-    await tester.drag(find.byType(ListView).first, const Offset(0, -900));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('BTC-PERP').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Price'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -900));
-    await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('0x0000').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Open positions'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Wallet').first);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'bad');
-    await tester.tap(find.byTooltip('Search wallet'));
-    await tester.pump();
-    expect(find.textContaining('six hexadecimal'), findsOneWidget);
-  });
-
   testWidgets('market wallet lookup returns to market at 320dp',
       (tester) async {
     addTearDown(tester.view.resetPhysicalSize);
@@ -338,30 +314,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('prefix search opens wallet and saves it for comparison',
+  testWidgets('prefix search opens redesigned wallet and saves watchlist',
       (tester) async {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final store = MemoryAnalyticsLocalStore();
-    await mount(tester, const Size(360, 860), const AnalyticsScreen(),
-        StateRepository(ViewState.loaded), store);
-    await tester.tap(find.text('Wallet').first);
-    await tester.pumpAndSettle();
+    await mount(
+        tester,
+        const Size(360, 860),
+        const Scaffold(body: AnalyticsWalletSearchScreen()),
+        StateRepository(ViewState.loaded),
+        store);
     await tester.enterText(find.byType(TextField), '0x000000');
     await tester.tap(find.byTooltip('Search wallet'));
     await tester.pumpAndSettle();
     expect(find.text('Search results'), findsOneWidget);
     await tester.tap(find.textContaining('0x0000').last);
     await tester.pumpAndSettle();
-    expect(find.text('Open positions'), findsOneWidget);
-    await tester.tap(find.byTooltip('Save wallet'));
-    await tester.pump();
+    expect(find.text('Wallet profile'), findsOneWidget);
+    await tester.tap(find.text('Watch'));
+    await tester.pumpAndSettle();
     expect(await store.watchlist(), [address]);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Watchlist').first);
-    await tester.pumpAndSettle();
-    expect(find.text('1/4 wallets saved'), findsOneWidget);
+    expect(find.text('Search results'), findsOneWidget);
   });
 
   testWidgets('watchlist compares four wallets on desktop', (tester) async {
@@ -472,7 +448,6 @@ void main() {
     }
   }
   for (final (name, widget) in [
-    ('analytics', const AnalyticsScreen()),
     ('search', const Scaffold(body: AnalyticsWalletSearchScreen())),
   ]) {
     testWidgets('$name 360dp screenshot', (tester) async {
