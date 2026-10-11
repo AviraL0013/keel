@@ -451,6 +451,37 @@ export function registerAnalyticsRoutes(
             throw fail('INVALID_RANGE')
           reply.header('Cache-Control', 'public, max-age=60')
           return cache.get(`series:${metric}:${interval}:${from}:${to}`, 60_000, async () => {
+            if (
+              pool &&
+              interval === '1d' &&
+              (metric === 'fees' || metric === 'active_users') &&
+              process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true' &&
+              to - from <= 90 * 86_400_000
+            ) {
+              const series = await readDailyRollupSeries(pool, metric, new Date(from), new Date(to))
+              if (series.completeDays > 0) {
+                const data: ProtocolTimeseries = {
+                  metric,
+                  interval,
+                  from: new Date(from).toISOString(),
+                  to: new Date(to).toISOString(),
+                  points: series.points,
+                }
+                return wrap(
+                  data,
+                  'monad_exchange',
+                  series.asOf ?? new Date().toISOString(),
+                  series.block,
+                  series.points.some((point) => point.value === null),
+                  {
+                    from: series.coverageFrom,
+                    through: series.coverageThrough,
+                    completeHistory: false,
+                    label: `Observed ${series.completeDays}/${series.points.length} complete UTC days`,
+                  },
+                )
+              }
+            }
             if ((metric === 'oi' || metric === 'tvl') && snapshots) {
               const series = await snapshots.series(metric, interval as '1h' | '1d', new Date(from), new Date(to))
               const data: ProtocolTimeseries = {

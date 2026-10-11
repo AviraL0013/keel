@@ -3,7 +3,7 @@ import { signedMoney } from '../../../../packages/analytics/src/aggregate.js'
 import type { TimePoint } from '../../../../packages/analytics/src/contract.js'
 import { completeRange } from '../../../../packages/analytics/src/rollups.js'
 
-export type DailyRollupMetric = 'revenue' | 'liquidation_notional'
+export type DailyRollupMetric = 'fees' | 'revenue' | 'liquidation_notional' | 'active_users'
 export interface DailyRollupSeries {
   points: TimePoint[]
   completeDays: number
@@ -24,7 +24,7 @@ export async function readDailyRollupSeries(
   marketId = -1,
 ): Promise<DailyRollupSeries> {
   if (
-    (metric !== 'revenue' && metric !== 'liquidation_notional') ||
+    !['fees', 'revenue', 'liquidation_notional', 'active_users'].includes(metric) ||
     !Number.isSafeInteger(marketId) ||
     marketId < -1 ||
     !Number.isFinite(from.getTime()) ||
@@ -33,20 +33,34 @@ export async function readDailyRollupSeries(
     to.getTime() - from.getTime() > 90 * day
   )
     throw Error('ANALYTICS_DAILY_RANGE_INVALID')
-  const column = metric === 'revenue' ? 'revenue_micros' : 'liquidation_notional_micros'
+  const column = {
+    fees: 'fees_micros',
+    revenue: 'revenue_micros',
+    liquidation_notional: 'liquidation_notional_micros',
+    active_users: null,
+  }[metric]
   const client = await pool.connect()
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
     const ranges = await client.query(
       'SELECT from_block::text,to_block::text,from_time,through_time FROM analytics_rollup_coverage ORDER BY from_block',
     )
-    const buckets = await client.query(
-      `SELECT bucket_start,coalesce(sum(${column}),0)::text AS value
-       FROM analytics_rollup_bucket WHERE grain='day' AND market_id=$1
-         AND bucket_start >= $2 AND bucket_start < $3
-       GROUP BY bucket_start ORDER BY bucket_start`,
-      [marketId, from, to],
-    )
+    const buckets = column
+      ? await client.query(
+          `SELECT bucket_start,coalesce(sum(${column}),0)::text AS value
+           FROM analytics_rollup_bucket WHERE grain='day' AND market_id=$1
+             AND bucket_start >= $2 AND bucket_start < $3
+           GROUP BY bucket_start ORDER BY bucket_start`,
+          [marketId, from, to],
+        )
+      : await client.query(
+          `SELECT bucket_start,count(DISTINCT owner_address)::text AS value,
+             count(*) FILTER (WHERE owner_address IS NULL)::text AS unresolved
+           FROM analytics_rollup_actor WHERE grain='day'
+             AND bucket_start >= $1 AND bucket_start < $2
+           GROUP BY bucket_start ORDER BY bucket_start`,
+          [from, to],
+        )
     await client.query('COMMIT')
     const coverage = ranges.rows.map((row: Record<string, unknown>) => ({
       fromBlock: BigInt(String(row.from_block)),
@@ -54,10 +68,10 @@ export async function readDailyRollupSeries(
       fromTime: new Date(String(row.from_time)),
       throughTime: new Date(String(row.through_time)),
     }))
-    const values = new Map<number, bigint>(
-      buckets.rows.map((row: { bucket_start: Date; value: string }) => [
+    const values = new Map<number, { value: bigint; unresolved: boolean }>(
+      buckets.rows.map((row: { bucket_start: Date; value: string; unresolved?: string }) => [
         new Date(row.bucket_start).getTime(),
-        BigInt(row.value),
+        { value: BigInt(row.value), unresolved: BigInt(row.unresolved ?? '0') > 0n },
       ]),
     )
     const points: TimePoint[] = []
@@ -67,7 +81,16 @@ export async function readDailyRollupSeries(
       const last = coverage.find((range) => range.throughTime.getTime() >= at + day)
       const complete = !!first && !!last && completeRange(coverage, first.fromBlock, last.toBlock)
       if (complete) completeDays++
-      points.push({ time: new Date(at).toISOString(), value: complete ? signedMoney(values.get(at) ?? 0n) : null })
+      const observed = values.get(at)
+      points.push({
+        time: new Date(at).toISOString(),
+        value:
+          !complete || observed?.unresolved
+            ? null
+            : metric === 'active_users'
+              ? (observed?.value ?? 0n).toString()
+              : signedMoney(observed?.value ?? 0n),
+      })
     }
     const latest = coverage.at(-1)
     return {

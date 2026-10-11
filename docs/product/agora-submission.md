@@ -2,6 +2,8 @@
 
 ## Joint release integration, 2026-10-12
 
+IN PROGRESS — Daily analytics chart wiring on `feat/analytics-perpl-integration` uses verified rollup fees and distinct owner counts. Uncovered days and unresolved owner days stay null. Commit: this release change, pending CI. Proof: `analytics-daily-rollup-series.test.ts` and `analytics-route-rollups.test.ts`. Open: exact-head CI, main merge, Railway deploy, and full 30-day coverage. No trading variable or order path changed.
+
 The isolated `feat/analytics-perpl-integration` branch combines the CI-green Perpl candidate `c7f5374` with main analytics `f025b65` and extras `f737cd8` (merge commits `cfeafb1`, `cc30253`). Focused analytics and Book automation tests are running; exact integration CI, main merge and deploy are not yet proved. Railway currently serves candidate source from older main and therefore lacks the new analytics worker despite analytics flags remaining enabled. No real order, funding or strategy-LIVE setting changed in this integration.
 
 ## Analytics integration status (2026-10-11)
