@@ -154,17 +154,18 @@ export class RollupRepository {
   }
 }
 
-/** Read helper for integrator. Values cover complete UTC buckets inside the requested last-30-day range. */
-export async function readLast30Days(pool: pg.Pool, bounds: { from: Date; to: Date; grain: RollupGrain }) {
+/** Read complete, aligned 24h, 7d, or 30d UTC buckets from one database snapshot. */
+export async function readCoveredRollups(pool: pg.Pool, bounds: { from: Date; to: Date; grain: RollupGrain }) {
   const width = bounds.grain === 'hour' ? 3_600_000 : 86_400_000
+  const span = bounds.to.getTime() - bounds.from.getTime()
   if (
-    bounds.to.getTime() - bounds.from.getTime() !== 30 * 86_400_000 ||
+    ![1, 7, 30].some((days) => span === days * 86_400_000) ||
     bounds.from.getTime() % width !== 0 ||
     bounds.to.getTime() % width !== 0 ||
     !Number.isFinite(bounds.from.getTime()) ||
     !Number.isFinite(bounds.to.getTime())
   )
-    throw new Error('ROLLUP_LAST_30_DAYS_BOUNDS_INVALID')
+    throw new Error('ROLLUP_WINDOW_BOUNDS_INVALID')
   const client = await pool.connect()
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -245,7 +246,7 @@ export async function readLast30Days(pool: pg.Pool, bounds: { from: Date; to: Da
       })
     await client.query('COMMIT')
     return {
-      label: 'Last 30 days' as const,
+      label: span === 86_400_000 ? 'Last 24 hours' : span === 7 * 86_400_000 ? 'Last 7 days' : 'Last 30 days',
       from: bounds.from.toISOString(),
       to: bounds.to.toISOString(),
       fromBlock: first.fromBlock.toString(),
@@ -267,4 +268,11 @@ export async function readLast30Days(pool: pg.Pool, bounds: { from: Date; to: Da
   } finally {
     client.release()
   }
+}
+
+/** Kept for callers that specifically require 30 full days. */
+export function readLast30Days(pool: pg.Pool, bounds: { from: Date; to: Date; grain: RollupGrain }) {
+  if (bounds.to.getTime() - bounds.from.getTime() !== 30 * 86_400_000)
+    throw new Error('ROLLUP_LAST_30_DAYS_BOUNDS_INVALID')
+  return readCoveredRollups(pool, bounds)
 }

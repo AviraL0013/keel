@@ -33,7 +33,7 @@ import {
   type VerifiedHistoryTrade,
 } from '../../../infrastructure/analytics/wallet-completion.js'
 import { WalletOnDemandAnalytics, walletOnDemandFromEnv } from '../../../infrastructure/analytics/wallet-ondemand.js'
-import { readLast30Days } from '../../../infrastructure/analytics/rollup-repository.js'
+import { readCoveredRollups } from '../../../infrastructure/analytics/rollup-repository.js'
 import { completePublicProtocol } from '../../../infrastructure/analytics/protocol-completion.js'
 import { chainConfigs } from '../../../../../packages/chain/src/index.js'
 
@@ -240,11 +240,15 @@ export function registerAnalyticsRoutes(
     if (!pool) throw fail('ANALYTICS_DATABASE_UNAVAILABLE', 503)
     return pool
   }
-  const last30Rollup = () => {
-    if (!pool || process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED !== 'true') return Promise.resolve(null)
-    const to = Math.floor(Date.now() / 86_400_000) * 86_400_000
-    return cache.get(`rollup:30d:${to}`, 60_000, () =>
-      readLast30Days(pool, { grain: 'day', from: new Date(to - 30 * 86_400_000), to: new Date(to) }),
+  const windowRollup = (window: Window) => {
+    if (!pool || window === 'all' || process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED !== 'true')
+      return Promise.resolve(null)
+    const grain = window === '24h' ? 'hour' : 'day'
+    const step = grain === 'hour' ? 3_600_000 : 86_400_000
+    const days = window === '24h' ? 1 : window === '7d' ? 7 : 30
+    const to = Math.floor(Date.now() / step) * step
+    return cache.get(`rollup:${window}:${to}`, 60_000, () =>
+      readCoveredRollups(pool, { grain, from: new Date(to - days * 86_400_000), to: new Date(to) }),
     )
   }
   const wallet30 = async (address: string, context: Parameters<WalletChainAnalytics['profile']>[1]) => {
@@ -294,7 +298,7 @@ export function registerAnalyticsRoutes(
           const prevFull = prevFrom !== null && covered(meta, prevFrom, from)
           const current = pool && full ? await summarySlice(pool, from, now) : null
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
-          const rollup = window === '30d' && !current ? await last30Rollup() : null
+          const rollup = !current ? await windowRollup(window) : null
           const protocolRollup = rollup?.markets.find((market) => market.marketId === -1)
           let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
           if ((window === 'all' || window === '7d' || window === '30d') && !current) {
@@ -345,30 +349,33 @@ export function registerAnalyticsRoutes(
             fees: current
               ? change(current.fees, previous?.fees ?? null)
               : protocolRollup
-                ? { ...change(protocolRollup.feesMicros, null), note: 'Last 30 complete UTC days' }
+                ? { ...change(protocolRollup.feesMicros, null), note: `${rollup?.label} · complete UTC buckets` }
                 : completion.publicHistoryGaps.fees,
             revenue: current
               ? change(current.revenue, previous?.revenue ?? null)
               : protocolRollup
-                ? { ...change(protocolRollup.revenueMicros, null), note: 'Last 30 complete UTC days' }
+                ? { ...change(protocolRollup.revenueMicros, null), note: `${rollup?.label} · complete UTC buckets` }
                 : completion.publicHistoryGaps.revenue,
             activeUsers:
               current?.users !== null && current?.users !== undefined
                 ? change(current.users, previous?.users ?? null, true)
                 : rollup
-                  ? { ...change(rollup.activeUsers, null, true), note: 'Last 30 complete UTC days' }
+                  ? { ...change(rollup.activeUsers, null, true), note: `${rollup.label} · complete UTC buckets` }
                   : completion.publicHistoryGaps.activeUsers,
             liquidations: current
               ? change(current.liquidations, previous?.liquidations ?? null, true)
               : protocolRollup
-                ? { ...change(protocolRollup.liquidationCount, null, true), note: 'Last 30 complete UTC days' }
+                ? {
+                    ...change(protocolRollup.liquidationCount, null, true),
+                    note: `${rollup?.label} · complete UTC buckets`,
+                  }
                 : completion.publicHistoryGaps.liquidations,
             openInterest: completion.live.openInterest,
             tvl: completion.live.tvl,
             netFlows: current
               ? change(net, prevNet)
               : protocolRollup
-                ? { ...change(protocolRollup.netFlowsMicros, null), note: 'Last 30 complete UTC days' }
+                ? { ...change(protocolRollup.netFlowsMicros, null), note: `${rollup?.label} · complete UTC buckets` }
                 : completion.publicHistoryGaps.netFlows,
           }
           return wrap(
@@ -378,7 +385,7 @@ export function registerAnalyticsRoutes(
             full ? meta.block : rollup ? Number(rollup.throughBlock) : ctx.block,
             ctx.stale || !full || (window !== 'all' && !prevFull),
             rollup && !full
-              ? { from: rollup.from, through: rollup.to, completeHistory: false, label: 'Last 30 days' }
+              ? { from: rollup.from, through: rollup.to, completeHistory: false, label: rollup.label }
               : coverage(meta),
           )
         })
@@ -480,13 +487,14 @@ export function registerAnalyticsRoutes(
           const meta = await dbMeta(pool, ctx.block)
           const now = !meta.stale && meta.through ? meta.through.getTime() + 1 : Date.now()
           const from = window === 'all' ? (meta.completeFrom?.getTime() ?? now) : now - duration[window]
-          if (window === '30d' && !covered(meta, from, now)) {
-            const rollup = await last30Rollup()
+          if (window !== 'all' && !covered(meta, from, now)) {
+            const rollup = await windowRollup(window)
             const protocol = rollup?.markets.find((market) => market.marketId === -1)
             if (rollup && protocol) {
               const byTime = new Map(rollup.flowBuckets.map((bucket) => [bucket.time, bucket]))
               const buckets = []
-              for (let time = Date.parse(rollup.from); time < Date.parse(rollup.to); time += 86_400_000) {
+              const step = window === '24h' ? 3_600_000 : 86_400_000
+              for (let time = Date.parse(rollup.from); time < Date.parse(rollup.to); time += step) {
                 const at = new Date(time).toISOString()
                 const bucket = byTime.get(at)
                 const deposits = bucket?.depositsMicros ?? 0n
@@ -510,7 +518,7 @@ export function registerAnalyticsRoutes(
                 rollup.to,
                 Number(rollup.throughBlock),
                 false,
-                { from: rollup.from, through: rollup.to, completeHistory: false, label: 'Last 30 days' },
+                { from: rollup.from, through: rollup.to, completeHistory: false, label: rollup.label },
               )
             }
           }
