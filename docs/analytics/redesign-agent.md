@@ -1,5 +1,11 @@
 # Eyeler Analytics redesign
 
+## Integration update, 2026-10-11
+
+The UI merged into main as `3eea443`; all five feature CI jobs passed. The signed-out public dashboard rendered at 360 and 1280 px from the deployed web bundle. Additive API commit `1d7f2a8` merged as `f025b65`; feature and main CI passed, Railway served `/ready` with one replica and lock, and trading configuration matched its pre-merge state. Daily per-market candle volume, hourly OI snapshots, finalized Exchange AUSD snapshots, and HyperSync hexadecimal timestamps are implemented. The snapshot flag remains enabled on `api-mainnet`; history started at its first observation and has no fabricated prior values. The liquidation remainder decoder regression is fixed. At 18:11 UTC an unmerged Perpl candidate `c7f5374`, based on older main `0fd7d2d`, replaced the serving analytics API. Restore both code paths before claiming these feeds are live again.
+
+This integration supplies API requests 3–5: completed-day revenue history, range-wide daily liquidation notional, and an explicit unavailable reason for wallet margin used. It also wires verified daily fees and distinct owner counts to the existing chart endpoint. Coverage gaps and days with unresolved owners remain null. Route and PGlite tests are `analytics-daily-rollup-series.test.ts`, `analytics-route-rollups.test.ts`, and `analytics-http.test.ts`. A 30-day wallet on-demand scan still exceeds a normal browser timeout on the free HyperSync tier; no full wallet-history claim follows from the timestamp fix.
+
 Branch: `feat/analytics-redesign`. Base: `origin/main` at `2dc6523` (2026-10-11).
 
 ## Base and ownership — DONE

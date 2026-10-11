@@ -52,6 +52,32 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
     expect(summary.json().data.fees.value).toBe('0.123456')
     expect(summary.json().data.activeUsers.value).toBe('1')
     expect(summary.json().coverage).toMatchObject({ label: 'Last 30 days', completeHistory: false })
+    expect(summary.json().data.revenue.history).toMatchObject({
+      source: 'monad_exchange',
+      data: { interval: '1d', from: new Date(from).toISOString(), to: new Date(to).toISOString() },
+    })
+    expect(summary.json().data.revenue.history.data.points).toHaveLength(30)
+    expect(summary.json().data.revenue.history.data.points.at(-1).value).toBe('0.050000')
+    const feesHistory = await app.inject(
+      `/analytics/v1/protocol/timeseries?metric=fees&interval=1d&from=${new Date(from).toISOString()}&to=${new Date(to).toISOString()}`,
+    )
+    expect(feesHistory.statusCode).toBe(200)
+    expect(feesHistory.json().data.points.at(-1).value).toBe('0.123456')
+    const userHistory = await app.inject(
+      `/analytics/v1/protocol/timeseries?metric=active_users&interval=1d&from=${new Date(from).toISOString()}&to=${new Date(to).toISOString()}`,
+    )
+    expect(userHistory.statusCode).toBe(200)
+    expect(userHistory.json().data.points.at(-1).value).toBe('1')
+    const liquidations = await app.inject(
+      `/analytics/v1/liquidations?from=${new Date(to - day).toISOString()}&to=${new Date(to).toISOString()}&limit=1`,
+    )
+    expect(liquidations.statusCode).toBe(200)
+    expect(liquidations.json().data.dailyNotional).toEqual({
+      interval: '1d',
+      from: new Date(to - day).toISOString(),
+      to: new Date(to).toISOString(),
+      points: [{ time: new Date(to - day).toISOString(), value: '0.500000' }],
+    })
     const flows = await app.inject('/analytics/v1/protocol/flows?window=30d')
     expect(flows.statusCode).toBe(200)
     expect(flows.json().data.net).toBe('1.000000')

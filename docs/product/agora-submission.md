@@ -1,8 +1,15 @@
 # Agora mobile trading submission
 
+## Joint release integration, 2026-10-12
+
+IN PROGRESS — Daily analytics chart wiring on `feat/analytics-perpl-integration` uses verified rollup fees and distinct owner counts. Uncovered days and unresolved owner days stay null. Commit: this release change, pending CI. Proof: `analytics-daily-rollup-series.test.ts` and `analytics-route-rollups.test.ts`. Open: exact-head CI, main merge, Railway deploy, and full 30-day coverage. No trading variable or order path changed.
+
+The isolated `feat/analytics-perpl-integration` branch combines the CI-green Perpl candidate `c7f5374` with main analytics `f025b65` and extras `f737cd8` (merge commits `cfeafb1`, `cc30253`). Focused analytics and Book automation tests are running; exact integration CI, main merge and deploy are not yet proved. Railway currently serves candidate source from older main and therefore lacks the new analytics worker despite analytics flags remaining enabled. No real order, funding or strategy-LIVE setting changed in this integration.
+
 ## Analytics integration status (2026-10-11)
 
-- P2.15 IN PROGRESS — Analytics redesign `3eea443` merged and its web bundle serves the merge SHA. Read-only API fixes for daily market volume, hourly OI/Exchange AUSD snapshots, hex HyperSync block timestamps and liquidation remainder are on `feat/analytics-redesign-api` (commit: current change). Proof: `analytics-alltime-volume.test.ts`, `analytics-snapshots.test.ts`, `analytics-wallet-ondemand.test.ts`, `analytics-liquidation-semantics.test.ts`, `analytics-rollups.test.ts`. These routes do not change manual opening, Book, or strategy controls. Branch CI, deployment and live browser checks remain open.
+- P2.15 DONE in main, deployment superseded — Analytics redesign `3eea443` and additive read-only API `f025b65` merged and passed feature/main CI. Railway `/ready` was 200 with one replica and lock; signed-out 360/1280 px dashboard screenshots were reviewed. Hourly OI and finalized Exchange AUSD snapshots began. At 18:11 UTC unmerged Perpl candidate `c7f5374` from older main replaced the analytics API deployment; analytics routes now lack new data despite flags remaining on. Proof: `analytics-alltime-volume.test.ts`, `analytics-snapshots.test.ts`, `analytics-wallet-ondemand.test.ts`, `analytics-liquidation-semantics.test.ts`, `analytics-rollups.test.ts`, public deep-link tests and CI `38147399607`. Trading variables were unchanged by the analytics merge. Historical wallet coverage remains incomplete.
+- P2.16 IN PROGRESS — `feat/analytics-redesign-extras` adds read-only revenue history, daily liquidation notional, and an explicit unavailable reason for unproved wallet used margin. Proof: `analytics-daily-rollup-series.test.ts`, `analytics-route-rollups.test.ts`, `analytics-http.test.ts`. Commit, CI and deploy pending; no trading route changes.
 
 EYELER joins Mera passkey wallet ownership, Agora AUSD on Monad, and Perpl trading in one Android journey. Its differentiator is what follows the trade: a Book gives a position a liquidation floor, a bounded defense budget and a time limit, with opt-in automation and an execution audit trail.
 

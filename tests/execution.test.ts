@@ -147,6 +147,62 @@ describe('execution worker safety', () => {
 })
 
 describe('execution submission boundary', () => {
+  it.each([
+    ['paused', 'BOOK_NOT_ACTIVE'],
+    ['automation off', 'BOOK_NOT_ACTIVE'],
+    ['stance changed', 'POLICY_REJECTED'],
+    ['cap changed', 'DECISION_SUPERSEDED'],
+    ['execution disabled', 'EXECUTION_DISABLED'],
+    ['telemetry stale', 'STALE'],
+  ])('rechecks %s after asynchronous venue preparation, before the wire send', async (change, error) => {
+    const r = repo()
+    const now = Date.now()
+    const current = {
+      book: { ...book, createdAt: new Date(now - 1000).toISOString() },
+      position: { ...position, timestamp: now },
+      reserve: { ...reserve },
+      telemetry: { ...telemetry, timestamp: now },
+      priorDefenseEfficiency: Infinity,
+    }
+    r.getBookContext = async () => current
+    let disabled = false
+    const sent = vi.fn()
+    const reconcile = vi.fn()
+    const worker = new ExecutionWorker(
+      r,
+      {
+        submit: async (_action, verify) => {
+          if (change === 'paused') current.book.status = 'PAUSED'
+          if (change === 'automation off') current.book.automationEnabled = false
+          if (change === 'stance changed') current.book.stance = 'HARVEST'
+          if (change === 'cap changed') current.book.defenseCap = 0.01
+          if (change === 'execution disabled') disabled = true
+          if (change === 'telemetry stale') {
+            current.telemetry.timestamp = now - 60_000
+            current.position.timestamp = now - 60_000
+          }
+          await verify!()
+          sent()
+          return { status: 'SUBMITTED', venueReference: '642:45' }
+        },
+        reconcile,
+      },
+      undefined,
+      () => now,
+      () => disabled,
+    )
+    const result = await worker.execute(await worker.evaluate('b'))
+    expect(result).toMatchObject({ status: 'FAILED' })
+    if (change === 'telemetry stale') expect(result.error).toMatch(/STALE/)
+    else expect(result.error).toBe(error)
+    expect(sent).not.toHaveBeenCalled()
+    expect(reconcile).not.toHaveBeenCalled()
+    expect(result.venueReference).toBeUndefined()
+    expect(r.events).toContainEqual(
+      expect.objectContaining({ type: 'DEFEND_QUEUED', payload: expect.objectContaining({ origin: 'AUTOMATION' }) }),
+    )
+  })
+
   it('keeps a reconciled close CONFIRMED when the subsequent refresh is rate limited', async () => {
     const r = repo()
     const worker = new ExecutionWorker(

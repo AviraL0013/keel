@@ -407,12 +407,18 @@ export class PerplUserVenues implements RuntimeVenue {
                 use(async () => raw.openingMarketSnapshot!(marketId, transaction), transaction),
             }
           : {}),
-        submit: (action) =>
+        submit: (action, verifyBeforeSend = async () => undefined) =>
           use(() =>
             this.serializeSubmission(accountId, async () => {
               await authorize()
               await actionBook(action.bookId)
-              return raw.submit(action)
+              return raw.submit(action, async () => {
+                await verifyBeforeSend()
+                await actionBook(action.bookId)
+                // Check expiry/revocation again after all venue preparation,
+                // not only when an account's serialized submission begins.
+                await authorize()
+              })
             }),
           ),
         ...(raw.submitOpening

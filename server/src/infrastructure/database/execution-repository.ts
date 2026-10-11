@@ -20,8 +20,8 @@ export class PostgresExecutionRepository implements ExecutionRepository {
   private get pool() {
     return this.store.pool
   }
-  async priorEfficiency(bookId: string) {
-    const result = await this.pool.query(
+  async priorEfficiency(bookId: string, reader: Pick<PostgresStore['pool'], 'query'> = this.pool) {
+    const result = await reader.query(
       "SELECT efficiency,measurement->>'basis' AS basis FROM defense_performance WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1",
       [bookId],
     )
@@ -49,8 +49,9 @@ export class PostgresExecutionRepository implements ExecutionRepository {
     return result.rows[0] ? mapAction(result.rows[0]) : null
   }
   async saveAction(action: Action) {
-    await this.pool.query(
-      `INSERT INTO actions(id,book_id,decision_id,kind,amount,status,idempotency_key,venue_reference,submitted_at,confirmed_at,failed_at,error,before_state,venue_progress) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status, venue_reference=EXCLUDED.venue_reference, submitted_at=EXCLUDED.submitted_at, confirmed_at=EXCLUDED.confirmed_at, failed_at=EXCLUDED.failed_at, error=EXCLUDED.error, before_state=COALESCE(actions.before_state,EXCLUDED.before_state), venue_progress=COALESCE(EXCLUDED.venue_progress,actions.venue_progress)`,
+    const saved = await this.pool.query(
+      `INSERT INTO actions(id,book_id,decision_id,kind,amount,status,idempotency_key,venue_reference,submitted_at,confirmed_at,failed_at,error,before_state,venue_progress) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status, venue_reference=EXCLUDED.venue_reference, submitted_at=EXCLUDED.submitted_at, confirmed_at=EXCLUDED.confirmed_at, failed_at=EXCLUDED.failed_at, error=EXCLUDED.error, before_state=COALESCE(actions.before_state,EXCLUDED.before_state), venue_progress=COALESCE(EXCLUDED.venue_progress,actions.venue_progress)
+       WHERE actions.status NOT IN ('CONFIRMED','FAILED','CANCELED','EXPIRED') OR actions.status=EXCLUDED.status RETURNING id`,
       [
         action.id,
         action.bookId,
@@ -68,6 +69,51 @@ export class PostgresExecutionRepository implements ExecutionRepository {
         action.venueProgress ? JSON.stringify(action.venueProgress) : null,
       ],
     )
+    if (!saved.rows.length) throw new Error('ACTION_STATE_CHANGED')
+  }
+  /** Only unreferenced preparation can be reclaimed. The durable before-send
+   * CAS and terminal-state write fence prevent a delayed sender reviving it.
+   * Referenced/UNKNOWN/PARTIAL actions must always go through venue reconciliation.
+   */
+  async reclaimUnsentAction(actionId: string, before: Date): Promise<Action | null> {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query(
+        `UPDATE actions a SET status='FAILED',failed_at=now(),error='EXECUTION_INTERRUPTED_BEFORE_SEND'
+         FROM decisions d WHERE a.id=$1 AND d.id=a.decision_id AND d.created_at < $2
+           AND a.status IN ('QUEUED','VALIDATING','SUBMITTING') AND a.venue_reference IS NULL
+           AND a.before_state->>'submissionProtocol'='DURABLE_BOUND_V1'
+           AND a.submitted_at IS NULL RETURNING a.*`,
+        [actionId, before.toISOString()],
+      )
+      if (!result.rows.length) {
+        await client.query('COMMIT')
+        return null
+      }
+      const action = mapAction(result.rows[0])
+      await client.query(
+        "UPDATE books SET status='PAUSED',automation_enabled=false,updated_at=now() WHERE id=$1 AND status!='CLOSED'",
+        [action.bookId],
+      )
+      await client.query(
+        "INSERT INTO autopsy_events(book_id,type,payload) VALUES($1,'EXECUTION_INTERRUPTED_BEFORE_SEND',$2)",
+        [
+          action.bookId,
+          JSON.stringify({
+            actionId,
+            reason: 'Durable reference absent; delayed sender fenced. Book paused; explicit review is required.',
+          }),
+        ],
+      )
+      await client.query('COMMIT')
+      return action
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
   }
   async saveDecision(decision: Decision) {
     await this.pool.query(
@@ -90,8 +136,8 @@ export class PostgresExecutionRepository implements ExecutionRepository {
       [event.id, event.bookId, event.type, JSON.stringify(event.payload), event.block ?? null, event.timestamp],
     )
   }
-  async getBookContext(bookId: string) {
-    const result = await this.pool.query(
+  async getBookContext(bookId: string, reader: Pick<PostgresStore['pool'], 'query'> = this.pool) {
+    const result = await reader.query(
       `SELECT b.*, p.size,p.observed_at,p.entry_price,p.mark_price,p.liquidation_price,p.leverage,p.unrealized_pnl,p.margin,p.status AS position_status, r.available,r.reserved,r.deployed,r.cap, rs.mark AS rs_mark,rs.oracle AS rs_oracle,rs.liquidation AS rs_liquidation,rs.funding AS rs_funding,rs.spread AS rs_spread,rs.depth AS rs_depth,rs.volatility AS rs_volatility,rs.bid AS rs_bid,rs.ask AS rs_ask,rs.mid AS rs_mid,rs.block AS rs_block,extract(epoch from rs.timestamp)*1000 AS rs_timestamp,rs.source AS rs_source,rs.freshness_detail FROM books b JOIN positions p ON p.book_id=b.id JOIN reserves r ON r.book_id=b.id LEFT JOIN LATERAL (SELECT * FROM risk_snapshots WHERE book_id=b.id ORDER BY timestamp DESC, (freshness_detail->'position'->>'updatedAt') DESC NULLS LAST LIMIT 1) rs ON true WHERE b.id=$1`,
       [bookId],
     )
@@ -170,23 +216,41 @@ export class PostgresExecutionRepository implements ExecutionRepository {
           }
         : {}),
     }
-    return { book, position, reserve, telemetry, priorDefenseEfficiency: await this.priorEfficiency(bookId) }
+    return { book, position, reserve, telemetry, priorDefenseEfficiency: await this.priorEfficiency(bookId, reader) }
   }
   async finalize(action: Action) {
-    const after =
-      action.kind === 'DEFEND' && action.status === 'CONFIRMED' ? await this.getBookContext(action.bookId) : undefined
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
       await lockBookAccountCapital(client, action.bookId)
-      const locked = await client.query('SELECT status FROM actions WHERE id=$1 FOR UPDATE', [action.id])
+      const locked = await client.query('SELECT * FROM actions WHERE id=$1 FOR UPDATE', [action.id])
       if (!locked.rows.length) throw new Error('ACTION_NOT_FOUND')
-      if (locked.rows[0].status === 'CONFIRMED') {
+      const stored = mapAction(locked.rows[0])
+      // Preserve the pre-existing, internal receipt-verified repair of legacy
+      // failed DEFEND records. It cannot apply to a fenced/new sender or revive
+      // an ambiguous response, a close, or a provably unsent attempt.
+      const legacyDefenseConfirmation =
+        stored.status === 'FAILED' &&
+        stored.kind === 'DEFEND' &&
+        action.kind === 'DEFEND' &&
+        action.status === 'CONFIRMED' &&
+        stored.beforeState?.submissionProtocol !== 'DURABLE_BOUND_V1' &&
+        action.beforeState?.submissionProtocol !== 'DURABLE_BOUND_V1' &&
+        stored.error !== 'EXECUTION_INTERRUPTED_BEFORE_SEND'
+      if (['CONFIRMED', 'FAILED', 'CANCELED', 'EXPIRED'].includes(stored.status) && !legacyDefenseConfirmation) {
         await client.query('COMMIT')
-        return
+        // A delayed sender/recovery result must not revive a conclusive attempt.
+        // Return the durable outcome so the HTTP caller also sees the truth.
+        return stored
       }
+      // Terminal results require no telemetry. Read accepted confirmation
+      // context through this transaction, avoiding a second pool checkout.
+      const after =
+        action.kind === 'DEFEND' && action.status === 'CONFIRMED'
+          ? await this.getBookContext(action.bookId, client)
+          : undefined
       await client.query(
-        'UPDATE actions SET status=$2,confirmed_at=$3,failed_at=$4,error=$5,venue_reference=$6,venue_progress=COALESCE($7,venue_progress) WHERE id=$1',
+        'UPDATE actions SET status=$2,confirmed_at=$3,failed_at=$4,error=$5,venue_reference=$6,venue_progress=COALESCE($7,venue_progress),submitted_at=$8 WHERE id=$1',
         [
           action.id,
           action.status,
@@ -195,6 +259,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
           action.error ?? null,
           action.venueReference ?? null,
           action.venueProgress ? JSON.stringify(action.venueProgress) : null,
+          action.submittedAt ?? null,
         ],
       )
       if (after && action.beforeState) {
@@ -267,6 +332,7 @@ export class PostgresExecutionRepository implements ExecutionRepository {
           [action.bookId, action.id],
         )
       await client.query('COMMIT')
+      return action
     } catch (error) {
       await client.query('ROLLBACK')
       throw error

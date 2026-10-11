@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { databaseFixture } from './helpers/database.js'
-import { generateRunReport } from '../scripts/report.js'
+import { actionOrigin, generateRunReport } from '../scripts/report.js'
+import { storedActionEvidence } from '../packages/perpl/src/action-evidence.js'
 
 it('reports heartbeat coverage, decisions, actions, safe mode, retries, and Telegram delivery', async () => {
   const { db, store } = await databaseFixture()
@@ -9,7 +10,7 @@ it('reports heartbeat coverage, decisions, actions, safe mode, retries, and Tele
   try {
     const userId = await store.ensureUser('report-owner')
     const book = await store.pool.query(
-      "INSERT INTO books(user_id,market,side,stance,liquidation_floor,defense_cap,time_limit_ms) VALUES($1,'BTC-PERP','LONG','DEFEND',7,5,3600000) RETURNING id",
+      "INSERT INTO books(user_id,market,market_id,venue_account_id,venue_position_id,side,stance,liquidation_floor,defense_cap,time_limit_ms) VALUES($1,'BTC-PERP',1,642,7,'LONG','DEFEND',7,5,3600000) RETURNING id",
       [userId],
     )
     const bookId = book.rows[0].id
@@ -28,7 +29,12 @@ it('reports heartbeat coverage, decisions, actions, safe mode, retries, and Tele
         decision.rows[0].id,
         `642:42:${hash}`,
         '2026-09-29T00:01:01Z',
-        JSON.stringify({ effectiveLastExecBlock: 123 }),
+        JSON.stringify({
+          requestId: '42',
+          requestedLastExecBlock: 130,
+          effectiveLastExecBlock: 130,
+          confirmedExecutionBlock: 123,
+        }),
       ],
     )
     await store.pool.query(
@@ -61,7 +67,74 @@ it('reports heartbeat coverage, decisions, actions, safe mode, retries, and Tele
     expect(report).toContain('Automatic retries: 1')
     expect(report).toContain('SENT: 1')
     expect(report).not.toContain('report-owner')
+    expect(report).toContain('STORED_RECEIPT_BACKED')
+    expect(report).toContain('ORIGIN_NOT_RECORDED')
+    expect(report).toContain('Automated stored receipt-backed confirmations: 0')
+    expect(report).toContain('Net realized P&L: unavailable')
+    const partial = await generateRunReport(
+      store.pool,
+      new Date('2026-09-29T00:00:10Z'),
+      new Date('2026-09-29T00:00:20Z'),
+      bookId,
+    )
+    expect(partial).toContain('between 0 and 59 / 10 expected')
+    expect(partial).toContain('exact coverage is unavailable')
+    expect(partial).not.toContain('59 / 10 expected (100.00% coverage)')
   } finally {
     await db.close()
   }
 }, 20_000)
+
+it('distinguishes explicit origins and does not infer historical consent from current Book state', () => {
+  expect(actionOrigin({ reason_codes: ['MANUAL_ACTION'], provenance_events: [] })).toBe('MANUAL')
+  expect(actionOrigin({ reason_codes: ['USER_CLOSE'] })).toBe('MANUAL')
+  expect(actionOrigin({ provenance_events: [{ origin: 'AUTOMATION' }] })).toBe('AUTOMATION')
+  expect(actionOrigin({ automated_retry: true })).toBe('AUTOMATION')
+  expect(actionOrigin({ automation_enabled: true })).toBe('ORIGIN_NOT_RECORDED')
+  expect(actionOrigin({ reason_codes: ['USER_CLOSE'], provenance_events: [{ origin: 'AUTOMATION' }] })).toBe(
+    'ORIGIN_CONFLICT',
+  )
+})
+
+it('requires exact stored identity and actual execution evidence; an admission deadline proves no execution', () => {
+  const input = {
+    kind: 'DEFEND',
+    status: 'CONFIRMED',
+    accountId: 642,
+    venueReference: `642:42:0x${'ab'.repeat(32)}`,
+    venueProgress: { requestId: '42', effectiveLastExecBlock: 130, confirmedExecutionBlock: 123 },
+  }
+  expect(storedActionEvidence(input)).toMatchObject({
+    level: 'STORED_RECEIPT_BACKED',
+    receiptBacked: true,
+    executionBlock: 123,
+  })
+  expect(storedActionEvidence({ ...input, accountId: 777 })).toMatchObject({
+    level: 'IDENTITY_UNVERIFIED',
+    receiptBacked: false,
+    executionBlock: undefined,
+  })
+  expect(
+    storedActionEvidence({ ...input, venueProgress: { ...input.venueProgress, requestId: '43' } }).receiptBacked,
+  ).toBe(false)
+  expect(
+    storedActionEvidence({
+      ...input,
+      kind: 'EXIT',
+      venueReference: '642:42:7',
+      venueProgress: { requestId: '42', effectiveLastExecBlock: 130 },
+    }),
+  ).toMatchObject({ level: 'VENUE_RECONCILED', executionBlock: undefined, receiptBacked: false })
+  for (const status of ['UNKNOWN', 'PARTIAL', 'FAILED', 'VERIFYING', 'SUBMITTING']) {
+    expect(storedActionEvidence({ ...input, status })).toMatchObject({
+      receiptBacked: false,
+      executionBlock: undefined,
+    })
+  }
+  for (const value of [0, -1, NaN, 1.5, '123', Number.MAX_SAFE_INTEGER + 1]) {
+    expect(
+      storedActionEvidence({ ...input, venueProgress: { requestId: '42', confirmedExecutionBlock: value } })
+        .receiptBacked,
+    ).toBe(false)
+  }
+})

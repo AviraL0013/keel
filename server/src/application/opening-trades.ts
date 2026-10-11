@@ -468,6 +468,7 @@ export class OpeningTrades {
       sizeDecimals: quote.size.split('.')[1]?.length ?? 0,
       priceDecimals: quote.limitPrice.split('.')[1]?.length ?? 0,
       submittedAt: new Date(row.submitted_at).getTime(),
+      priorOperations: row.evidence?.operations,
     })
     await this.store.pool.query(
       `UPDATE opening_orders SET status=$2,error=$3,evidence=$4,filled_size=$5,average_price=$6,

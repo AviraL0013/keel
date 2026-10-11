@@ -144,12 +144,18 @@ class _TimelineEvent extends StatelessWidget {
                                 _detail(
                                     'Request ID', _text(progress['requestId'])),
                                 _detail(
-                                    'Block',
-                                    progress['effectiveLastExecBlock'] is int
-                                        ? 'Block ${progress['effectiveLastExecBlock']}'
-                                        : null),
+                                    'Execution deadline',
+                                    _blockText(
+                                        progress['effectiveLastExecBlock'])),
+                                if (_isConfirmation)
+                                  _detail(
+                                      'Confirmed execution',
+                                      _blockText(
+                                          progress['confirmedExecutionBlock'])),
                               ],
-                              if (_explorerUrl() case final url?)
+                              if (_explorerUrl() case final url?) ...[
+                                _detail('Evidence',
+                                    'Stored reference; receipt not independently verified here.'),
                                 Row(children: [
                                   Expanded(
                                       child: SelectableText('Explorer: $url')),
@@ -159,12 +165,14 @@ class _TimelineEvent extends StatelessWidget {
                                           ClipboardData(text: url)),
                                       icon: const Icon(Icons.copy)),
                                 ]),
+                              ],
                             ]),
                       ])))),
     ]));
   }
 
   String? _explorerUrl() {
+    if (!_isConfirmation) return null;
     final base = Uri.tryParse(explorerBaseUrl);
     if (base == null ||
         base.scheme != 'https' ||
@@ -177,10 +185,19 @@ class _TimelineEvent extends StatelessWidget {
     if (hash != null && RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(hash)) {
       return '$root/tx/$hash';
     }
-    final block = event.venueProgress?['effectiveLastExecBlock'];
+    final block = event.venueProgress?['confirmedExecutionBlock'];
     if (block is int && block > 0) return '$root/block/$block';
     return null;
   }
+
+  bool get _isConfirmation => const {
+        'DEFEND_CONFIRMED',
+        'REDUCE_CONFIRMED',
+        'EXIT_CONFIRMED',
+      }.contains(event.type);
+
+  String? _blockText(Object? block) =>
+      block is int && block > 0 ? 'Block $block' : null;
 
   String? _text(Object? value) => value?.toString();
 
@@ -209,7 +226,7 @@ class _TimelineEvent extends StatelessWidget {
       return 'Risk decision recorded by the policy engine.';
     }
     if (value.action != null) {
-      return '${value.action} action recorded and reconciled.';
+      return '${value.action} action recorded.';
     }
     return value.type.replaceAll('_', ' ');
   }

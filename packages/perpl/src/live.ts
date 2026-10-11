@@ -37,7 +37,7 @@ export class PerplLiveAdapter {
     private readonly verificationTimeoutMs = 180_000,
     private readonly now: () => number = Date.now,
   ) {}
-  async submit(action: Action) {
+  async submit(action: Action, verifyAuthorization: () => Promise<void> = async () => undefined) {
     let order: ReturnType<typeof buildPerplOrder>
     try {
       const context = await this.context(action)
@@ -55,15 +55,22 @@ export class PerplLiveAdapter {
     return this.client.submit(
       action,
       order,
-      async (reference) => {
+      async (reference, _lastExecBlock, prepared) => {
         try {
           action.venueReference = reference
+          action.venueProgress = prepared
+          // Start bounded verification before sending: a crash after the socket
+          // write must retain both request identity and its exact execution bound.
+          action.submittedAt = new Date(this.now()).toISOString()
           await this.persistReference(action)
         } catch (error) {
           throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'PERPL_REFERENCE_PERSIST_FAILED')
         }
       },
-      async () => this.verifyBeforeSend(action, order),
+      async () => {
+        await this.verifyBeforeSend(action, order)
+        await verifyAuthorization()
+      },
     )
   }
   async reconcile(action: Action): Promise<Action> {

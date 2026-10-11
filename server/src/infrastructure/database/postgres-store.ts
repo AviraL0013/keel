@@ -362,7 +362,7 @@ export class PostgresStore implements Store {
   async listAutopsy(userId: string, bookId: string) {
     const result = await this.pool.query(
       `SELECT e.*,a.venue_progress,a.venue_reference FROM autopsy_events e JOIN books b ON b.id=e.book_id
-       LEFT JOIN actions a ON a.id::text=(e.payload->>'actionId')
+       LEFT JOIN actions a ON a.id::text=(e.payload->>'actionId') AND a.book_id=e.book_id
        WHERE b.user_id=$1 AND e.book_id=$2 ORDER BY e.timestamp DESC LIMIT 500`,
       [userId, bookId],
     )

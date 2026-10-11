@@ -99,6 +99,13 @@ describe('Analytics v1 public HTTP routes', () => {
     }
   })
 
+  it('labels wallet margin used unavailable when position collateral cannot be proved', async () => {
+    const response = await app.inject(`/analytics/v1/wallets/${address}`)
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.margin.used).toBeNull()
+    expect(response.json().data.margin.usedUnavailableReason).toContain('not verified')
+  })
+
   it('caches context and marks uncovered flow history stale', async () => {
     const before = fetchCount
     const first = await app.inject('/analytics/v1/markets')
