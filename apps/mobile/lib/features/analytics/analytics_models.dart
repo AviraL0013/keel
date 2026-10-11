@@ -193,6 +193,11 @@ class AnalyticsOverview {
       {this.volumeSeriesByWindow = const {},
       this.inflowSeriesByWindow = const {},
       this.historyLabels = const {},
+      this.summarySources = const {},
+      this.volumeSources = const {},
+      this.flowSources = const {},
+      this.marketSource,
+      this.liquidationSource,
       this.liquidationCount,
       this.stale = false});
   final DateTime asOf;
@@ -207,6 +212,8 @@ class AnalyticsOverview {
   final String? insight;
   final bool stale;
   final Map<String, String> historyLabels;
+  final Map<String, String> summarySources, volumeSources, flowSources;
+  final String? marketSource, liquidationSource;
   factory AnalyticsOverview.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     final windows = AnalyticsParse.object(j['windows']).map(
@@ -260,10 +267,17 @@ class AnalyticsOverview {
 class AnalyticsMarketDetail {
   const AnalyticsMarketDetail(this.symbol, this.asOf, this.priceSeries,
       this.longShare, this.fundingHistory, this.liquidations,
-      {this.stale = false});
+      {this.stale = false,
+      this.marketSource,
+      this.priceSource,
+      this.fundingSource,
+      this.liquidationSource,
+      this.coverageLabel});
   final String symbol;
   final String? longShare;
   final bool stale;
+  final String? marketSource, priceSource, fundingSource, liquidationSource;
+  final String? coverageLabel;
   final DateTime asOf;
   final List<AnalyticsPoint> priceSeries, fundingHistory;
   final List<AnalyticsLiquidation> liquidations;
@@ -370,13 +384,17 @@ class AnalyticsPerformance {
 class AnalyticsWallet {
   const AnalyticsWallet(
       this.address, this.asOf, this.margin, this.positions, this.performance,
-      {this.stale = false});
+      {this.stale = false,
+      this.walletSource,
+      this.performanceSource,
+      this.coverageLabel});
   final String address;
   final DateTime asOf;
   final AnalyticsMargin margin;
   final List<AnalyticsPosition> positions;
   final AnalyticsPerformance performance;
   final bool stale;
+  final String? walletSource, performanceSource, coverageLabel;
   factory AnalyticsWallet.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     final address = AnalyticsParse.string(j, 'address');

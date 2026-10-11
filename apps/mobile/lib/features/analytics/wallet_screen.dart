@@ -301,6 +301,11 @@ class _AnalyticsWalletScreenState extends ConsumerState<AnalyticsWalletScreen> {
                                     overflow: TextOverflow.ellipsis,
                                     style:
                                         Theme.of(context).textTheme.bodySmall),
+                                Text(
+                                    'Source: ${wallet.walletSource ?? 'Unavailable'} · '
+                                    'Coverage: ${wallet.coverageLabel ?? 'Not reported'}',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall),
                                 if (saveError != null)
                                   Text(saveError!,
                                       style: TextStyle(
@@ -308,7 +313,11 @@ class _AnalyticsWalletScreenState extends ConsumerState<AnalyticsWalletScreen> {
                                               .colorScheme
                                               .error)),
                                 const SizedBox(height: 12),
-                                _MarginGrid(margin: wallet.margin),
+                                _MarginGrid(
+                                    margin: wallet.margin,
+                                    equityTrend:
+                                        wallet.performance.equitySeries,
+                                    coverageLabel: wallet.coverageLabel),
                                 const SizedBox(height: 8),
                                 AnalyticsPanel(
                                     title: 'Open positions',
@@ -320,7 +329,9 @@ class _AnalyticsWalletScreenState extends ConsumerState<AnalyticsWalletScreen> {
                                           ])),
                                 const SizedBox(height: 8),
                                 _PerformanceSection(
-                                    performance: wallet.performance),
+                                    performance: wallet.performance,
+                                    source: wallet.performanceSource,
+                                    coverageLabel: wallet.coverageLabel),
                                 const SizedBox(height: 8),
                                 AnalyticsPanel(
                                     title: 'Trade history',
@@ -371,8 +382,14 @@ class _AnalyticsWalletScreenState extends ConsumerState<AnalyticsWalletScreen> {
 }
 
 class _MarginGrid extends StatelessWidget {
-  const _MarginGrid({required this.margin});
+  const _MarginGrid({
+    required this.margin,
+    required this.equityTrend,
+    required this.coverageLabel,
+  });
   final AnalyticsMargin margin;
+  final List<AnalyticsPoint> equityTrend;
+  final String? coverageLabel;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
@@ -381,19 +398,21 @@ class _MarginGrid extends StatelessWidget {
             crossAxisCount: count,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: constraints.maxWidth < 500 ? 1.35 : 2.3,
+            mainAxisExtent: constraints.maxWidth < 500 ? 150 : 124,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
             children: [
-              AnalyticsMetricTile(label: 'Equity', value: margin.equity),
+              AnalyticsMetricTile(
+                  label: 'Equity',
+                  value: margin.equity,
+                  trend: margin.equity == null ? null : equityTrend,
+                  trendLabel: 'Observed wallet equity',
+                  note: coverageLabel ?? 'API did not provide equity coverage'),
               AnalyticsMetricTile(label: 'Available', value: margin.available),
-              if (margin.locked != null)
-                AnalyticsMetricTile(label: 'Locked', value: margin.locked),
-              if (margin.balance != null)
-                AnalyticsMetricTile(label: 'Balance', value: margin.balance),
-              if (margin.maintenance != null)
-                AnalyticsMetricTile(
-                    label: 'Maintenance', value: margin.maintenance),
+              AnalyticsMetricTile(label: 'Locked', value: margin.locked),
+              AnalyticsMetricTile(label: 'Balance', value: margin.balance),
+              AnalyticsMetricTile(
+                  label: 'Maintenance', value: margin.maintenance),
             ]);
       });
 }
@@ -442,18 +461,33 @@ class _Fact extends StatelessWidget {
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: Theme.of(context).textTheme.bodySmall),
         Text(value ?? 'Unavailable'),
+        if (value == null)
+          Text('Reason not supplied by API',
+              style: Theme.of(context).textTheme.labelSmall),
       ]);
 }
 
 class _PerformanceSection extends StatelessWidget {
-  const _PerformanceSection({required this.performance});
+  const _PerformanceSection({
+    required this.performance,
+    required this.source,
+    required this.coverageLabel,
+  });
   final AnalyticsPerformance performance;
+  final String? source, coverageLabel;
   @override
   Widget build(BuildContext context) => AnalyticsPanel(
       title: 'Performance',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+            'Source: ${source ?? 'Unavailable'} · '
+            'Coverage: ${coverageLabel ?? 'Not reported'}',
+            style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 8),
         AnalyticsChart(
-            points: performance.equitySeries, color: EyelerColors.defend),
+            label: 'Realized equity',
+            points: performance.equitySeries,
+            color: EyelerColors.defend),
         const SizedBox(height: 12),
         Wrap(spacing: 22, runSpacing: 12, children: [
           _Fact('Win rate',
@@ -552,18 +586,20 @@ class _AnalyticsWatchlistScreenState
                       if (!loading && wallets.isNotEmpty)
                         Text(
                             wallets.values.any((wallet) =>
+                                    wallet.stale ||
                                     DateTime.now()
-                                        .toUtc()
-                                        .difference(wallet.asOf) >
-                                    const Duration(seconds: 45))
+                                            .toUtc()
+                                            .difference(wallet.asOf) >
+                                        const Duration(seconds: 45))
                                 ? 'Stale wallet data'
                                 : 'Wallet data current',
                             style: TextStyle(
                                 color: wallets.values.any((wallet) =>
+                                        wallet.stale ||
                                         DateTime.now()
-                                            .toUtc()
-                                            .difference(wallet.asOf) >
-                                        const Duration(seconds: 45))
+                                                .toUtc()
+                                                .difference(wallet.asOf) >
+                                            const Duration(seconds: 45))
                                     ? EyelerColors.reduce
                                     : EyelerColors.defend)),
                       const SizedBox(height: 16),
@@ -592,7 +628,7 @@ class _AnalyticsWatchlistScreenState
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
                                       crossAxisCount: columns,
-                                      mainAxisExtent: 246,
+                                      mainAxisExtent: 300,
                                       mainAxisSpacing: 8,
                                       crossAxisSpacing: 8),
                               itemCount: addresses.length,
@@ -623,6 +659,16 @@ class _AnalyticsWatchlistScreenState
                                                     icon: const Icon(
                                                         Icons.close)),
                                               ]),
+                                              Text(
+                                                  'Source: ${wallet.walletSource ?? 'Unavailable'}',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall),
+                                              Text(
+                                                  'Coverage: ${wallet.coverageLabel ?? 'Not reported'}',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall),
                                               _Fact(
                                                   'Equity',
                                                   AnalyticsNumbers.compact(

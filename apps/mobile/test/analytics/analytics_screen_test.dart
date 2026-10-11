@@ -239,8 +239,8 @@ void main() {
         MemoryAnalyticsLocalStore());
     await tester.tap(find.text('All').first);
     await tester.pumpAndSettle();
-    expect(
-        find.textContaining('Volume: Perpl API daily candles'), findsOneWidget);
+    expect(find.textContaining('Volume source: Perpl API daily candles'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   for (final width in [320.0, 360.0, 412.0, 1280.0]) {
@@ -310,6 +310,32 @@ void main() {
     await tester.tap(find.byTooltip('Search wallet'));
     await tester.pump();
     expect(find.textContaining('six hexadecimal'), findsOneWidget);
+  });
+
+  testWidgets('market wallet lookup returns to market at 320dp',
+      (tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await mount(
+        tester,
+        const Size(320, 860),
+        const AnalyticsMarketScreen(symbol: 'BTC-PERP'),
+        StateRepository(ViewState.loaded),
+        MemoryAnalyticsLocalStore());
+    await tester.tap(find.text('Find wallet'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '0x000000');
+    await tester.tap(find.byTooltip('Search wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('0x0000').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Open positions'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Price'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('prefix search opens wallet and saves it for comparison',

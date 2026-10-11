@@ -1,9 +1,47 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:eyeler_mobile/features/analytics/analytics_models.dart';
 import 'package:eyeler_mobile/features/analytics/analytics_widgets.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('recorded mainnet closes have axes and accessible exact values',
+      (tester) async {
+    final recorded = jsonDecode(
+        File('test/analytics/fixtures/perpl-mainnet-btc-2026-10-05.json')
+            .readAsStringSync()) as Map<String, dynamic>;
+    final candles = (recorded['candles'] as List<dynamic>).take(2).toList();
+    final points = [
+      for (final raw in candles)
+        AnalyticsPoint(
+          DateTime.fromMillisecondsSinceEpoch(raw['t'] as int, isUtc: true),
+          ((raw['c'] as int) / 10).toStringAsFixed(1),
+        ),
+    ];
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: AnalyticsChart(points: points, label: 'Price'))));
+    expect(find.text(AnalyticsNumbers.compact(points.first.value, places: 2)),
+        findsOneWidget);
+    expect(find.text(AnalyticsNumbers.compact(points.last.value, places: 2)),
+        findsOneWidget);
+    final chart =
+        find.semantics.byLabel(RegExp('Price chart, 2 observed values'));
+    expect(chart, findsOneWidget);
+    tester.semantics.performAction(chart, SemanticsAction.increase);
+    await tester.pump();
+    expect(find.textContaining(points.first.value!), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    semantics.dispose();
+  });
+
   for (final width in [320.0, 1280.0]) {
     testWidgets('chart tap reveals exact values at ${width.toInt()}dp',
         (tester) async {

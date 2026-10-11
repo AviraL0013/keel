@@ -115,9 +115,15 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
     final volumeSeries = <String, List<AnalyticsPoint>>{};
     final inflowSeries = <String, List<AnalyticsPoint>>{};
     final historyLabels = <String, String>{};
+    final summarySources = <String, String>{};
+    final volumeSources = <String, String>{};
+    final flowSources = <String, String>{};
     for (var i = 0; i < responses.length; i++) {
       final key = ['24h', '7d', '30d', 'All'][i];
       final item = responses[i];
+      summarySources[key] = _analyticsSource(item.summary.source);
+      volumeSources[key] = _analyticsSource(item.timeseries.source);
+      flowSources[key] = _analyticsSource(item.flows.source);
       if (item.summary.coverage case final coverage?) {
         historyLabels[key] = coverage.completeHistory
             ? 'All time'
@@ -169,6 +175,11 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
       inflowSeriesByWindow: inflowSeries,
       liquidationCount: liquidations.data.count,
       historyLabels: historyLabels,
+      summarySources: summarySources,
+      volumeSources: volumeSources,
+      flowSources: flowSources,
+      marketSource: _analyticsSource(markets.source),
+      liquidationSource: _analyticsSource(liquidations.source),
       stale: responses.any((item) =>
               item.summary.stale ||
               item.timeseries.stale ||
@@ -226,10 +237,16 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
             AnalyticsLiquidation(item.id, item.time, symbol, item.address,
                 item.side, item.notional)
         ],
-        stale: detail.stale ||
-            funding.stale ||
-            prices.stale ||
-            liquidations.stale);
+        stale:
+            detail.stale || funding.stale || prices.stale || liquidations.stale,
+        marketSource: _analyticsSource(detail.source),
+        priceSource: _analyticsSource(prices.source),
+        fundingSource: _analyticsSource(funding.source),
+        liquidationSource: _analyticsSource(liquidations.source),
+        coverageLabel: detail.coverage?.label ??
+            prices.coverage?.label ??
+            funding.coverage?.label ??
+            liquidations.coverage?.label);
   }
 
   @override
@@ -277,7 +294,10 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
             p.bestMarketId == null ? null : await _symbol(p.bestMarketId!),
             p.worstMarketId == null ? null : await _symbol(p.worstMarketId!),
             p.equityCurve.map((point) => point.toView()).toList()),
-        stale: profile.stale || performance.stale);
+        stale: profile.stale || performance.stale,
+        walletSource: _analyticsSource(profile.source),
+        performanceSource: _analyticsSource(performance.source),
+        coverageLabel: profile.coverage?.label ?? performance.coverage?.label);
   }
 
   @override
@@ -303,6 +323,14 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
     return result.data.items.map((item) => item.address).toList();
   }
 }
+
+String _analyticsSource(String source) => switch (source) {
+      'perpl_api' => 'Perpl API',
+      'monad_exchange' => 'Monad Exchange',
+      'derived' => 'Derived analytics',
+      'external' => 'External source',
+      _ => 'Source unavailable',
+    };
 
 class _WindowResponse {
   const _WindowResponse(
