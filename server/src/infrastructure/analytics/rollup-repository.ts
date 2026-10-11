@@ -204,6 +204,11 @@ export async function readLast30Days(pool: pg.Pool, bounds: { from: Date; to: Da
      FROM analytics_rollup_actor WHERE grain=$1 AND bucket_start >= $2 AND bucket_start < $3`,
       [bounds.grain, bounds.from, bounds.to],
     )
+    const flowRows = await client.query(
+      `SELECT bucket_start,deposits_micros,withdrawals_micros FROM analytics_rollup_bucket
+       WHERE grain=$1 AND market_id=-1 AND bucket_start >= $2 AND bucket_start < $3 ORDER BY bucket_start`,
+      [bounds.grain, bounds.from, bounds.to],
+    )
     const actor = users.rows[0] as { users: string; accounts: string; unresolved: string }
     const markets = result.rows.map((row: Record<string, unknown>) => ({
       marketId: Number(row.market_id),
@@ -247,6 +252,13 @@ export async function readLast30Days(pool: pg.Pool, bounds: { from: Date; to: Da
       throughBlock: (last.toBlock - 1n).toString(),
       activeUsers: BigInt(actor.unresolved) === 0n ? BigInt(actor.users) : null,
       activeAccounts: BigInt(actor.accounts),
+      flowBuckets: flowRows.rows.map(
+        (row: { bucket_start: Date; deposits_micros: string; withdrawals_micros: string }) => ({
+          time: new Date(row.bucket_start).toISOString(),
+          depositsMicros: BigInt(row.deposits_micros),
+          withdrawalsMicros: BigInt(row.withdrawals_micros),
+        }),
+      ),
       markets,
     }
   } catch (error) {

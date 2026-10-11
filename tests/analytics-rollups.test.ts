@@ -167,15 +167,27 @@ describe('last 30 days rollups', () => {
       block: async (number: number) => ({ number, hash, timestamp: '0x1' }),
       readRange: async (from: number, to: number) => {
         calls.push([from, to])
-        return { coverage: { fromBlock: BigInt(from), toBlock: BigInt(to),
-          fromTime: at, throughTime: at, endHash: hash, logCount: 0 }, buckets: [], actors: [] }
+        return {
+          coverage: {
+            fromBlock: BigInt(from),
+            toBlock: BigInt(to),
+            fromTime: at,
+            throughTime: at,
+            endHash: hash,
+            logCount: 0,
+          },
+          buckets: [],
+          actors: [],
+        }
       },
       readOwners: async () => new Map(),
     } as unknown as HyperSyncRollupSource
     const repo = {
       prune: async () => {},
       coverage: async () => [...saved].sort((a, b) => Number(b.fromBlock - a.fromBlock)),
-      saveRange: async (range: { fromBlock: bigint; toBlock: bigint; endHash: string }) => { saved.push(range) },
+      saveRange: async (range: { fromBlock: bigint; toBlock: bigint; endHash: string }) => {
+        saved.push(range)
+      },
       applyOwners: async () => {},
     } as unknown as RollupRepository
     const worker = new AnalyticsRollupWorker(source, repo, () => at.getTime())
@@ -183,7 +195,10 @@ describe('last 30 days rollups', () => {
     expect(calls).toEqual([[100_075_001, 100_100_001]])
     height += 100
     expect(await worker.step()).toBe('indexed')
-    expect(calls.slice(1)).toEqual([[100_100_001, 100_100_101], [100_050_001, 100_075_001]])
+    expect(calls.slice(1)).toEqual([
+      [100_100_001, 100_100_101],
+      [100_050_001, 100_075_001],
+    ])
   })
 
   it('replaces a range without double-counting, gates coverage, and prunes at 35 days', async () => {
