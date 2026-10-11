@@ -296,7 +296,7 @@ describe('analytics evidence coverage', () => {
     },
   )
 
-  it('recalculates rejected cached performance after replay returns to the same height and hash', async () => {
+  it('keeps replayed performance incomplete until full-history proof returns', async () => {
     await checkpoint(now)
     await episode()
     let armed = true
@@ -329,8 +329,8 @@ describe('analytics evidence coverage', () => {
       ])
       const next = await app.inject(path)
       expect(next.statusCode).toBe(200)
-      expect(next.json().coverage.completeHistory).toBe(true)
-      expect(next.json().data.realizedPnl).toBe('-2.000000')
+      expect(next.json().coverage.completeHistory).toBe(false)
+      expect(next.json().data.realizedPnl).toBeNull()
     } finally {
       await app.close()
     }

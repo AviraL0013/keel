@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { getAddress, isAddress } from 'viem'
-import { formatMoney, moneyMicros } from '../../../../../packages/ausd/src/money.js'
+import { formatMoney } from '../../../../../packages/ausd/src/money.js'
 import { notionalMicros, signedMoney, sumMicros } from '../../../../../packages/analytics/src/aggregate.js'
 import { EXCHANGE_DEPLOYMENT_BLOCK } from '../../../../../packages/analytics/src/decoder.js'
 import {
@@ -25,6 +25,7 @@ import {
   type PublicMarket,
 } from '../../../infrastructure/analytics/perpl-public.js'
 import { WalletChainAnalytics } from '../../../infrastructure/analytics/wallet-chain.js'
+import { completePublicProtocol } from '../../../infrastructure/analytics/protocol-completion.js'
 import { chainConfigs } from '../../../../../packages/chain/src/index.js'
 
 const windows = new Set(['24h', '7d', '30d', 'all'])
@@ -241,10 +242,7 @@ export function registerAnalyticsRoutes(
         reply.header('Cache-Control', 'public, max-age=15')
         return cache.get(`summary:${window}`, 15_000, async () => {
           const ctx = await publicData.context()
-          const oi = sumMicros(
-            ctx.value.markets.map((market) => moneyMicros(marketSummary(market).openInterest ?? '0')),
-          )
-          const tvl = sumMicros(ctx.value.markets.map((market) => BigInt(market.state.tvl)))
+          const completion = completePublicProtocol(ctx)
           const volume24h = sumMicros(ctx.value.markets.map((market) => BigInt(market.state.dva)))
           const meta = await dbMeta(pool, ctx.block)
           // Include the final block's timestamp without implying that later blocks were replayed.
@@ -283,28 +281,38 @@ export function registerAnalyticsRoutes(
               : null
           const net = current ? current.deposits - current.withdrawals : null
           const prevNet = previous ? previous.deposits - previous.withdrawals : null
+          const volume = change(
+            current?.volume ??
+              (window === 'all' ? candleVolume?.micros : candleCurrent) ??
+              (window === '24h' ? volume24h : null),
+            previous?.volume ?? candlePrevious,
+          )
           const data: ProtocolSummary = {
             window,
             volume: {
-              ...change(
-                current?.volume ??
-                  (window === 'all' ? candleVolume?.micros : candleCurrent) ??
-                  (window === '24h' ? volume24h : null),
-                previous?.volume ?? candlePrevious,
-              ),
+              ...volume,
               ...(candleVolume
                 ? {
                     note: `Perpl API daily candles · listed-market snapshot · ${new Date(candleFrom ?? candleVolume.from).toISOString().slice(0, 10)}–${new Date(candleVolume.through - 86_400_000).toISOString().slice(0, 10)} UTC`,
                   }
-                : {}),
+                : volume.value === null
+                  ? { note: completion.publicHistoryGaps.volume.note }
+                  : {}),
             },
-            fees: change(current?.fees ?? null, previous?.fees ?? null),
-            revenue: change(current?.revenue ?? null, previous?.revenue ?? null),
-            activeUsers: change(current?.users ?? null, previous?.users ?? null, true),
-            liquidations: change(current?.liquidations ?? null, previous?.liquidations ?? null, true),
-            openInterest: change(oi, null),
-            tvl: change(tvl, null),
-            netFlows: change(net, prevNet),
+            fees: current ? change(current.fees, previous?.fees ?? null) : completion.publicHistoryGaps.fees,
+            revenue: current
+              ? change(current.revenue, previous?.revenue ?? null)
+              : completion.publicHistoryGaps.revenue,
+            activeUsers:
+              current?.users !== null && current?.users !== undefined
+                ? change(current.users, previous?.users ?? null, true)
+                : completion.publicHistoryGaps.activeUsers,
+            liquidations: current
+              ? change(current.liquidations, previous?.liquidations ?? null, true)
+              : completion.publicHistoryGaps.liquidations,
+            openInterest: completion.live.openInterest,
+            tvl: completion.live.tvl,
+            netFlows: current ? change(net, prevNet) : completion.publicHistoryGaps.netFlows,
           }
           return wrap(
             data,
@@ -699,8 +707,9 @@ export function registerAnalyticsRoutes(
           const keyset = cursor ? `AND (f.block_number,r.transaction_index,f.log_index) < ($2,$3,$4)` : ''
           if (cursor) params.push(...cursor)
           params.push(limit + 1)
+          const meta = await dbMeta(pool, ctx.block)
           const rows = await db().query(
-            `SELECT f.*,r.transaction_index,p.side,p.action,
+            `SELECT f.*,r.transaction_index,r.block_hash AS proof_block_hash,p.side,p.action,
             CASE WHEN cf.fill_count=1 THEN p.realized_pnl_micros ELSE NULL END AS realized_pnl_micros
             FROM analytics_fills f
           JOIN analytics_raw_events r USING(block_number,transaction_hash,log_index)
@@ -717,7 +726,27 @@ export function registerAnalyticsRoutes(
             params,
           )
           const page = rows.rows.slice(0, limit)
-          const items = page.map((row: Record<string, unknown>) => {
+          const proven: Array<Record<string, unknown>> = []
+          for (const row of page as Array<Record<string, unknown>>) {
+            const accountId = BigInt(String(row.account_id))
+            const blockNumber = BigInt(String(row.block_number))
+            const blockHash = String(row.proof_block_hash)
+            let proof: Awaited<ReturnType<WalletChainAnalytics['ownerAt']>>
+            try {
+              proof = await wallet.ownerAt(accountId, blockNumber, blockHash)
+            } catch {
+              throw fail('ANALYTICS_OWNER_PROOF_UNAVAILABLE', 503)
+            }
+            if (
+              proof.accountId !== String(accountId) ||
+              proof.block !== String(blockNumber) ||
+              proof.blockHash.toLowerCase() !== blockHash.toLowerCase() ||
+              proof.source !== 'monad_exchange'
+            )
+              throw fail('ANALYTICS_OWNER_PROOF_MISMATCH', 503)
+            if (getAddress(proof.address) === address) proven.push(row)
+          }
+          const items = proven.map((row) => {
             const market = precision.get(Number(row.market_id))
             if (!market) throw fail('MARKET_PRECISION_UNAVAILABLE', 503)
             return {
@@ -735,7 +764,7 @@ export function registerAnalyticsRoutes(
               transactionHash: String(row.transaction_hash),
             }
           })
-          const meta = await dbMeta(pool, ctx.block)
+          await assertHistoryUnchanged(pool, ctx.block, meta)
           reply.header('Cache-Control', 'public, max-age=15')
           return wrap(
             { items, nextCursor: rows.rows.length > limit ? cursorFor(page.at(-1)!) : null },
