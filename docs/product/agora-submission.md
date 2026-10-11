@@ -1,5 +1,9 @@
 # Agora mobile trading submission
 
+## Analytics integration status (2026-10-11)
+
+- P2.15 IN PROGRESS — Analytics redesign `3eea443` merged and its web bundle serves the merge SHA. Read-only API fixes for daily market volume, hourly OI/Exchange AUSD snapshots, hex HyperSync block timestamps and liquidation remainder are on `feat/analytics-redesign-api` (commit: current change). Proof: `analytics-alltime-volume.test.ts`, `analytics-snapshots.test.ts`, `analytics-wallet-ondemand.test.ts`, `analytics-liquidation-semantics.test.ts`, `analytics-rollups.test.ts`. These routes do not change manual opening, Book, or strategy controls. Branch CI, deployment and live browser checks remain open.
+
 EYELER joins Mera passkey wallet ownership, Agora AUSD on Monad, and Perpl trading in one Android journey. Its differentiator is what follows the trade: a Book gives a position a liquidation floor, a bounded defense budget and a time limit, with opt-in automation and an execution audit trail.
 
 ## Implemented journey

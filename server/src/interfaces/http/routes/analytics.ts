@@ -13,6 +13,7 @@ import type {
   MarketSummary,
   Metric,
   ProtocolSummary,
+  ProtocolTimeseries,
   Window,
   WindowValue,
   WalletPerformance,
@@ -33,6 +34,7 @@ import {
   type VerifiedHistoryTrade,
 } from '../../../infrastructure/analytics/wallet-completion.js'
 import { WalletOnDemandAnalytics, walletOnDemandFromEnv } from '../../../infrastructure/analytics/wallet-ondemand.js'
+import { AnalyticsSnapshotRepository } from '../../../infrastructure/analytics/snapshots.js'
 import { readCoveredRollups } from '../../../infrastructure/analytics/rollup-repository.js'
 import { completePublicProtocol } from '../../../infrastructure/analytics/protocol-completion.js'
 import { chainConfigs } from '../../../../../packages/chain/src/index.js'
@@ -227,6 +229,8 @@ export function registerAnalyticsRoutes(
     return wallet.profile(address, context)
   }
   const cache = new ResponseCache()
+  const snapshots =
+    pool && process.env.EYELER_ANALYTICS_SNAPSHOTS_ENABLED === 'true' ? new AnalyticsSnapshotRepository(pool) : null
   const listedVolume = (markets: PublicMarket[], through: number) => {
     const ids = markets
       .map((market) => market.id)
@@ -300,6 +304,8 @@ export function registerAnalyticsRoutes(
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
           const rollup = !current ? await windowRollup(window) : null
           const protocolRollup = rollup?.markets.find((market) => market.marketId === -1)
+          const snapshotTvl = snapshots ? await snapshots.latest('tvl') : null
+          const freshTvl = snapshotTvl && Date.now() - snapshotTvl.observedAt.getTime() <= 2 * 3_600_000
           let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
           if ((window === 'all' || window === '7d' || window === '30d') && !current) {
             const through = Math.floor(Date.now() / 86_400_000) * 86_400_000
@@ -371,7 +377,14 @@ export function registerAnalyticsRoutes(
                   }
                 : completion.publicHistoryGaps.liquidations,
             openInterest: completion.live.openInterest,
-            tvl: completion.live.tvl,
+            tvl: snapshots
+              ? freshTvl
+                ? {
+                    ...change(snapshotTvl.micros, null),
+                    note: 'AUSD balance of Perpl Exchange at a finalized Monad block.',
+                  }
+                : { ...change(null, null), note: 'Finalized Exchange AUSD balance has no fresh observation yet.' }
+              : completion.live.tvl,
             netFlows: current
               ? change(net, prevNet)
               : protocolRollup
@@ -383,7 +396,7 @@ export function registerAnalyticsRoutes(
             full || rollup ? 'derived' : 'perpl_api',
             full ? meta.asOf : (rollup?.to ?? ctx.asOf),
             full ? meta.block : rollup ? Number(rollup.throughBlock) : ctx.block,
-            ctx.stale || !full || (window !== 'all' && !prevFull),
+            ctx.stale || !full || (window !== 'all' && !prevFull) || (snapshots !== null && !freshTvl),
             rollup && !full
               ? { from: rollup.from, through: rollup.to, completeHistory: false, label: rollup.label }
               : coverage(meta),
@@ -410,15 +423,50 @@ export function registerAnalyticsRoutes(
             throw fail('INVALID_RANGE')
           reply.header('Cache-Control', 'public, max-age=60')
           return cache.get(`series:${metric}:${interval}:${from}:${to}`, 60_000, async () => {
+            if ((metric === 'oi' || metric === 'tvl') && snapshots) {
+              const series = await snapshots.series(metric, interval as '1h' | '1d', new Date(from), new Date(to))
+              const data: ProtocolTimeseries = {
+                metric,
+                interval: interval as '1h' | '1d',
+                from: new Date(from).toISOString(),
+                to: new Date(to).toISOString(),
+                points: series.points,
+                historyStartedAt: series.historyStartedAt,
+                unavailableReason: series.historyStartedAt
+                  ? series.points.every((point) => point.value === null)
+                    ? `No ${interval === '1d' ? 'daily' : 'hourly'} observations in this range yet.`
+                    : null
+                  : 'Hourly observations start when collection is enabled; earlier values are unavailable.',
+              }
+              const age = series.lastObservedAt ? Date.now() - Date.parse(series.lastObservedAt) : Infinity
+              return wrap(
+                data,
+                metric === 'tvl' ? 'monad_exchange' : 'perpl_api',
+                series.lastObservedAt ?? new Date().toISOString(),
+                series.block,
+                age > 2 * 3_600_000,
+                {
+                  from: series.historyStartedAt,
+                  through: series.lastObservedAt,
+                  completeHistory: false,
+                  label: series.historyStartedAt
+                    ? `Recorded since ${series.historyStartedAt.slice(0, 10)}`
+                    : 'History unavailable',
+                },
+              )
+            }
             const ctx = await publicData.context()
             const points = new Map<number, bigint>()
+            let candleByMarket: Array<Map<number, bigint>> | null = null
+            let candleFirstByMarket: Record<number, number> | null = null
             const meta = await dbMeta(pool, ctx.block)
             const indexedTo = Math.min(to, (meta.through?.getTime() ?? -Infinity) + 1)
             const indexed =
               !!pool &&
               from < indexedTo &&
               covered(meta, from, indexedTo) &&
-              ['volume', 'fees', 'active_users', 'net_flows'].includes(metric)
+              ['volume', 'fees', 'active_users', 'net_flows'].includes(metric) &&
+              !(metric === 'volume' && interval === '1d')
             if (indexed) {
               for (const row of await metricBuckets(pool!, metric as Metric, interval as '1h' | '1d', from, indexedTo))
                 if (covered(meta, row.time, Math.min(row.time + step, to))) points.set(row.time, row.value)
@@ -440,6 +488,8 @@ export function registerAnalyticsRoutes(
                 } catch {
                   // Without verified launch dates, keep the conservative all-markets-present rule.
                 }
+                candleByMarket = byMarket
+                candleFirstByMarket = firstByMarket
               }
               const times = new Set(candles.flatMap((series) => series.map((point) => point.time)))
               for (const time of times) {
@@ -451,12 +501,12 @@ export function registerAnalyticsRoutes(
                 if (values.every((value): value is bigint => value !== undefined)) points.set(time, sumMicros(values))
               }
             }
-            const data = {
+            const data: ProtocolTimeseries = {
               metric: metric as Metric,
               interval: interval as '1h' | '1d',
               from: new Date(from).toISOString(),
               to: new Date(to).toISOString(),
-              points: [] as Array<{ time: string; value: string | null }>,
+              points: [],
             }
             for (let time = Math.ceil(from / step) * step; time < to; time += step)
               data.points.push({
@@ -467,6 +517,21 @@ export function registerAnalyticsRoutes(
                     : signedMoney(points.get(time)!)
                   : null,
               })
+            if (candleByMarket) {
+              data.marketSeries = ctx.value.markets.map((market, index) => ({
+                marketId: market.id,
+                symbol: market.symbol || market.name || String(market.id),
+                points: data.points.map((point) => {
+                  const time = Date.parse(point.time)
+                  const first = candleFirstByMarket?.[market.id]
+                  const micros = first !== undefined && time < first ? 0n : candleByMarket![index].get(time)
+                  return {
+                    time: point.time,
+                    value: point.value === null || micros === undefined ? null : formatMoney(micros),
+                  }
+                }),
+              }))
+            }
             return wrap(
               data,
               indexed || metric !== 'volume' ? 'derived' : 'perpl_api',
