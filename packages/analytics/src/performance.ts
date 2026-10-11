@@ -18,12 +18,24 @@ const ratio = (numerator: bigint, denominator: bigint, scale: number) =>
   denominator === 0n ? null : decimal((numerator * 10n ** BigInt(scale) + denominator / 2n) / denominator, scale)
 
 /** Complete-history closed episodes. Missing opening evidence invalidates performance. */
-export function calculateWalletPerformance(address: string, events: PositionEpisodeEvent[]): WalletPerformance {
+export function calculateWalletPerformance(
+  address: string,
+  events: PositionEpisodeEvent[],
+  startingEquityMicros?: bigint,
+  windowStart?: number,
+): WalletPerformance {
   const open = new Map<string, { at: number; pnl: bigint }>()
   const closed: Array<{ marketId: number; at: number; holdSeconds: number; pnl: bigint }> = []
   const seen = new Set<string>()
   let realized = 0n
   let previousAt = -Infinity
+  let equity = startingEquityMicros ?? 0n
+  let peak = equity
+  let maxDrawdownHundredths = 0n
+  const equityCurve: WalletPerformance['equityCurve'] =
+    startingEquityMicros !== undefined && windowStart !== undefined
+      ? [{ time: new Date(windowStart).toISOString(), value: signedMoney(equity) }]
+      : []
   for (const event of events) {
     if (
       !Number.isSafeInteger(event.at) ||
@@ -42,7 +54,18 @@ export function calculateWalletPerformance(address: string, events: PositionEpis
     }
     const key = `${event.accountId}:${event.marketId}`
     const current = open.get(key)
-    if (event.realizedPnlMicros !== null) realized += event.realizedPnlMicros
+    if (event.realizedPnlMicros !== null) {
+      realized += event.realizedPnlMicros
+      if (startingEquityMicros !== undefined) {
+        equity += event.realizedPnlMicros
+        if (equity > peak) peak = equity
+        if (peak > 0n) {
+          const drawdown = ((peak - equity) * 10_000n + peak / 2n) / peak
+          if (drawdown > maxDrawdownHundredths) maxDrawdownHundredths = drawdown
+        }
+        equityCurve.push({ time: new Date(event.at).toISOString(), value: signedMoney(equity) })
+      }
+    }
     if (event.action === 'open') {
       if (current || event.realizedPnlMicros !== null) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
       open.set(key, { at: event.at, pnl: 0n })
@@ -105,7 +128,8 @@ export function calculateWalletPerformance(address: string, events: PositionEpis
     realizedPnl: signedMoney(realized),
     winRatePct: closed.length ? ratio(BigInt(wins * 100), BigInt(closed.length), 2) : null,
     profitFactor: ratio(gains, losses, 2),
-    maxDrawdownPct: null,
+    maxDrawdownPct:
+      startingEquityMicros !== undefined && startingEquityMicros > 0n ? decimal(maxDrawdownHundredths, 2) : null,
     currentStreak: winStreak || -lossStreak,
     longestWinStreak,
     longestLossStreak,
@@ -113,6 +137,6 @@ export function calculateWalletPerformance(address: string, events: PositionEpis
     bestMarketId: ranked[0]?.[0] ?? null,
     worstMarketId: ranked.at(-1)?.[0] ?? null,
     closedTrades: closed.length,
-    equityCurve: [],
+    equityCurve,
   }
 }
