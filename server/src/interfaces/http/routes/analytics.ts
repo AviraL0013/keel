@@ -256,7 +256,7 @@ export function registerAnalyticsRoutes(
           const current = pool && full ? await summarySlice(pool, from, now) : null
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
           let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
-          if (window === 'all' && !current) {
+          if ((window === 'all' || window === '7d' || window === '30d') && !current) {
             const through = Math.floor(Date.now() / 86_400_000) * 86_400_000
             try {
               candleVolume = await listedVolume(ctx.value.markets, through)
@@ -264,18 +264,37 @@ export function registerAnalyticsRoutes(
               // Summary remains available; unknown historical volume stays null.
             }
           }
+          const candleDays = window === '7d' ? 7 : window === '30d' ? 30 : null
+          const candleFrom = candleVolume && candleDays ? candleVolume.through - candleDays * 86_400_000 : null
+          const candleCurrent =
+            candleVolume && candleFrom !== null && candleFrom >= candleVolume.from
+              ? sumMicros(candleVolume.daily.filter((point) => point.time >= candleFrom).map((point) => point.micros))
+              : null
+          const candlePrevious =
+            candleVolume &&
+            candleDays &&
+            candleFrom !== null &&
+            candleFrom - candleDays * 86_400_000 >= candleVolume.from
+              ? sumMicros(
+                  candleVolume.daily
+                    .filter((point) => point.time >= candleFrom - candleDays * 86_400_000 && point.time < candleFrom)
+                    .map((point) => point.micros),
+                )
+              : null
           const net = current ? current.deposits - current.withdrawals : null
           const prevNet = previous ? previous.deposits - previous.withdrawals : null
           const data: ProtocolSummary = {
             window,
             volume: {
               ...change(
-                current?.volume ?? candleVolume?.micros ?? (window === '24h' ? volume24h : null),
-                previous?.volume ?? null,
+                current?.volume ??
+                  (window === 'all' ? candleVolume?.micros : candleCurrent) ??
+                  (window === '24h' ? volume24h : null),
+                previous?.volume ?? candlePrevious,
               ),
               ...(candleVolume
                 ? {
-                    note: `Perpl API daily candles · listed-market snapshot · ${new Date(candleVolume.from).toISOString().slice(0, 10)}–${new Date(candleVolume.through - 86_400_000).toISOString().slice(0, 10)} UTC`,
+                    note: `Perpl API daily candles · listed-market snapshot · ${new Date(candleFrom ?? candleVolume.from).toISOString().slice(0, 10)}–${new Date(candleVolume.through - 86_400_000).toISOString().slice(0, 10)} UTC`,
                   }
                 : {}),
             },

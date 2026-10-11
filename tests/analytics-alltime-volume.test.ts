@@ -34,6 +34,11 @@ it('sums exact Perpl daily volume across staggered listed markets and excludes u
     from: launch,
     through,
     firstByMarket: { 1: launch, 10: launch + day },
+    daily: [
+      { time: launch, micros: 1_000_001n },
+      { time: launch + day, micros: 6_000_006n },
+      { time: launch + 2 * day, micros: 8_000_008n },
+    ],
   })
 })
 
@@ -155,6 +160,13 @@ it('serves labeled listed-market volume and fails soft when Perpl candles are in
     expect(response.json().data.volume.value).toBe(`${((cutoff - launch) / day) * 2}.000000`)
     expect(response.json().data.volume.note).toContain('Perpl API daily candles')
     expect(response.json().coverage.completeHistory).toBe(false)
+    const week = await app.inject('/analytics/v1/protocol/summary?window=7d')
+    expect(week.json().data.volume.value).toBe('14.000000')
+    expect(week.json().data.volume.previous).toBe('14.000000')
+    expect(week.json().data.volume.note).toContain('Perpl API daily candles')
+    const month = await app.inject('/analytics/v1/protocol/summary?window=30d')
+    expect(month.json().data.volume.value).toBe('60.000000')
+    expect(month.json().data.volume.previous).toBe('60.000000')
   } finally {
     await app.close()
   }
