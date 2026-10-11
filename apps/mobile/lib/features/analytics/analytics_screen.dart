@@ -115,6 +115,10 @@ class _ProtocolOverviewScreenState
                   ),
                   if (value.historyLabels[window] case final label?)
                     Text(label, style: Theme.of(context).textTheme.bodySmall),
+                  if (window == 'All' &&
+                      value.windows[window]!.first.note != null)
+                    Text('Volume: ${value.windows[window]!.first.note!}',
+                        style: Theme.of(context).textTheme.bodySmall),
                   if (window == 'All')
                     Text('Charts show the latest two years.',
                         style: Theme.of(context).textTheme.bodySmall),
@@ -282,8 +286,9 @@ class _ProtocolOverviewScreenState
                               ),
                       );
                       final liquidations = AnalyticsPanel(
-                        title:
-                            'Recent liquidations (24h) · ${value.liquidationCount ?? value.liquidations.length} events · ${AnalyticsNumbers.compact(value.liquidationTotal)}',
+                        title: value.liquidationCount == null
+                            ? 'Recent liquidations (24h) · total unavailable'
+                            : 'Recent liquidations (24h) · ${value.liquidationCount} events · ${AnalyticsNumbers.compact(value.liquidationTotal)}',
                         child: value.liquidations.isEmpty
                             ? const Text('No recent liquidations')
                             : Column(

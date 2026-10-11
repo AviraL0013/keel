@@ -98,6 +98,23 @@ void main() {
         hasLength(1));
   });
 
+  test('carries Perpl candle provenance to the All volume metric', () async {
+    const note =
+        'Perpl API daily candles · listed markets · 2026-02-12–2026-10-10 UTC';
+    final repository = HttpAnalyticsRepository((path) async {
+      final raw = await get(path);
+      if (path.contains('/protocol/summary?window=all')) {
+        final summary = raw as Map<String, dynamic>;
+        final data = summary['data'] as Map<String, dynamic>;
+        (data['volume'] as Map<String, dynamic>)['note'] = note;
+      }
+      return raw;
+    });
+    final overview = await repository.overview();
+    expect(overview.windows['All']!.first.note, note);
+    expect(overview.windows['24h']!.first.note, isNull);
+  });
+
   test('composes market, wallet, search and trade endpoints', () async {
     paths.clear();
     final repository = HttpAnalyticsRepository(get,

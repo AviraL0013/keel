@@ -209,6 +209,15 @@ export function registerAnalyticsRoutes(
     return wallet.profile(address, context)
   }
   const cache = new ResponseCache()
+  const listedVolume = (markets: PublicMarket[], through: number) => {
+    const ids = markets
+      .map((market) => market.id)
+      .sort((a, b) => a - b)
+      .join(',')
+    return cache.get(`listed-volume:${through}:${ids}`, 3_600_000, () =>
+      publicData.listedMarketVolume(markets, through),
+    )
+  }
   const db = () => {
     if (!pool) throw fail('ANALYTICS_DATABASE_UNAVAILABLE', 503)
     return pool
@@ -246,11 +255,49 @@ export function registerAnalyticsRoutes(
           const prevFull = prevFrom !== null && covered(meta, prevFrom, from)
           const current = pool && full ? await summarySlice(pool, from, now) : null
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
+          let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
+          if ((window === 'all' || window === '7d' || window === '30d') && !current) {
+            const through = Math.floor(Date.now() / 86_400_000) * 86_400_000
+            try {
+              candleVolume = await listedVolume(ctx.value.markets, through)
+            } catch {
+              // Summary remains available; unknown historical volume stays null.
+            }
+          }
+          const candleDays = window === '7d' ? 7 : window === '30d' ? 30 : null
+          const candleFrom = candleVolume && candleDays ? candleVolume.through - candleDays * 86_400_000 : null
+          const candleCurrent =
+            candleVolume && candleFrom !== null && candleFrom >= candleVolume.from
+              ? sumMicros(candleVolume.daily.filter((point) => point.time >= candleFrom).map((point) => point.micros))
+              : null
+          const candlePrevious =
+            candleVolume &&
+            candleDays &&
+            candleFrom !== null &&
+            candleFrom - candleDays * 86_400_000 >= candleVolume.from
+              ? sumMicros(
+                  candleVolume.daily
+                    .filter((point) => point.time >= candleFrom - candleDays * 86_400_000 && point.time < candleFrom)
+                    .map((point) => point.micros),
+                )
+              : null
           const net = current ? current.deposits - current.withdrawals : null
           const prevNet = previous ? previous.deposits - previous.withdrawals : null
           const data: ProtocolSummary = {
             window,
-            volume: change(current?.volume ?? (window === '24h' ? volume24h : null), previous?.volume ?? null),
+            volume: {
+              ...change(
+                current?.volume ??
+                  (window === 'all' ? candleVolume?.micros : candleCurrent) ??
+                  (window === '24h' ? volume24h : null),
+                previous?.volume ?? candlePrevious,
+              ),
+              ...(candleVolume
+                ? {
+                    note: `Perpl API daily candles · listed-market snapshot · ${new Date(candleFrom ?? candleVolume.from).toISOString().slice(0, 10)}–${new Date(candleVolume.through - 86_400_000).toISOString().slice(0, 10)} UTC`,
+                  }
+                : {}),
+            },
             fees: change(current?.fees ?? null, previous?.fees ?? null),
             revenue: change(current?.revenue ?? null, previous?.revenue ?? null),
             activeUsers: change(current?.users ?? null, previous?.users ?? null, true),
@@ -310,9 +357,25 @@ export function registerAnalyticsRoutes(
                 ctx.value.markets.map((market) => publicData.volumeCandles(market, interval as '1h' | '1d', from, to)),
               )
               const byMarket = candles.map((series) => new Map(series.map((point) => [point.time, point.micros])))
-              for (const point of candles[0] ?? [])
-                if (byMarket.every((series) => series.has(point.time)))
-                  points.set(point.time, sumMicros(byMarket.map((series) => series.get(point.time)!)))
+              let firstByMarket: Record<number, number> | null = null
+              if (interval === '1d') {
+                try {
+                  firstByMarket = (
+                    await listedVolume(ctx.value.markets, Math.floor(Date.now() / 86_400_000) * 86_400_000)
+                  ).firstByMarket
+                } catch {
+                  // Without verified launch dates, keep the conservative all-markets-present rule.
+                }
+              }
+              const times = new Set(candles.flatMap((series) => series.map((point) => point.time)))
+              for (const time of times) {
+                if (interval === '1d' && time + step > Date.now()) continue
+                const values = byMarket.map((series, index) => {
+                  const first = firstByMarket?.[ctx.value.markets[index].id]
+                  return first !== undefined && time < first ? 0n : series.get(time)
+                })
+                if (values.every((value): value is bigint => value !== undefined)) points.set(time, sumMicros(values))
+              }
             }
             const data = {
               metric: metric as Metric,
@@ -541,7 +604,7 @@ export function registerAnalyticsRoutes(
               items,
               nextCursor: rows.rows.length > limit && last ? cursorFor(last) : null,
               summary: {
-                count: Number(summary.rows[0].count),
+                count: covered(meta, from, to) ? Number(summary.rows[0].count) : null,
                 notional: covered(meta, from, to) ? formatMoney(BigInt(summary.rows[0].notional)) : null,
               },
             },

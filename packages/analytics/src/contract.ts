@@ -24,6 +24,7 @@ export interface WindowValue {
   value: Money | null
   previous: Money | null
   changePct: DecimalText | null // null for all-time or zero/missing baseline
+  note?: string // optional per-metric provenance when summary sources differ
 }
 
 export interface ProtocolSummary {
@@ -110,7 +111,7 @@ export interface Liquidation {
 export interface LiquidationPage {
   items: Liquidation[]
   nextCursor: string | null
-  summary: { count: number; notional: Money | null }
+  summary: { count: number | null; notional: Money | null }
 }
 
 export interface WalletSearch {

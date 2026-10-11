@@ -88,16 +88,18 @@ abstract final class AnalyticsNumbers {
 }
 
 class AnalyticsMetric {
-  const AnalyticsMetric(this.key, this.value, this.delta);
+  const AnalyticsMetric(this.key, this.value, this.delta, {this.note});
   final String key;
   final String? value;
   final String? delta;
+  final String? note;
   factory AnalyticsMetric.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     return AnalyticsMetric(
       AnalyticsParse.string(j, 'key'),
       AnalyticsParse.optionalDecimal(j, 'value'),
       AnalyticsParse.optionalDecimal(j, 'delta'),
+      note: j['note'] == null ? null : AnalyticsParse.string(j, 'note'),
     );
   }
 }

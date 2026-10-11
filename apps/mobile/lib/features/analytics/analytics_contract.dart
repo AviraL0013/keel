@@ -82,14 +82,16 @@ class V1Coverage {
 }
 
 class V1WindowValue {
-  const V1WindowValue(this.value, this.previous, this.changePct);
+  const V1WindowValue(this.value, this.previous, this.changePct, this.note);
   final String? value, previous, changePct;
+  final String? note;
   factory V1WindowValue.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     return V1WindowValue(
         AnalyticsParse.optionalDecimal(j, 'value'),
         AnalyticsParse.optionalDecimal(j, 'previous'),
-        AnalyticsParse.optionalDecimal(j, 'changePct'));
+        AnalyticsParse.optionalDecimal(j, 'changePct'),
+        j['note'] == null ? null : AnalyticsParse.string(j, 'note'));
   }
 }
 
@@ -323,14 +325,14 @@ class V1LiquidationPage {
       this.items, this.nextCursor, this.count, this.notional);
   final List<V1Liquidation> items;
   final String? nextCursor, notional;
-  final int count;
+  final int? count;
   factory V1LiquidationPage.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     final summary = AnalyticsParse.object(j['summary']);
     return V1LiquidationPage(
         V1.list(j, 'items', V1Liquidation.fromJson),
         AnalyticsParse.optionalString(j, 'nextCursor'),
-        V1.integer(summary, 'count'),
+        summary['count'] == null ? null : V1.integer(summary, 'count'),
         AnalyticsParse.optionalDecimal(summary, 'notional'));
   }
 }

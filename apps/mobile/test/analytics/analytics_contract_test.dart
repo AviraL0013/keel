@@ -8,6 +8,17 @@ Object fixture(String name) =>
     jsonDecode(File('test/fixtures/analytics/_$name.json').readAsStringSync());
 
 void main() {
+  test('retains Perpl daily-candle provenance on the all-window volume', () {
+    final raw = jsonDecode(jsonEncode(fixture('protocol_summary')))
+        as Map<String, dynamic>;
+    final volume =
+        (raw['data'] as Map<String, dynamic>)['volume'] as Map<String, dynamic>;
+    volume['note'] =
+        'Perpl API daily candles · listed markets · 2026-02-12–2026-10-10 UTC';
+    final parsed = V1Envelope.fromJson(raw, V1ProtocolSummary.fromJson);
+    expect(parsed.data.metrics['volume']!.note, contains('Perpl API'));
+  });
+
   test(
       'parses recorded candle prices and rejects numeric, negative and unordered values',
       () {
@@ -107,6 +118,13 @@ void main() {
   });
 
   test('preserves null as unavailable and rejects numeric money', () {
+    final liquidation =
+        jsonDecode(jsonEncode(fixture('liquidations'))) as Map<String, dynamic>;
+    ((liquidation['data'] as Map<String, dynamic>)['summary']
+        as Map<String, dynamic>)['count'] = null;
+    expect(
+        V1Envelope.fromJson(liquidation, V1LiquidationPage.fromJson).data.count,
+        isNull);
     final raw = jsonDecode(jsonEncode(fixture('protocol_summary')))
         as Map<String, dynamic>;
     final data = raw['data'] as Map<String, dynamic>;
