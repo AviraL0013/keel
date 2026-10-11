@@ -111,6 +111,11 @@ describe('Analytics v1 public HTTP routes', () => {
     const all = await app.inject('/analytics/v1/protocol/summary?window=all')
     expect(all.json().coverage.completeHistory).toBe(false)
     expect(all.json().coverage.label).toBe('No indexed history')
+    const liquidations = await app.inject('/analytics/v1/liquidations')
+    expect(liquidations.statusCode).toBe(200)
+    expect(liquidations.json().stale).toBe(true)
+    expect(liquidations.json().data.summary.count).toBeNull()
+    expect(liquidations.json().data.summary.notional).toBeNull()
   })
 
   it('uses stable keyset cursors for liquidation pages', async () => {
@@ -140,7 +145,8 @@ describe('Analytics v1 public HTTP routes', () => {
     const first = await app.inject('/analytics/v1/liquidations?limit=1')
     expect(first.statusCode).toBe(200)
     expect(first.json().data.items[0].id).toContain(':3')
-    expect(first.json().data.summary.count).toBe(3)
+    expect(first.json().data.summary.count).toBeNull()
+    expect(first.json().data.items).toHaveLength(1)
     const second = await app.inject(`/analytics/v1/liquidations?limit=1&cursor=${first.json().data.nextCursor}`)
     expect(second.statusCode).toBe(200)
     expect(second.json().data.items[0].id).toContain(':2')

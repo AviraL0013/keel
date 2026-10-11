@@ -541,7 +541,7 @@ export function registerAnalyticsRoutes(
               items,
               nextCursor: rows.rows.length > limit && last ? cursorFor(last) : null,
               summary: {
-                count: Number(summary.rows[0].count),
+                count: covered(meta, from, to) ? Number(summary.rows[0].count) : null,
                 notional: covered(meta, from, to) ? formatMoney(BigInt(summary.rows[0].notional)) : null,
               },
             },

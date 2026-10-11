@@ -110,7 +110,7 @@ export interface Liquidation {
 export interface LiquidationPage {
   items: Liquidation[]
   nextCursor: string | null
-  summary: { count: number; notional: Money | null }
+  summary: { count: number | null; notional: Money | null }
 }
 
 export interface WalletSearch {

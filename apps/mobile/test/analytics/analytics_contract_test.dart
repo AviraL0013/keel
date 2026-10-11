@@ -107,6 +107,13 @@ void main() {
   });
 
   test('preserves null as unavailable and rejects numeric money', () {
+    final liquidation =
+        jsonDecode(jsonEncode(fixture('liquidations'))) as Map<String, dynamic>;
+    ((liquidation['data'] as Map<String, dynamic>)['summary']
+        as Map<String, dynamic>)['count'] = null;
+    expect(
+        V1Envelope.fromJson(liquidation, V1LiquidationPage.fromJson).data.count,
+        isNull);
     final raw = jsonDecode(jsonEncode(fixture('protocol_summary')))
         as Map<String, dynamic>;
     final data = raw['data'] as Map<String, dynamic>;

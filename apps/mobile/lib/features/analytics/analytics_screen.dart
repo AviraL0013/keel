@@ -282,8 +282,9 @@ class _ProtocolOverviewScreenState
                               ),
                       );
                       final liquidations = AnalyticsPanel(
-                        title:
-                            'Recent liquidations (24h) · ${value.liquidationCount ?? value.liquidations.length} events · ${AnalyticsNumbers.compact(value.liquidationTotal)}',
+                        title: value.liquidationCount == null
+                            ? 'Recent liquidations (24h) · total unavailable'
+                            : 'Recent liquidations (24h) · ${value.liquidationCount} events · ${AnalyticsNumbers.compact(value.liquidationTotal)}',
                         child: value.liquidations.isEmpty
                             ? const Text('No recent liquidations')
                             : Column(

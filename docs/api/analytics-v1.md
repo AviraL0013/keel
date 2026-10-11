@@ -45,6 +45,8 @@ Perpl public REST provides context, market snapshots, candles and funding. Its a
 
 ## CHANGELOG
 
+- 2026-10-11: `LiquidationPage.summary.count` is nullable. It is `null` when the requested history is not fully indexed, just like `summary.notional`; a partial count must not appear as a complete zero. The page can still contain indexed events and its envelope remains stale until coverage is complete.
+
 - 2026-10-08: Added `GET /markets/:id/prices?interval=1h|1d&from=<UTC>&to=<UTC>` returning `MarketPrices` (`marketId`, `interval`, `from`, `to`, `points`). Values are exact decimal candle closes at candle open timestamps, not marks or interpolated prices. Completed closes require the end of the bucket to be covered by both the upstream timestamp and wall clock; missing or unfinished buckets remain null. Ranges are bounded to 2,160 buckets and 90 days hourly / 730 days daily; each upstream request is capped at 1,000 buckets. Envelope time/block come from the candle response, not the context endpoint. Archived or incomplete responses are stale. Flutter validates identity/range before display. `_markets_id_prices.json` is a two-candle excerpt of recorded BTC mainnet evidence, unlike the older synthetic endpoint fixtures.
 
 - 2026-10-08: Performance and market skew now reject incomplete ownership or unsupported settlement reconstruction. Cached values include checkpoint and coverage revision; concurrent rewind during these reads returns `ANALYTICS_HISTORY_CHANGED` (503). Unknown contract-to-market mappings return `ANALYTICS_SETTLEMENT_CONTEXT_UNAVAILABLE` (503). No response fields or paths changed.

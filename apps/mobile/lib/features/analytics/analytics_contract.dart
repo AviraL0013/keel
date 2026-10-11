@@ -323,14 +323,14 @@ class V1LiquidationPage {
       this.items, this.nextCursor, this.count, this.notional);
   final List<V1Liquidation> items;
   final String? nextCursor, notional;
-  final int count;
+  final int? count;
   factory V1LiquidationPage.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     final summary = AnalyticsParse.object(j['summary']);
     return V1LiquidationPage(
         V1.list(j, 'items', V1Liquidation.fromJson),
         AnalyticsParse.optionalString(j, 'nextCursor'),
-        V1.integer(summary, 'count'),
+        summary['count'] == null ? null : V1.integer(summary, 'count'),
         AnalyticsParse.optionalDecimal(summary, 'notional'));
   }
 }
