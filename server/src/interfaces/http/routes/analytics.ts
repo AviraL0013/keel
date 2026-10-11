@@ -35,6 +35,7 @@ import {
 } from '../../../infrastructure/analytics/wallet-completion.js'
 import { WalletOnDemandAnalytics, walletOnDemandFromEnv } from '../../../infrastructure/analytics/wallet-ondemand.js'
 import { AnalyticsSnapshotRepository } from '../../../infrastructure/analytics/snapshots.js'
+import { readDailyRollupSeries } from '../../../infrastructure/analytics/daily-rollup-series.js'
 import { readCoveredRollups } from '../../../infrastructure/analytics/rollup-repository.js'
 import { completePublicProtocol } from '../../../infrastructure/analytics/protocol-completion.js'
 import { chainConfigs } from '../../../../../packages/chain/src/index.js'
@@ -306,6 +307,32 @@ export function registerAnalyticsRoutes(
           const protocolRollup = rollup?.markets.find((market) => market.marketId === -1)
           const snapshotTvl = snapshots ? await snapshots.latest('tvl') : null
           const freshTvl = snapshotTvl && Date.now() - snapshotTvl.observedAt.getTime() <= 2 * 3_600_000
+          const revenueHistory =
+            pool && window === '30d' && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true'
+              ? await cache.get(`revenue-history:${Math.floor(Date.now() / 86_400_000)}`, 300_000, async () => {
+                  const end = Math.floor(Date.now() / 86_400_000) * 86_400_000
+                  const start = end - 30 * 86_400_000
+                  const series = await readDailyRollupSeries(pool, 'revenue', new Date(start), new Date(end))
+                  return wrap(
+                    {
+                      interval: '1d' as const,
+                      from: new Date(start).toISOString(),
+                      to: new Date(end).toISOString(),
+                      points: series.points,
+                    },
+                    'monad_exchange',
+                    series.asOf ?? ctx.asOf,
+                    series.block,
+                    series.completeDays < 30,
+                    {
+                      from: series.coverageFrom,
+                      through: series.coverageThrough,
+                      completeHistory: false,
+                      label: `Observed ${series.completeDays}/30 complete UTC days`,
+                    },
+                  )
+                })
+              : null
           let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
           if ((window === 'all' || window === '7d' || window === '30d') && !current) {
             const through = Math.floor(Date.now() / 86_400_000) * 86_400_000
@@ -391,6 +418,7 @@ export function registerAnalyticsRoutes(
                 ? { ...change(protocolRollup.netFlowsMicros, null), note: `${rollup?.label} · complete UTC buckets` }
                 : completion.publicHistoryGaps.netFlows,
           }
+          if (revenueHistory) data.revenue.history = revenueHistory
           return wrap(
             data,
             full || rollup ? 'derived' : 'perpl_api',
@@ -772,6 +800,10 @@ export function registerAnalyticsRoutes(
             }
           })
           const last = page.at(-1)
+          const dailyNotional =
+            pool && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true'
+              ? await readDailyRollupSeries(pool, 'liquidation_notional', new Date(from), new Date(to), marketId ?? -1)
+              : null
           reply.header('Cache-Control', 'public, max-age=15')
           return wrap(
             {
@@ -781,6 +813,16 @@ export function registerAnalyticsRoutes(
                 count: covered(meta, from, to) ? Number(summary.rows[0].count) : null,
                 notional: covered(meta, from, to) ? formatMoney(BigInt(summary.rows[0].notional)) : null,
               },
+              ...(dailyNotional
+                ? {
+                    dailyNotional: {
+                      interval: '1d' as const,
+                      from: new Date(from).toISOString(),
+                      to: new Date(to).toISOString(),
+                      points: dailyNotional.points,
+                    },
+                  }
+                : {}),
             },
             'monad_exchange',
             meta.asOf,
@@ -855,7 +897,17 @@ export function registerAnalyticsRoutes(
         const result = await walletProfile(address, ctx.value)
         if (!result) throw fail('WALLET_NOT_FOUND', 404)
         reply.header('Cache-Control', 'public, max-age=15')
-        return result
+        return {
+          ...result,
+          data: {
+            ...result.data,
+            margin: {
+              ...result.data.margin,
+              used: null,
+              usedUnavailableReason: 'Complete position collateral across all wallet accounts is not verified.',
+            },
+          },
+        }
       })
 
       routes.get<{ Params: { address: string }; Querystring: { limit?: string; cursor?: string } }>(
