@@ -82,14 +82,16 @@ class V1Coverage {
 }
 
 class V1WindowValue {
-  const V1WindowValue(this.value, this.previous, this.changePct);
+  const V1WindowValue(this.value, this.previous, this.changePct, this.note);
   final String? value, previous, changePct;
+  final String? note;
   factory V1WindowValue.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     return V1WindowValue(
         AnalyticsParse.optionalDecimal(j, 'value'),
         AnalyticsParse.optionalDecimal(j, 'previous'),
-        AnalyticsParse.optionalDecimal(j, 'changePct'));
+        AnalyticsParse.optionalDecimal(j, 'changePct'),
+        j['note'] == null ? null : AnalyticsParse.string(j, 'note'));
   }
 }
 

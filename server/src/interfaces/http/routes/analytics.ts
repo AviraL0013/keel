@@ -246,11 +246,36 @@ export function registerAnalyticsRoutes(
           const prevFull = prevFrom !== null && covered(meta, prevFrom, from)
           const current = pool && full ? await summarySlice(pool, from, now) : null
           const previous = pool && prevFull && prevFrom !== null ? await summarySlice(pool, prevFrom, from) : null
+          let candleVolume: Awaited<ReturnType<PerplPublicAnalytics['listedMarketVolume']>> | null = null
+          if (window === 'all' && !current) {
+            const through = Math.floor(Date.now() / 86_400_000) * 86_400_000
+            const ids = ctx.value.markets
+              .map((market) => market.id)
+              .sort((a, b) => a - b)
+              .join(',')
+            try {
+              candleVolume = await cache.get(`listed-volume:${through}:${ids}`, 3_600_000, () =>
+                publicData.listedMarketVolume(ctx.value.markets, through),
+              )
+            } catch {
+              // Summary remains available; unknown historical volume stays null.
+            }
+          }
           const net = current ? current.deposits - current.withdrawals : null
           const prevNet = previous ? previous.deposits - previous.withdrawals : null
           const data: ProtocolSummary = {
             window,
-            volume: change(current?.volume ?? (window === '24h' ? volume24h : null), previous?.volume ?? null),
+            volume: {
+              ...change(
+                current?.volume ?? candleVolume?.micros ?? (window === '24h' ? volume24h : null),
+                previous?.volume ?? null,
+              ),
+              ...(candleVolume
+                ? {
+                    note: `Perpl API daily candles · listed-market snapshot · ${new Date(candleVolume.from).toISOString().slice(0, 10)}–${new Date(candleVolume.through - 86_400_000).toISOString().slice(0, 10)} UTC`,
+                  }
+                : {}),
+            },
             fees: change(current?.fees ?? null, previous?.fees ?? null),
             revenue: change(current?.revenue ?? null, previous?.revenue ?? null),
             activeUsers: change(current?.users ?? null, previous?.users ?? null, true),

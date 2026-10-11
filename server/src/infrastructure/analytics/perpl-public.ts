@@ -153,6 +153,61 @@ export class PerplPublicAnalytics {
     return [...values].map(([time, micros]) => ({ time, micros }))
   }
 
+  async listedMarketVolume(
+    markets: PublicMarket[],
+    through: number,
+  ): Promise<{ micros: bigint; from: number; through: number }> {
+    const day = 86_400_000
+    const launch = Date.UTC(2026, 1, 12) // First observed BTC and MON daily candles on Perpl mainnet.
+    const from = Date.UTC(2026, 0, 1)
+    if (
+      !markets.length ||
+      !Number.isSafeInteger(through) ||
+      through % day !== 0 ||
+      through <= launch ||
+      through > Date.now()
+    )
+      throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+    const ids = markets.map((market) => market.id)
+    if (ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length)
+      throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+    const histories = await Promise.all(
+      markets.map(async (market) => {
+        const values = new Map<number, bigint>()
+        for (let start = from; start < through; start += 1000 * day) {
+          const end = Math.min(through, start + 1000 * day)
+          const raw = await this.read<{ r: number; d: Array<{ t: number; v: string }> }>(
+            `/v1/market-data/${market.id}/candles/86400/${start}-${end}`,
+          )
+          if (raw?.r !== 86400 || !Array.isArray(raw.d) || raw.d.length > 1024)
+            throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+          for (const item of raw.d) {
+            if (
+              !Number.isSafeInteger(item?.t) ||
+              item.t % day !== 0 ||
+              typeof item.v !== 'string' ||
+              !/^\d+$/.test(item.v)
+            )
+              throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+            if (item.t < from || item.t >= through) continue // Perpl can include a boundary or unfinished candle.
+            const micros = BigInt(item.v)
+            if (values.has(item.t) && values.get(item.t) !== micros) throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+            values.set(item.t, micros)
+          }
+        }
+        const days = [...values.keys()].sort((a, b) => a - b)
+        if (!days.length || days[0] < launch || days.at(-1) !== through - day)
+          throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+        for (let i = 1; i < days.length; i++)
+          if (days[i] !== days[i - 1] + day) throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+        return { first: days[0], micros: [...values.values()].reduce((total, value) => total + value, 0n) }
+      }),
+    )
+    if (Math.min(...histories.map((history) => history.first)) !== launch)
+      throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
+    return { micros: histories.reduce((total, history) => total + history.micros, 0n), from: launch, through }
+  }
+
   async prices(market: PublicMarket, interval: '1h' | '1d', from: number, to: number): Promise<Envelope<MarketPrices>> {
     const step = interval === '1h' ? 3_600_000 : 86_400_000
     if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || from >= to || to - from > step * 2160)

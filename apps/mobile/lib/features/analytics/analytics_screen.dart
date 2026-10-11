@@ -115,6 +115,10 @@ class _ProtocolOverviewScreenState
                   ),
                   if (value.historyLabels[window] case final label?)
                     Text(label, style: Theme.of(context).textTheme.bodySmall),
+                  if (window == 'All' &&
+                      value.windows[window]!.first.note != null)
+                    Text('Volume: ${value.windows[window]!.first.note!}',
+                        style: Theme.of(context).textTheme.bodySmall),
                   if (window == 'All')
                     Text('Charts show the latest two years.',
                         style: Theme.of(context).textTheme.bodySmall),

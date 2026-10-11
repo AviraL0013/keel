@@ -26,8 +26,9 @@ String goldenPath(String name) =>
     'goldens/${Platform.isLinux ? 'linux/' : ''}$name.png';
 
 class StateRepository implements AnalyticsRepository {
-  StateRepository(this.state);
+  StateRepository(this.state, {this.volumeNote});
   final ViewState state;
+  final String? volumeNote;
   final pending = Completer<void>();
 
   @override
@@ -67,6 +68,11 @@ class StateRepository implements AnalyticsRepository {
   @override
   Future<AnalyticsOverview> overview() => _result((root) {
         final json = root['overview'] as Map<String, dynamic>;
+        if (volumeNote != null) {
+          final windows = json['windows'] as Map<String, dynamic>;
+          final all = windows['All'] as List<dynamic>;
+          (all.first as Map<String, dynamic>)['note'] = volumeNote;
+        }
         json['asOf'] = state == ViewState.stale
             ? '2020-01-01T00:00:00Z'
             : '2100-01-01T00:00:00Z';
@@ -196,6 +202,24 @@ void main() {
             ..addFont(Future.value(ByteData.sublistView(bytes))))
           .load();
     }
+  });
+  testWidgets('All volume shows Perpl API snapshot source at 320dp',
+      (tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await mount(
+        tester,
+        const Size(320, 860),
+        const Scaffold(body: ProtocolOverviewScreen()),
+        StateRepository(ViewState.loaded,
+            volumeNote:
+                'Perpl API daily candles · listed-market snapshot · 2026-02-12–2026-10-10 UTC'),
+        MemoryAnalyticsLocalStore());
+    await tester.tap(find.text('All').first);
+    await tester.pumpAndSettle();
+    expect(
+        find.textContaining('Volume: Perpl API daily candles'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
   for (final width in [320.0, 360.0, 412.0, 1280.0]) {
     final size = Size(width, 860);

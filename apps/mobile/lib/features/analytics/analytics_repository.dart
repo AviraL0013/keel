@@ -133,7 +133,8 @@ class HttpAnalyticsRepository implements AnalyticsRepository {
           ('activeUsers', 'activeUsers'),
         ])
           AnalyticsMetric(
-              label, metrics[field]!.value, metrics[field]!.changePct),
+              label, metrics[field]!.value, metrics[field]!.changePct,
+              note: metrics[field]!.note),
       ];
       volumeSeries[key] =
           item.timeseries.data.points.map((point) => point.toView()).toList();
