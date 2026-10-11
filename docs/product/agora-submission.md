@@ -1,5 +1,9 @@
 # Agora mobile trading submission
 
+## Joint release integration, 2026-10-12
+
+The isolated `feat/analytics-perpl-integration` branch combines the CI-green Perpl candidate `c7f5374` with main analytics `f025b65` and extras `f737cd8` (merge commits `cfeafb1`, `cc30253`). Focused analytics and Book automation tests are running; exact integration CI, main merge and deploy are not yet proved. Railway currently serves candidate source from older main and therefore lacks the new analytics worker despite analytics flags remaining enabled. No real order, funding or strategy-LIVE setting changed in this integration.
+
 ## Analytics integration status (2026-10-11)
 
 - P2.15 DONE in main, deployment superseded — Analytics redesign `3eea443` and additive read-only API `f025b65` merged and passed feature/main CI. Railway `/ready` was 200 with one replica and lock; signed-out 360/1280 px dashboard screenshots were reviewed. Hourly OI and finalized Exchange AUSD snapshots began. At 18:11 UTC unmerged Perpl candidate `c7f5374` from older main replaced the analytics API deployment; analytics routes now lack new data despite flags remaining on. Proof: `analytics-alltime-volume.test.ts`, `analytics-snapshots.test.ts`, `analytics-wallet-ondemand.test.ts`, `analytics-liquidation-semantics.test.ts`, `analytics-rollups.test.ts`, public deep-link tests and CI `38147399607`. Trading variables were unchanged by the analytics merge. Historical wallet coverage remains incomplete.
