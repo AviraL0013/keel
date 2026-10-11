@@ -29,7 +29,81 @@ it('sums exact Perpl daily volume across staggered listed markets and excludes u
       { t: launch + 2 * day, v: '5000005' },
     ],
   }).listedMarketVolume(markets, through)
-  expect(result).toEqual({ micros: 15_000_015n, from: launch, through })
+  expect(result).toEqual({
+    micros: 15_000_015n,
+    from: launch,
+    through,
+    firstByMarket: { 1: launch, 10: launch + day },
+  })
+})
+
+it('keeps pre-listing days in daily charts but refuses a missing post-listing candle', async () => {
+  const fixture = JSON.parse(readFileSync('packages/analytics/fixtures/mainnet-public.json', 'utf8'))
+  const context = { ...fixture.context, markets: fixture.context.markets.slice(0, 2) }
+  const start = Date.UTC(2026, 9, 1)
+  const app = Fastify()
+  registerAnalyticsRoutes(app, null, {
+    publicData: {
+      context: async () => ({ value: context, asOf: new Date().toISOString(), block: null, stale: false }),
+      listedMarketVolume: async () => ({
+        micros: 0n,
+        from: launch,
+        through: Math.floor(Date.now() / day) * day,
+        firstByMarket: { [context.markets[0].id]: launch, [context.markets[1].id]: start + day },
+      }),
+      volumeCandles: async (market: PublicMarket) =>
+        market.id === context.markets[0].id
+          ? [0, 1, 2].map((offset) => ({ time: start + offset * day, micros: 1_000_000n }))
+          : [{ time: start + day, micros: 2_000_000n }],
+    } as unknown as PerplPublicAnalytics,
+  })
+  try {
+    const response = await app.inject(
+      `/analytics/v1/protocol/timeseries?metric=volume&interval=1d&from=${new Date(start).toISOString()}&to=${new Date(start + 3 * day).toISOString()}`,
+    )
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.points.map((point: { value: string | null }) => point.value)).toEqual([
+      '1.000000',
+      '3.000000',
+      null,
+    ])
+  } finally {
+    await app.close()
+  }
+})
+
+it('leaves the current unfinished UTC day unavailable in daily volume charts', async () => {
+  const fixture = JSON.parse(readFileSync('packages/analytics/fixtures/mainnet-public.json', 'utf8'))
+  const context = { ...fixture.context, markets: fixture.context.markets.slice(0, 2) }
+  const today = Math.floor(Date.now() / day) * day
+  const app = Fastify()
+  registerAnalyticsRoutes(app, null, {
+    publicData: {
+      context: async () => ({ value: context, asOf: new Date().toISOString(), block: null, stale: false }),
+      listedMarketVolume: async () => ({
+        micros: 0n,
+        from: launch,
+        through: today,
+        firstByMarket: Object.fromEntries(context.markets.map((market: PublicMarket) => [market.id, launch])),
+      }),
+      volumeCandles: async () => [
+        { time: today - day, micros: 1_000_000n },
+        { time: today, micros: 2_000_000n },
+      ],
+    } as unknown as PerplPublicAnalytics,
+  })
+  try {
+    const response = await app.inject(
+      `/analytics/v1/protocol/timeseries?metric=volume&interval=1d&from=${new Date(today - day).toISOString()}&to=${new Date().toISOString()}`,
+    )
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.points.map((point: { value: string | null }) => point.value)).toEqual([
+      '2.000000',
+      null,
+    ])
+  } finally {
+    await app.close()
+  }
 })
 
 it('refuses gaps, malformed volume, wrong resolution, and missing launch anchor', async () => {

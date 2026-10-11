@@ -156,7 +156,7 @@ export class PerplPublicAnalytics {
   async listedMarketVolume(
     markets: PublicMarket[],
     through: number,
-  ): Promise<{ micros: bigint; from: number; through: number }> {
+  ): Promise<{ micros: bigint; from: number; through: number; firstByMarket: Record<number, number> }> {
     const day = 86_400_000
     const launch = Date.UTC(2026, 1, 12) // First observed BTC and MON daily candles on Perpl mainnet.
     const from = Date.UTC(2026, 0, 1)
@@ -200,12 +200,21 @@ export class PerplPublicAnalytics {
           throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
         for (let i = 1; i < days.length; i++)
           if (days[i] !== days[i - 1] + day) throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
-        return { first: days[0], micros: [...values.values()].reduce((total, value) => total + value, 0n) }
+        return {
+          id: market.id,
+          first: days[0],
+          micros: [...values.values()].reduce((total, value) => total + value, 0n),
+        }
       }),
     )
     if (Math.min(...histories.map((history) => history.first)) !== launch)
       throw Error('PERPL_CANDLE_HISTORY_INCOMPLETE')
-    return { micros: histories.reduce((total, history) => total + history.micros, 0n), from: launch, through }
+    return {
+      micros: histories.reduce((total, history) => total + history.micros, 0n),
+      from: launch,
+      through,
+      firstByMarket: Object.fromEntries(histories.map((history) => [history.id, history.first])),
+    }
   }
 
   async prices(market: PublicMarket, interval: '1h' | '1d', from: number, to: number): Promise<Envelope<MarketPrices>> {

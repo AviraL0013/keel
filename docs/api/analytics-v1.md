@@ -10,6 +10,8 @@ Time values use UTC ISO 8601. `window` accepts `24h`, `7d`, `30d`, `all`. For `a
 
 When complete Exchange history is unavailable, `summary?window=all` may supply `volume.value` from Perpl's public daily candles for **currently listed markets**. Its optional `volume.note` states the source and exact completed UTC date range. Every listed market must have consecutive daily candles from its first recorded day through the last completed day; at least one must start at the observed 2026-02-12 launch date. Missing, malformed or conflicting candles within a response leave `volume.value: null` without blocking other metrics. The summary's indexed `coverage.completeHistory` stays false. This candle total does not prove that no market was delisted before the current market list. Repeated public calls can also return different historical values with the same upstream `at.b`; the note calls this an observed snapshot, not a reconciled immutable total.
 
+Daily volume series use those validated first-candle dates to omit markets before their first recorded candle. A missing candle **after** a market started leaves that day null, never zero. Before the first observed protocol candle and for the current unfinished UTC day, points remain null.
+
 Public routes use 60 requests/minute per IP. Responses carry `Cache-Control`; target TTL is 15 seconds for live snapshots, 60 seconds for historical series, 5 minutes for completed daily buckets. CORS allows `https://app.eyeler.xyz` and a configured future analytics origin. Errors use `{ "error": "CODE", "message": "..." }`; invalid query/path returns 400, unknown market or unindexed wallet returns 404, unavailable source returns 503. Errors carry `Cache-Control: no-store`. Target p95: under 250 ms from local database/cache, excluding internet latency. No partial successful response may masquerade as complete.
 
 ## Protocol
@@ -48,6 +50,7 @@ Perpl public REST provides context, market snapshots, candles and funding. Its a
 ## CHANGELOG
 
 - 2026-10-11: Added optional `WindowValue.note` and Perpl public daily-candle fallback for `all` volume. Results cover currently listed markets through the last completed UTC day and are cached for one hour. This does not mark chain-indexed fees, flows, wallet history or the full protocol history complete.
+- 2026-10-11: Daily volume charts now account for staggered market launches using the same validated Perpl candle history; post-launch gaps stay null.
 
 - 2026-10-11: `LiquidationPage.summary.count` is nullable. It is `null` when the requested history is not fully indexed, just like `summary.notional`; a partial count must not appear as a complete zero. The page can still contain indexed events and its envelope remains stale until coverage is complete.
 
