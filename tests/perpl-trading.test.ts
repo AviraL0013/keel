@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import type { AddressInfo } from 'node:net'
+import type { VenueProgress } from '../packages/domain/src/index.js'
 import type { Ed25519PerplSigner } from '../packages/perpl/src/signer.js'
 import { PerplTradingClient, highestOrderDescIdRejection } from '../packages/perpl/src/trading.js'
 
@@ -373,6 +374,89 @@ describe('Perpl read-only trading WebSocket lifecycle', () => {
       })
       expect(client.isReady()).toBe(true)
       expect(client.lifecycleState()).toBe('READY')
+    } finally {
+      client.close()
+    }
+  })
+
+  it.each([
+    { hook: 'persistence', head: 110 },
+    { hook: 'authorization', head: 110 },
+    { hook: 'persistence', head: 120 },
+    { hook: 'authorization', head: 120 },
+  ])('preserves the Book execution bound when $hook advances the heartbeat to $head', async ({ hook, head }) => {
+    server = new WebSocketServer({ port: 0 })
+    let peer: import('ws').WebSocket | undefined
+    let durable: { reference: string; lb: number; prepared: VenueProgress } | undefined
+    let sent: { mt: number; sn: number; rq: number; lb?: number } | undefined
+    let persistedBeforeSend = false
+    server.on('connection', (socket) => {
+      peer = socket
+      socket.on('message', (raw) => {
+        const frame = JSON.parse(String(raw)) as NonNullable<typeof sent>
+        if (frame.mt === 29) snapshots(socket)
+        if (frame.mt === 22) {
+          sent = frame
+          persistedBeforeSend = durable?.reference === `642:${frame.rq}` && durable.lb === frame.lb
+          socket.send(JSON.stringify({ mt: 3, cid: frame.sn, status: { code: 403, error: 'offline rejection' } }))
+        }
+      })
+    })
+    const client = new PerplTradingClient(
+      config(await listen(server)),
+      signer,
+      () => undefined,
+      localAllocator,
+      currentBaseline,
+    )
+    const advanceHeartbeat = async () => {
+      peer!.send(JSON.stringify({ mt: 100, sn: 11, h: head }))
+      await vi.waitFor(() => expect(client.heartbeat()?.head).toBe(head))
+    }
+    try {
+      await client.connect()
+      const result = client.submit(
+        { id: 'book-action', kind: 'DEFEND' } as never,
+        { mkt: 16, acc: 642, t: 6, s: 0, lv: 1500, a: '1000000', orderTtlBlocks: 20 },
+        async (reference, lb, prepared) => {
+          durable = { reference, lb, prepared: structuredClone(prepared) }
+          if (hook === 'persistence') await advanceHeartbeat()
+        },
+        async () => {
+          expect(durable?.lb).toBe(120)
+          if (hook === 'authorization') await advanceHeartbeat()
+        },
+      )
+      if (head === 120) {
+        await expect(result).rejects.toMatchObject({
+          preSubmission: true,
+          message: 'PERPL_ORDER_EXPIRY_UNAVAILABLE',
+        })
+        expect(sent).toBeUndefined()
+      } else {
+        await expect(result).resolves.toMatchObject({
+          venueReference: '642:45',
+          venueProgress: { requestedLastExecBlock: 120, sentHeartbeatHead: 100, sentHeartbeatSequence: 10 },
+        })
+        expect(persistedBeforeSend).toBe(true)
+        expect(sent).toMatchObject({ mt: 22, rq: 45, lb: 120 })
+      }
+      expect(durable).toMatchObject({
+        reference: '642:45',
+        lb: 120,
+        prepared: {
+          requestId: '45',
+          clientSequence: 1,
+          admitted: false,
+          requestedLastExecBlock: 120,
+          sentHeartbeatHead: 100,
+          sentHeartbeatSequence: 10,
+          orderStatusReceived: false,
+          response: 'PREPARED',
+        },
+      })
+      expect(durable!.prepared.streamEpoch).toBeTruthy()
+      expect(client.heartbeat()?.head).toBe(head)
     } finally {
       client.close()
     }

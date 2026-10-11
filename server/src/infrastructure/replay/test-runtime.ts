@@ -142,7 +142,8 @@ export class DeterministicTestVenue implements RuntimeVenue {
     this.store.setPosition(book.id, { ...current, bookId: book.id })
     this.store.setTelemetry(book.id, { ...this.telemetrySnapshot(), timestamp: Date.now(), freshnessMs: 1 })
   }
-  async submit(action: Action) {
+  async submit(action: Action, verifyBeforeSend?: () => Promise<void>) {
+    await verifyBeforeSend?.()
     return { venueReference: `test-order-${action.id}`, status: 'CONFIRMED' as const }
   }
   async reconcile(action: Action) {

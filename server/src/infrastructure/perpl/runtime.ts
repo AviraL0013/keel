@@ -446,7 +446,12 @@ export function createPerplRuntime(
     contextFor,
     history,
     async (action) => {
-      await store.pool.query('UPDATE actions SET venue_reference=$2 WHERE id=$1', [action.id, action.venueReference])
+      const saved = await store.pool.query(
+        `UPDATE actions SET venue_reference=$2,venue_progress=$3,submitted_at=$4
+         WHERE id=$1 AND status='SUBMITTING' AND venue_reference IS NULL RETURNING id`,
+        [action.id, action.venueReference, JSON.stringify(action.venueProgress), action.submittedAt],
+      )
+      if (!saved.rows.length) throw new Error('ACTION_SUBMISSION_STATE_CHANGED')
     },
     async (action, _evidence, verifiedPosition, context, expectedSizeRaw) => {
       if (
@@ -793,8 +798,8 @@ export function createPerplRuntime(
       trading.close()
       adapter.close()
     },
-    async submit(action) {
-      return live.submit(action)
+    async submit(action, verifyBeforeSend) {
+      return live.submit(action, verifyBeforeSend)
     },
     async submitOpening(openingId, order, beforeSend, verifyBeforeSend) {
       return trading.submitOpening(openingId, order, beforeSend, verifyBeforeSend)

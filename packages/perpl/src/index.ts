@@ -80,7 +80,10 @@ export type VenueAdapter = {
   getFunding(marketId: number): Promise<unknown>
   getPosition(accountId: number, marketId: number, positionId?: number): Promise<Position | null>
   getBalance(accountId: number): Promise<PerplBalance>
-  submit(action: Action): Promise<{
+  submit(
+    action: Action,
+    verifyBeforeSend?: () => Promise<void>,
+  ): Promise<{
     venueReference: string
     status: 'SUBMITTED' | 'CONFIRMED' | 'PARTIAL' | 'CANCELED' | 'EXPIRED' | 'UNKNOWN' | 'FAILED'
     reason?: string

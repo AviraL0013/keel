@@ -2,7 +2,9 @@
 
 Eyeler watches a leveraged position against a reserve and clear risk limits. When conditions change, it chooses HOLD, bounded DEFEND, reduce-only REDUCE or EXIT, then checks Perpl before calling the action complete. If market data or execution evidence is uncertain, it pauses new orders and shows why.
 
-The existing live deployment is the restricted testnet operator build. This repository also implements the Agora bounty candidate: native Mera passkey wallets, per-user encrypted Perpl credentials, mainnet AUSD activation, confirmed opening trades, and guided onboarding. Device passkey ceremonies and a real mainnet demo trade still require release verification; implementation is not a claim about the current deployment. See the [submission journey and demo guide](docs/product/agora-submission.md) and [mainnet rollout plan](docs/deployment/mainnet-bounty.md).
+The repository implements Android Mera-compatible passkey wallets, owner-bound encrypted Perpl credentials, Monad mainnet AUSD activation, explicit opening orders, and opt-in position protection. Mainnet is an allowlisted demo profile; testnet operator and credentialless sandbox profiles remain separate. Deployment and device evidence is recorded in the [Agora journey](docs/product/agora-submission.md); historical checkpoints are not proof that the latest candidate is deployed.
+
+For the **Best Use of Perpl's API** bounty, the mounted automation product is the Book protection bot, not the paper GRID or market maker. See the [Perpl submission and two-minute demo guide](docs/product/perpl-submission.md) for implementation, reliability tests, evidence requirements and remaining release gates. No guaranteed profitability or award claim is made.
 
 | Capability | Live testnet | Public sandbox |
 | --- | --- | --- |
@@ -66,15 +68,16 @@ flutter run -d web-server --web-port 8082 --dart-define=EYELER_API_URL=http://lo
 
 ## Safety in plain words
 
-Eyeler sends no order when telemetry is stale or invalid, a policy refuses it, automation is off, an action is unresolved, or `EYELER_EXECUTION_DISABLED=true`. A DEFEND cannot exceed the reserve, cap or headroom. REDUCE and EXIT are reduce-only. An UNKNOWN or PARTIAL outcome is reconciled, never blindly resubmitted. Pause and kill controls stop automation. The server rejects live Perpl startup with more than one allowed wallet because the trading account is still server-wide.
+Automatic actions require an active, explicitly armed Book, fresh telemetry, sufficient reserve/cap/headroom and execution enabled. Manual actions require their own explicit authorization. Both paths recheck policy and connection authorization immediately before sending. REDUCE and EXIT are reduce-only. An UNKNOWN or PARTIAL outcome is reconciled, never blindly resubmitted. Pause and kill controls stop automation.
 
-`/health` only proves the HTTP process is alive. `/ready` also checks the database, venue, monitor ownership, latest completed tick and execution readiness; it reports when the emergency stop is on. Before deploying, run the [deployment guide](docs/deployment/deploy.md) and [rebrand rollout](docs/deployment/eyeler-rebrand.md). A one-hour evidence file can be produced with `npm run report -- --from <iso> --to <iso>`.
+Request identity and the exact execution deadline are persisted before socket submission. Interrupted new attempts with no durable reference can be fenced and their Book paused; referenced, ambiguous and legacy attempts cannot be reclaimed just because they are old. Per-user mode binds each Book and credential to its owner/account; operator mode retains its single-wallet restriction.
+
+`/health` only proves the HTTP process is alive. `/ready` also checks the database, venue, monitor ownership, latest completed tick and execution readiness; it reports when the emergency stop is on. Before deploying, follow the [deployment guide](docs/deployment/deploy.md) and the relevant [mainnet rollout plan](docs/deployment/mainnet-bounty.md). Run reports separate manual, automatic and historically unattributed attempts, and execution deadlines from confirmed blocks. They do not independently verify stored receipts or establish net profit; see the [report procedure](docs/product/perpl-submission.md#export-and-check-evidence).
 
 ## Known limits and demo
 
-This build requires one backend instance and one live Perpl operator wallet. Android/iOS native WalletConnect, per-user trading connections, production KMS custody and composable contracts are future work. The Perpl enrollment screen also awaits origin whitelisting. Sandbox outcomes are simulations; live confirmations require real testnet evidence. Follow the [scripted demo](docs/demo.md) and inspect the [audit](docs/audit/pre-deploy-audit.md).
+Use one backend instance under the current monitor-lease design. Allowlisted mainnet demo credential custody is explicitly separate from the AWS KMS-backed public profile; it is not a full public-launch approval. Android is the demonstrated native target; an iOS release is not proved.
 
-- App: **[add public URL after deploy]**
-- Sandbox: **[add public URL after deploy]**
-- Demo video: **[add link]**
-- One-hour run report: **[add link]**
+GRID and market maker remain PAPER-only. Their LIVE controller, financial settlement and owned-order cancellation lifecycle are not mounted, even if a LIVE flag is set. Paper start/resume is refused when its worker is disabled. Recorded simulations show sensitivity to assumptions and losing configurations, not reliable profitability. Exact Book net realized P&L and historical automated receipt evidence remain separate submission gates. Sandbox and fake-venue outcomes are always simulations.
+
+The final submission needs a working candidate link, an up-to-two-minute video and independently checked real automated activity. These artifacts must be supplied from an authorized run, not generated from tests or substituted with a manual trade. Historical [demo](docs/demo.md), [audit](docs/audit/pre-deploy-audit.md) and [delivery ledger](docs/product/perpl-product-delivery.md) entries should be read with their stated commit and limitations.

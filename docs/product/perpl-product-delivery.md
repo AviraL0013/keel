@@ -1,5 +1,11 @@
 # Perpl analytics and Autopilot delivery plan
 
+## 2026-10-11 bounty audit checkpoint
+
+The [Perpl submission readiness guide](perpl-submission.md) is the current candidate assessment for Best Use of Perpl's API, on `feat/perpl-bounty-submission` based on main `0fd7d2d`. The mounted live-capable automation is Book protection; GRID and market maker remain PAPER-only, with LIVE release blockers. The older branch/deployment summaries below are historical checkpoints, not assertions about today's runtime. This audit hardens submission/recovery and evidence without deploying, changing production flags or placing a real order. Autonomous on-chain proof and final video/link remain separate gates.
+
+Local candidate proof: 840 Node tests in 140 files passed with disclosed CLI test-only timing budgets; 304 Flutter tests, analyze/format, backend typecheck/build/smoke, release web and debug APK passed. Lint exits 0 with five existing warnings. The [validation checkpoint](perpl-submission.md#local-validation-checkpoint--2026-10-11) records commands and limits; signed Android release and exact-commit CI are not verified. Validation preceded feature-branch commit packaging; main and production were not changed.
+
 ## Current staged request and resume instructions
 
 This section supersedes the older milestone checkboxes below. Agora readiness and guarded Perpl product code are live at main `0830d19`; production still runs testnet operator mode with new flags absent. The active branch is `feat/eyeler-completion`. Production configuration, funding and real orders remain separate operator checkpoints. Continue between stages; stop only at a checkpoint or when all independent work is blocked. Read the evidence and open questions before treating any status as complete.

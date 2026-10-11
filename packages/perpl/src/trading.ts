@@ -170,15 +170,15 @@ export class PerplTradingClient {
   async submit(
     action: Action,
     order: PerplOrder,
-    beforeSend: (reference: string, lb: number) => Promise<void> = async () => undefined,
+    beforeSend: (reference: string, lb: number, prepared: VenueProgress) => Promise<void> = async () => undefined,
     verifyBeforeSend: () => Promise<void> = async () => undefined,
   ): Promise<PerplSubmitResult> {
-    return this.submitIntent(action, order, beforeSend, verifyBeforeSend, false)
+    return this.submitIntent(action, order, beforeSend, verifyBeforeSend)
   }
   async submitOpening(
     openingId: string,
     order: PerplOrder,
-    beforeSend: (reference: string, lb: number) => Promise<void>,
+    beforeSend: (reference: string, lb: number, prepared: VenueProgress) => Promise<void>,
     verifyBeforeSend: () => Promise<void> = async () => undefined,
   ): Promise<PerplSubmitResult> {
     if (
@@ -195,13 +195,13 @@ export class PerplTradingClient {
       order.ms !== undefined
     )
       throw new PerplPreSubmissionError('PERPL_OPEN_ORDER_INVALID')
-    return this.submitIntent({ id: openingId }, order, beforeSend, verifyBeforeSend, true)
+    return this.submitIntent({ id: openingId }, order, beforeSend, verifyBeforeSend)
   }
   /** Resting strategy orders share the same allocator, serial proof, and WS session as Book actions. */
   async submitStrategy(
     intentId: string,
     order: PerplOrder,
-    beforeSend: (reference: string, lb: number) => Promise<void>,
+    beforeSend: (reference: string, lb: number, prepared: VenueProgress) => Promise<void>,
     verifyBeforeSend: () => Promise<void> = async () => undefined,
   ): Promise<PerplSubmitResult> {
     const posting = [1, 2, 3, 4].includes(order.t)
@@ -231,14 +231,13 @@ export class PerplTradingClient {
       order.ms !== undefined
     )
       throw new PerplPreSubmissionError('PERPL_STRATEGY_ORDER_INVALID')
-    return this.submitIntent({ id: intentId }, order, beforeSend, verifyBeforeSend, true, posting || amending, true)
+    return this.submitIntent({ id: intentId }, order, beforeSend, verifyBeforeSend, posting || amending, true)
   }
   private async submitIntent(
     action: { id: string },
     order: PerplOrder,
-    beforeSend: (reference: string, lb: number) => Promise<void>,
+    beforeSend: (reference: string, lb: number, prepared: VenueProgress) => Promise<void>,
     verifyBeforeSend: () => Promise<void>,
-    opening: boolean,
     resting = false,
     strategy = false,
   ): Promise<PerplSubmitResult> {
@@ -296,7 +295,17 @@ export class PerplTradingClient {
     if (!fixedExpiry) throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
     const sn = ++this.sequence,
       reference = `${order.acc}:${rq}`
-    await beforeSend(reference, fixedExpiry.lastExecBlock)
+    await beforeSend(reference, fixedExpiry.lastExecBlock, {
+      requestId: rq,
+      clientSequence: sn,
+      admitted: false,
+      requestedLastExecBlock: fixedExpiry.lastExecBlock,
+      sentHeartbeatHead: fixedExpiry.head,
+      sentHeartbeatSequence: fixedExpiry.sequence,
+      streamEpoch: fixedExpiry.epoch,
+      orderStatusReceived: false,
+      response: 'PREPARED',
+    })
     // REST/history reads and durable persistence may outlast WS authority.
     if (!this.state.ready()) throw new PerplPreSubmissionError('PERPL_TRADING_STATE_UNTRUSTED')
     const latestAccount = this.state.snapshot().accounts.find((item) => item.id === order.acc)
@@ -316,13 +325,12 @@ export class PerplTradingClient {
       throw new PerplPreSubmissionError('PERPL_ACCOUNT_AUTHORITY_CHANGED')
     if (!validForwardedRequestId(rq, String(sendAccount.lfr)))
       throw new PerplPreSubmissionError('PERPL_REQUEST_ID_BASELINE_CHANGED')
-    const expiry = opening ? fixedExpiry : this.orderExpiry(order)
-    if (!expiry) throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
-    if (opening) {
-      const current = this.heartbeat()
-      if (!current || current.epoch !== expiry.epoch || current.head >= expiry.lastExecBlock)
-        throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
-    }
+    // Every order must use the exact durable bound, including Book actions.
+    // Extending it after persistence makes crash recovery unable to prove expiry.
+    const expiry = fixedExpiry
+    const current = this.heartbeat()
+    if (!current || current.epoch !== expiry.epoch || current.head >= expiry.lastExecBlock)
+      throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
     const { orderTtlBlocks: _ttl, ...wireOrder } = order
     wireOrder.lb = expiry.lastExecBlock
     return await new Promise((resolve) => {

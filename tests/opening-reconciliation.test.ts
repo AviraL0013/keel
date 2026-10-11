@@ -33,6 +33,70 @@ describe('IOC opening reconciliation', () => {
     expect(reconcileOpening(input, empty, openedAt + 180_001).status).toBe('UNKNOWN')
   })
 
+  it('does not infer expiry from reset lfr while receipt-backed execution awaits history', () => {
+    const evidence: OpeningEvidence = {
+      ...empty,
+      account: { lfr: '44', block: 111 },
+      operations: [
+        {
+          requestId: '45',
+          type: 1,
+          marketId: 7,
+          block: 110,
+          txHash: `0x${'a'.repeat(64)}`,
+          sizeRaw: '100',
+          positionId: 0,
+          priceRaw: '1000001',
+          leverageHundredths: 500,
+          immediateOrCancel: true,
+          lastExecutionBlock: 111,
+        },
+      ],
+    }
+    const first = reconcileOpening(input, evidence, openedAt + 1_000)
+    expect(first).toEqual({ status: 'VERIFYING', evidence })
+    const nextInput = { ...input, priorOperations: first.evidence!.operations }
+    const nextEvidence = { ...evidence, operations: [] }
+    expect(reconcileOpening(nextInput, nextEvidence, openedAt + 2_000)).toEqual({
+      status: 'VERIFYING',
+      evidence,
+    })
+    expect(reconcileOpening(nextInput, nextEvidence, openedAt + 180_001)).toEqual({
+      status: 'UNKNOWN',
+      error: 'VENUE_OUTCOME_UNVERIFIED',
+      evidence,
+    })
+    expect(reconcileOpening(nextInput, evidence, openedAt + 2_000).evidence!.operations).toEqual(evidence.operations)
+    expect(
+      reconcileOpening(
+        { ...input, priorOperations: [{ ...evidence.operations[0], requestId: '46' }] },
+        nextEvidence,
+        openedAt + 2_000,
+      ),
+    ).toMatchObject({ status: 'FAILED', error: 'PERPL_ORDER_WINDOW_EXPIRED', evidence: { operations: [] } })
+    expect(
+      reconcileOpening(
+        nextInput,
+        { ...nextEvidence, operations: [{ ...evidence.operations[0], priceRaw: '1000002' }] },
+        openedAt + 2_000,
+      ),
+    ).toMatchObject({ status: 'FAILED', error: 'PERPL_REQUEST_ID_SUPERSEDED' })
+    const manyOperations = Array.from({ length: 65 }, (_, index) => ({
+      ...evidence.operations[0],
+      txHash: `0x${index.toString(16).padStart(64, '0')}`,
+    }))
+    const bounded = reconcileOpening({ ...input, priorOperations: manyOperations }, nextEvidence, openedAt + 2_000)
+    expect(bounded.status).toBe('VERIFYING')
+    expect(bounded.evidence!.operations).toHaveLength(64)
+    expect(
+      reconcileOpening(
+        { ...input, priorOperations: manyOperations },
+        { ...nextEvidence, operations: [{ ...evidence.operations[0], priceRaw: '1000002' }] },
+        openedAt + 2_000,
+      ),
+    ).toMatchObject({ status: 'FAILED', error: 'PERPL_REQUEST_ID_SUPERSEDED' })
+  })
+
   it('requires receipt-backed operation, exact fills, and matching position before confirming', () => {
     const evidence: OpeningEvidence = {
       account: { lfr: '45', block: 111 },

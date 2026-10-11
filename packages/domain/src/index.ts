@@ -260,7 +260,7 @@ export type VenueProgress = {
   effectiveLastExecBlock?: number
   /** Successful on-chain execution evidence; used to fence capital snapshot coverage. */
   confirmedExecutionBlock?: number
-  response: 'ADMITTED' | 'REJECTED' | 'ORDER_UPDATE' | 'TIMEOUT' | 'TRANSPORT_AMBIGUOUS'
+  response: 'PREPARED' | 'ADMITTED' | 'REJECTED' | 'ORDER_UPDATE' | 'TIMEOUT' | 'TRANSPORT_AMBIGUOUS'
   code?: number
   orderStatus?: number
   orderReason?: number
@@ -283,7 +283,13 @@ export type Action = {
   amount: number
   status: ActionStatus
   idempotencyKey: string
-  beforeState?: { position: Position; reserve: Reserve; telemetry: NormalizedTelemetry }
+  beforeState?: {
+    position: Position
+    reserve: Reserve
+    telemetry: NormalizedTelemetry
+    /** Only this sender protocol has durable-before-wire and terminal write fences. */
+    submissionProtocol?: 'DURABLE_BOUND_V1'
+  }
   venueReference?: string
   venueProgress?: VenueProgress
   submittedAt?: string
