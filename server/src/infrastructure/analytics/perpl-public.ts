@@ -23,6 +23,14 @@ export interface PublicContext {
   instances: Array<{ address: string }>
   markets: PublicMarket[]
 }
+export interface PublicProtocolAmount {
+  micros: bigint | null
+  reason: string | null
+}
+export interface PublicProtocolTotals {
+  openInterest: PublicProtocolAmount
+  tvl: PublicProtocolAmount
+}
 interface CacheEntry<T> {
   value: T
   at: number
@@ -31,6 +39,45 @@ interface CacheEntry<T> {
 function integer(value: number): bigint {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('PERPL_SCALED_VALUE_INVALID')
   return BigInt(value)
+}
+function amount(value: string): bigint {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new Error('PERPL_AMOUNT_INVALID')
+  return BigInt(value)
+}
+/** Current context totals only. Each metric fails independently if one listed market is malformed. */
+export function publicProtocolTotals(markets: PublicMarket[]): PublicProtocolTotals {
+  const invalid = (reason: string): PublicProtocolAmount => ({ micros: null, reason })
+  if (
+    !Array.isArray(markets) ||
+    markets.length === 0 ||
+    markets.some(
+      (market) =>
+        !Number.isSafeInteger(market?.id) ||
+        market.id <= 0 ||
+        !Number.isSafeInteger(market.perpetual_id) ||
+        market.perpetual_id <= 0,
+    ) ||
+    new Set(markets.map((market) => market.id)).size !== markets.length ||
+    new Set(markets.map((market) => market.perpetual_id)).size !== markets.length
+  ) {
+    const missing = invalid('PERPL_MARKET_LIST_INVALID')
+    return { openInterest: missing, tvl: missing }
+  }
+  const total = (reason: string, read: (market: PublicMarket) => bigint): PublicProtocolAmount => {
+    try {
+      return { micros: markets.reduce((sum, market) => sum + read(market), 0n), reason: null }
+    } catch {
+      return invalid(reason)
+    }
+  }
+  return {
+    openInterest: total('PERPL_CONTEXT_OPEN_INTEREST_INVALID', (market) => {
+      const mark = integer(market.state.mrk)
+      if (mark === 0n) throw Error('PERPL_MARK_PRICE_INVALID')
+      return notionalMicros(mark, integer(market.state.oi), market.config.price_decimals, market.config.size_decimals)
+    }),
+    tvl: total('PERPL_CONTEXT_TVL_INVALID', (market) => amount(market.state.tvl)),
+  }
 }
 export function scaledText(raw: bigint, decimals: number): string {
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) throw new Error('PERPL_PRECISION_INVALID')

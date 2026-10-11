@@ -49,4 +49,30 @@ describe('wallet episode performance', () => {
       'ANALYTICS_EPISODE_INCOMPLETE',
     )
   })
+
+  it('keeps a partially liquidated episode open and requires explicit remaining size', () => {
+    const opening = event('1', 1, 'open', 0)
+    const partial = { ...event('1', 1, 'liquidation', 60, -1n), remainingSizeRaw: 1n }
+    const closing = event('1', 1, 'close', 120, 2n)
+    expect(calculateWalletPerformance('0xwallet', [opening, partial, closing])).toMatchObject({
+      realizedPnl: '0.000001',
+      closedTrades: 1,
+      winRatePct: '100.00',
+    })
+    expect(() => calculateWalletPerformance('0xwallet', [opening, event('1', 1, 'liquidation', 60, -1n)])).toThrow(
+      'ANALYTICS_LIQUIDATION_REMAINDER_UNVERIFIED',
+    )
+    expect(calculateWalletPerformance('0xwallet', [opening, { ...partial, remainingSizeRaw: 0n }]).closedTrades).toBe(1)
+  })
+
+  it('rejects duplicate, unordered and unsupported opening realized amounts', () => {
+    const opening = { ...event('1', 1, 'open', 0), eventId: '1:0x01:0' }
+    expect(() => calculateWalletPerformance('0xwallet', [opening, opening])).toThrow('ANALYTICS_EPISODE_DUPLICATE')
+    expect(() =>
+      calculateWalletPerformance('0xwallet', [event('1', 1, 'open', 60), event('1', 1, 'close', 0, 1n)]),
+    ).toThrow('ANALYTICS_EPISODE_ORDER_INVALID')
+    expect(() => calculateWalletPerformance('0xwallet', [event('1', 1, 'open', 0, 1n)])).toThrow(
+      'ANALYTICS_EPISODE_INCOMPLETE',
+    )
+  })
 })

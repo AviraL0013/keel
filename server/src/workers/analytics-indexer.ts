@@ -14,6 +14,7 @@ import { exchangeEvents } from '../../../packages/analytics/src/exchange-events.
 import { AnalyticsRepository, type IndexedBlock } from '../infrastructure/analytics/repository.js'
 
 const exchangeTopics = exchangeEvents.map((event) => toEventSelector(event as AbiEvent))
+const creationTransaction = '0x22d1d74e137c3a82ac4b702fd90024811b184fcdcf8fd4d1473097b4d8a619f3'
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 type RpcBlock = { number: string; hash: string; timestamp: string }
 
@@ -61,10 +62,15 @@ export class AnalyticsIndexer {
   private markets = new Map<number, MarketPrecision>()
   private marketsAt = 0
   private resolvedStart: bigint | null = null
+  private activeChunkSize: bigint
+  private chunkLimit = 100n
+  private successfulChunks = 0
   constructor(
     readonly repo: AnalyticsRepository,
     readonly config: AnalyticsIndexerConfig,
-  ) {}
+  ) {
+    this.activeChunkSize = config.chunkSize
+  }
 
   private async rpc<T>(
     method: 'eth_chainId' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getLogs',
@@ -113,8 +119,49 @@ export class AnalyticsIndexer {
   }
   private async block(number: bigint): Promise<IndexedBlock> {
     const value = await this.rpc<RpcBlock | null>('eth_getBlockByNumber', [`0x${number.toString(16)}`, false])
+    return this.indexedBlock(number, value)
+  }
+  private indexedBlock(number: bigint, value: RpcBlock | null): IndexedBlock {
     if (!value?.hash || BigInt(value.number) !== number) throw new Error('ANALYTICS_BLOCK_MISSING')
     return { number, hash: value.hash, timestamp: new Date(Number(BigInt(value.timestamp)) * 1000) }
+  }
+  private async blocks(numbers: bigint[]): Promise<IndexedBlock[]> {
+    const blocks: IndexedBlock[] = []
+    for (let offset = 0; offset < numbers.length; offset += 20) {
+      const group = numbers.slice(offset, offset + 20)
+      if (group.length === 1) {
+        blocks.push(await this.block(group[0]))
+        continue
+      }
+      const requests = group.map((number) => ({
+        jsonrpc: '2.0',
+        id: ++this.requestId,
+        method: 'eth_getBlockByNumber',
+        params: [`0x${number.toString(16)}`, false],
+      }))
+      const response = await fetch(this.config.rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(requests),
+        signal: AbortSignal.timeout(20_000),
+      })
+      if (!response.ok) throw new Error(`ANALYTICS_RPC_HTTP_${response.status}`)
+      const body = (await response.json()) as Array<{
+        id: number
+        result?: RpcBlock | null
+        error?: { code: number }
+      }>
+      if (!Array.isArray(body) || body.length !== requests.length) throw new Error('ANALYTICS_RPC_BATCH_INVALID')
+      const byId = new Map(body.map((item) => [item.id, item]))
+      if (byId.size !== requests.length) throw new Error('ANALYTICS_RPC_BATCH_INVALID')
+      for (const [index, request] of requests.entries()) {
+        const item = byId.get(request.id)
+        if (!item || item.error || item.result === undefined)
+          throw new Error(`ANALYTICS_RPC_${item?.error?.code ?? 'BATCH_INVALID'}`)
+        blocks.push(this.indexedBlock(group[index], item.result))
+      }
+    }
+    return blocks
   }
   private async startBlock(head: bigint): Promise<bigint> {
     if (this.config.startBlock !== null) return this.config.startBlock
@@ -135,10 +182,11 @@ export class AnalyticsIndexer {
     if (typeof chain !== 'string' || !/^0x[0-9a-f]+$/i.test(chain) || BigInt(chain) !== 143n)
       throw new Error('ANALYTICS_RPC_CHAIN_MISMATCH')
     const head = BigInt(await this.rpc<string>('eth_blockNumber', []))
-    const checkpoint = await this.repo.initialize(await this.startBlock(head), this.config.historyVerified)
+    const checkpoint = await this.repo.initialize(await this.startBlock(head))
     const finalized = head - this.config.confirmationDepth
+    let previous: IndexedBlock | null = null
     if (checkpoint.nextBlock > checkpoint.startBlock && checkpoint.lastBlockHash) {
-      const previous = await this.block(checkpoint.nextBlock - 1n)
+      previous = await this.block(checkpoint.nextBlock - 1n)
       if (previous.hash.toLowerCase() !== checkpoint.lastBlockHash.toLowerCase()) {
         const rewind =
           checkpoint.nextBlock - 64n > checkpoint.startBlock ? checkpoint.nextBlock - 64n : checkpoint.startBlock
@@ -146,25 +194,76 @@ export class AnalyticsIndexer {
         return 'rewound'
       }
     }
-    if (checkpoint.nextBlock > finalized) return 'caught-up'
-    const end =
-      checkpoint.nextBlock + this.config.chunkSize - 1n < finalized
-        ? checkpoint.nextBlock + this.config.chunkSize - 1n
-        : finalized
+    if (checkpoint.nextBlock > finalized) {
+      if (
+        this.config.historyVerified &&
+        !checkpoint.historyVerified &&
+        checkpoint.startBlock === EXCHANGE_DEPLOYMENT_BLOCK &&
+        previous &&
+        previous.number <= head &&
+        previous.timestamp.getTime() >= Date.now() - 30_000 &&
+        previous.timestamp.getTime() <= Date.now() + 5_000 &&
+        !(await this.repo.markHistoryVerified(finalized, new Date(Date.now() - 30_000)))
+      )
+        throw new Error('ANALYTICS_DEPLOYMENT_ANCHOR_MISSING')
+      return 'caught-up'
+    }
     const markets = await this.context()
-    const rawLogs = await this.rpc<ChainLog[]>('eth_getLogs', [
-      {
-        address: EXCHANGE,
-        fromBlock: `0x${checkpoint.nextBlock.toString(16)}`,
-        toBlock: `0x${end.toString(16)}`,
-        topics: [exchangeTopics],
-      },
-    ])
+    let end: bigint
+    let rawLogs: ChainLog[]
+    while (true) {
+      end =
+        checkpoint.nextBlock + this.activeChunkSize - 1n < finalized
+          ? checkpoint.nextBlock + this.activeChunkSize - 1n
+          : finalized
+      try {
+        rawLogs = await this.rpc<ChainLog[]>('eth_getLogs', [
+          {
+            address: EXCHANGE,
+            fromBlock: `0x${checkpoint.nextBlock.toString(16)}`,
+            toBlock: `0x${end.toString(16)}`,
+            topics: [exchangeTopics],
+          },
+        ])
+        break
+      } catch (error) {
+        if (
+          this.activeChunkSize === 1n ||
+          !(error instanceof Error) ||
+          !/ANALYTICS_RPC_(HTTP_413|-32614)$/.test(error.message)
+        )
+          throw error
+        this.activeChunkSize = this.activeChunkSize / 2n || 1n
+        this.chunkLimit = this.activeChunkSize
+        this.successfulChunks = 0
+      }
+    }
+    if (!Array.isArray(rawLogs)) throw new Error('ANALYTICS_LOGS_INVALID')
+    const distinct = new Map<string, ChainLog>()
+    for (const raw of rawLogs) {
+      const number = BigInt(raw.blockNumber)
+      if (number < checkpoint.nextBlock || number > end || raw.removed) throw new Error('ANALYTICS_LOG_RANGE_INVALID')
+      const key = `${number}:${raw.transactionHash.toLowerCase()}:${BigInt(raw.logIndex)}`
+      const earlier = distinct.get(key)
+      if (earlier && JSON.stringify(earlier) !== JSON.stringify(raw))
+        throw new Error('ANALYTICS_LOG_DUPLICATE_CONFLICT')
+      distinct.set(key, raw)
+    }
+    rawLogs = [...distinct.values()]
+    if (
+      this.config.historyVerified &&
+      checkpoint.nextBlock === EXCHANGE_DEPLOYMENT_BLOCK &&
+      [28n, 30n, 31n].some(
+        (index) =>
+          !rawLogs.some(
+            (raw) => raw.transactionHash.toLowerCase() === creationTransaction && BigInt(raw.logIndex) === index,
+          ),
+      )
+    )
+      throw new Error('ANALYTICS_DEPLOYMENT_ANCHOR_MISSING')
     const blockNumbers = new Set<bigint>([checkpoint.nextBlock, end])
     for (const log of rawLogs) blockNumbers.add(BigInt(log.blockNumber))
-    const blocks: IndexedBlock[] = []
-    for (const number of [...blockNumbers].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
-      blocks.push(await this.block(number))
+    const blocks = await this.blocks([...blockNumbers].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
     const hashes = new Map(blocks.map((block) => [block.number.toString(), block.hash.toLowerCase()]))
     const logs = rawLogs.map((raw) => {
       if (
@@ -183,7 +282,11 @@ export class AnalyticsIndexer {
       boundary.timestamp.getTime() !== observedBoundary.timestamp.getTime()
     )
       throw new Error('ANALYTICS_CHUNK_REORG')
-    await this.repo.saveChunk(blocks, logs, checkpoint.nextBlock, checkpoint.startBlock)
+    await this.repo.saveChunk(blocks, logs, checkpoint.nextBlock, checkpoint.startBlock, end)
+    if (++this.successfulChunks >= 3 && this.activeChunkSize < this.chunkLimit) {
+      this.activeChunkSize = this.activeChunkSize * 2n > this.chunkLimit ? this.chunkLimit : this.activeChunkSize * 2n
+      this.successfulChunks = 0
+    }
     return 'indexed'
   }
   async run(signal: AbortSignal): Promise<void> {

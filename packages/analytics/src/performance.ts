@@ -2,10 +2,12 @@ import type { WalletPerformance } from './contract.js'
 import { signedMoney } from './aggregate.js'
 
 export interface PositionEpisodeEvent {
+  eventId?: string // block:transactionHash:logIndex when sourced from Exchange logs
   accountId: string
   marketId: number
   action: 'open' | 'increase' | 'reduce' | 'close' | 'liquidation' | 'invert'
   realizedPnlMicros: bigint | null
+  remainingSizeRaw?: bigint | null // required to distinguish partial from full liquidation
   at: number
 }
 const decimal = (raw: bigint, scale: number) => {
@@ -19,21 +21,46 @@ const ratio = (numerator: bigint, denominator: bigint, scale: number) =>
 export function calculateWalletPerformance(address: string, events: PositionEpisodeEvent[]): WalletPerformance {
   const open = new Map<string, { at: number; pnl: bigint }>()
   const closed: Array<{ marketId: number; at: number; holdSeconds: number; pnl: bigint }> = []
+  const seen = new Set<string>()
   let realized = 0n
+  let previousAt = -Infinity
   for (const event of events) {
+    if (
+      !Number.isSafeInteger(event.at) ||
+      event.at < 0 ||
+      event.at < previousAt ||
+      !/^\d+$/.test(event.accountId) ||
+      BigInt(event.accountId) <= 0n ||
+      !Number.isSafeInteger(event.marketId) ||
+      event.marketId <= 0
+    )
+      throw new Error('ANALYTICS_EPISODE_ORDER_INVALID')
+    previousAt = event.at
+    if (event.eventId) {
+      if (seen.has(event.eventId)) throw new Error('ANALYTICS_EPISODE_DUPLICATE')
+      seen.add(event.eventId)
+    }
     const key = `${event.accountId}:${event.marketId}`
     const current = open.get(key)
     if (event.realizedPnlMicros !== null) realized += event.realizedPnlMicros
     if (event.action === 'open') {
-      if (current) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
+      if (current || event.realizedPnlMicros !== null) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
       open.set(key, { at: event.at, pnl: 0n })
     } else if (event.action === 'increase') {
-      if (!current) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
+      if (!current || event.realizedPnlMicros !== null) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
     } else if (event.action === 'reduce') {
       if (!current || event.realizedPnlMicros === null) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
       current.pnl += event.realizedPnlMicros
     } else {
       if (!current || event.realizedPnlMicros === null) throw new Error('ANALYTICS_EPISODE_INCOMPLETE')
+      if (event.action === 'liquidation') {
+        if (event.remainingSizeRaw === undefined || event.remainingSizeRaw === null || event.remainingSizeRaw < 0n)
+          throw new Error('ANALYTICS_LIQUIDATION_REMAINDER_UNVERIFIED')
+        if (event.remainingSizeRaw > 0n) {
+          current.pnl += event.realizedPnlMicros
+          continue
+        }
+      }
       current.pnl += event.realizedPnlMicros
       closed.push({
         marketId: event.marketId,

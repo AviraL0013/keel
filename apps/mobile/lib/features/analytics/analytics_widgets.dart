@@ -260,10 +260,14 @@ class AnalyticsChart extends StatefulWidget {
   const AnalyticsChart({
     super.key,
     required this.points,
+    this.label = 'Time series',
+    this.percent = false,
     this.color = EyelerColors.accent,
     this.height = 150,
   });
   final List<AnalyticsPoint> points;
+  final String label;
+  final bool percent;
   final Color color;
   final double height;
   @override
@@ -272,6 +276,21 @@ class AnalyticsChart extends StatefulWidget {
 
 class _AnalyticsChartState extends State<AnalyticsChart> {
   int? selectedIndex;
+
+  String _display(String value) => widget.percent
+      ? '${AnalyticsNumbers.compact(value, money: false, places: 4)}%'
+      : AnalyticsNumbers.compact(value, places: 2);
+
+  void _step(int direction) {
+    final available = [
+      for (var i = 0; i < widget.points.length; i++)
+        if (widget.points[i].value != null) i,
+    ];
+    if (available.isEmpty) return;
+    final current = available.indexOf(selectedIndex ?? -1);
+    final next = (current + direction).clamp(0, available.length - 1);
+    setState(() => selectedIndex = available[next]);
+  }
 
   @override
   void didUpdateWidget(covariant AnalyticsChart oldWidget) {
@@ -299,23 +318,95 @@ class _AnalyticsChartState extends State<AnalyticsChart> {
         child: Center(child: Text('No chart data')),
       );
     }
+    final available =
+        widget.points.where((point) => point.value != null).toList();
+    if (available.isEmpty) {
+      return SizedBox(
+        height: widget.height,
+        child: const Center(child: Text('No observed chart values')),
+      );
+    }
+    final sorted = [
+      ...available
+    ]..sort((a, b) => double.parse(a.value!).compareTo(double.parse(b.value!)));
+    final low = sorted.first.value!;
+    final high = sorted.last.value!;
     final selected =
         selectedIndex == null ? null : widget.points[selectedIndex!];
+    final selectedLabel = selected == null
+        ? null
+        : '${analyticsLocalTime(selected.at, context)} · ${selected.value}${widget.percent ? '%' : ' AUSD'}';
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          height: widget.height,
-          width: double.infinity,
-          child: LayoutBuilder(
-            builder: (context, constraints) => GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (details) =>
-                  select(details.localPosition.dx, constraints.maxWidth),
-              child: CustomPaint(
-                painter: _LinePainter(widget.points, widget.color,
-                    Theme.of(context).dividerColor),
-              ),
+        Semantics(
+          label: '${widget.label} chart, ${available.length} observed values. '
+              'Low ${_display(low)}, high ${_display(high)}. '
+              'Increase or decrease to inspect points.',
+          value: selectedLabel ?? 'No point selected',
+          increasedValue: 'Next observed value',
+          decreasedValue: 'Previous observed value',
+          onIncrease: () => _step(1),
+          onDecrease: () => _step(-1),
+          child: SizedBox(
+            height: widget.height,
+            width: double.infinity,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 58,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_display(high),
+                            maxLines: 1,
+                            style: Theme.of(context).textTheme.labelSmall),
+                        Text(_display(low),
+                            maxLines: 1,
+                            style: Theme.of(context).textTheme.labelSmall),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapDown: (details) => select(
+                                details.localPosition.dx, constraints.maxWidth),
+                            onHorizontalDragUpdate: (details) => select(
+                                details.localPosition.dx, constraints.maxWidth),
+                            child: SizedBox.expand(
+                              child: CustomPaint(
+                                painter: _LinePainter(
+                                    widget.points,
+                                    widget.color,
+                                    Theme.of(context).dividerColor,
+                                    selectedIndex),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(analyticsAxisTime(widget.points.first.at),
+                              style: Theme.of(context).textTheme.labelSmall),
+                          Text(analyticsAxisTime(widget.points.last.at),
+                              style: Theme.of(context).textTheme.labelSmall),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -324,10 +415,8 @@ class _AnalyticsChartState extends State<AnalyticsChart> {
             padding: const EdgeInsets.only(top: 8),
             child: Semantics(
               liveRegion: true,
-              child: Text(
-                '${analyticsLocalTime(selected.at, context)} · ${selected.value}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              child: Text(selectedLabel!,
+                  style: Theme.of(context).textTheme.bodySmall),
             ),
           ),
       ],
@@ -336,9 +425,10 @@ class _AnalyticsChartState extends State<AnalyticsChart> {
 }
 
 class _LinePainter extends CustomPainter {
-  _LinePainter(this.points, this.color, this.grid);
+  _LinePainter(this.points, this.color, this.grid, this.selectedIndex);
   final List<AnalyticsPoint> points;
   final Color color, grid;
+  final int? selectedIndex;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -349,7 +439,8 @@ class _LinePainter extends CustomPainter {
     if (values.isEmpty) return;
     final minimum = values.reduce(math.min);
     final maximum = values.reduce(math.max);
-    final span = maximum == minimum ? 1.0 : maximum - minimum;
+    final flat = maximum == minimum;
+    final span = flat ? 1.0 : maximum - minimum;
     final baseline = Paint()
       ..color = grid
       ..strokeWidth = 1;
@@ -367,8 +458,9 @@ class _LinePainter extends CustomPainter {
       if (points[i].value == null) continue;
       final value = double.parse(points[i].value!);
       final x = points.length == 1 ? 0.0 : size.width * i / (points.length - 1);
-      final y =
-          size.height - 12 - (value - minimum) / span * (size.height - 24);
+      final y = flat
+          ? size.height / 2
+          : size.height - 12 - (value - minimum) / span * (size.height - 24);
       if (plotted == 0 || points[i - 1].value == null) {
         path.moveTo(x, y);
       } else {
@@ -390,17 +482,40 @@ class _LinePainter extends CustomPainter {
           points.length == 1 ? 0.0 : size.width * index / (points.length - 1);
       canvas.drawCircle(Offset(x, size.height / 2), 4, Paint()..color = color);
     }
+    if (selectedIndex case final index?) {
+      if (points[index].value case final raw?) {
+        final x =
+            points.length == 1 ? 0.0 : size.width * index / (points.length - 1);
+        final y = flat
+            ? size.height / 2
+            : size.height -
+                12 -
+                (double.parse(raw) - minimum) / span * (size.height - 24);
+        canvas.drawCircle(Offset(x, y), 5, Paint()..color = Colors.white);
+        canvas.drawCircle(Offset(x, y), 3, Paint()..color = color);
+      }
+    }
   }
 
   @override
   bool shouldRepaint(covariant _LinePainter old) =>
-      old.points != points || old.color != color || old.grid != grid;
+      old.points != points ||
+      old.color != color ||
+      old.grid != grid ||
+      old.selectedIndex != selectedIndex;
 }
 
 String analyticsLocalTime(DateTime value, BuildContext context) {
   final local = value.toLocal();
   final time = TimeOfDay.fromDateTime(local).format(context);
   return '${local.day}/${local.month} $time';
+}
+
+String analyticsAxisTime(DateTime value) {
+  final local = value.toLocal();
+  return '${local.day}/${local.month} '
+      '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}';
 }
 
 String shortAnalyticsAddress(String address) =>
@@ -413,11 +528,17 @@ class AnalyticsMetricTile extends StatelessWidget {
     required this.value,
     this.delta,
     this.money = true,
+    this.trend,
+    this.trendLabel,
+    this.note,
   });
   final String label;
   final String? value;
   final String? delta;
   final bool money;
+  final List<AnalyticsPoint>? trend;
+  final String? trendLabel;
+  final String? note;
   @override
   Widget build(BuildContext context) => Card(
         child: Padding(
@@ -429,7 +550,9 @@ class AnalyticsMetricTile extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 AnalyticsNumbers.compact(value, money: money),
-                style: Theme.of(context).textTheme.headlineSmall,
+                style: value == null
+                    ? Theme.of(context).textTheme.titleMedium
+                    : Theme.of(context).textTheme.headlineSmall,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -442,8 +565,72 @@ class AnalyticsMetricTile extends StatelessWidget {
                         : EyelerColors.defend,
                   ),
                 ),
+              if (value == null)
+                Tooltip(
+                  message: note ?? 'API did not provide a reason',
+                  child: Text('Reason: ${note ?? 'Not supplied by API'}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall),
+                ),
+              if (trend != null &&
+                  trend!.where((p) => p.value != null).length > 1) ...[
+                const Spacer(),
+                Semantics(
+                  label: '${trendLabel ?? label} observed trend, '
+                      '${trend!.where((p) => p.value != null).length} values',
+                  child: SizedBox(
+                    height: 28,
+                    width: double.infinity,
+                    child: CustomPaint(
+                      painter: _SparklinePainter(trend!, EyelerColors.accent),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       );
+}
+
+class _SparklinePainter extends CustomPainter {
+  const _SparklinePainter(this.points, this.color);
+  final List<AnalyticsPoint> points;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final values =
+        points.where((p) => p.value != null).map((p) => double.parse(p.value!));
+    if (values.length < 2) return;
+    final low = values.reduce(math.min);
+    final high = values.reduce(math.max);
+    final span = high == low ? 1.0 : high - low;
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final raw = points[i].value;
+      if (raw == null) continue;
+      final x = size.width * i / (points.length - 1);
+      final y = high == low
+          ? size.height / 2
+          : 3 + (high - double.parse(raw)) / span * (size.height - 6);
+      if (i == 0 || points[i - 1].value == null) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter old) =>
+      old.points != points || old.color != color;
 }

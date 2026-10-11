@@ -38,24 +38,43 @@ export class AnalyticsRepository {
       : null
   }
 
-  async initialize(startBlock: bigint, historyVerified: boolean): Promise<Checkpoint> {
+  async initialize(startBlock: bigint): Promise<Checkpoint> {
     await this.pool.query(
       `INSERT INTO analytics_checkpoint(chain_id,start_block,next_block,history_verified)
-      VALUES(143,$1,$1,$2) ON CONFLICT(chain_id) DO UPDATE SET
+      VALUES(143,$1,$1,false) ON CONFLICT(chain_id) DO UPDATE SET
       start_block=LEAST(analytics_checkpoint.start_block,EXCLUDED.start_block),
       next_block=CASE WHEN EXCLUDED.start_block < analytics_checkpoint.start_block
         THEN EXCLUDED.start_block ELSE analytics_checkpoint.next_block END,
       last_block_hash=CASE WHEN EXCLUDED.start_block < analytics_checkpoint.start_block
         THEN NULL ELSE analytics_checkpoint.last_block_hash END,
-      history_verified=analytics_checkpoint.history_verified OR
-        (EXCLUDED.history_verified AND EXCLUDED.start_block <= analytics_checkpoint.start_block),
+      history_verified=CASE WHEN EXCLUDED.start_block < analytics_checkpoint.start_block
+        THEN false ELSE analytics_checkpoint.history_verified END,
       updated_at=CASE WHEN EXCLUDED.start_block < analytics_checkpoint.start_block
         THEN now() ELSE analytics_checkpoint.updated_at END`,
-      [startBlock.toString(), historyVerified],
+      [startBlock.toString()],
     )
     const checkpoint = await this.checkpoint()
     if (!checkpoint) throw new Error('ANALYTICS_CHECKPOINT_MISSING')
     return checkpoint
+  }
+
+  /** A deployment-start checkpoint becomes complete only after a fresh confirmed-head replay. */
+  async markHistoryVerified(confirmedHead: bigint, freshAfter: Date): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE analytics_checkpoint c SET history_verified=true,updated_at=now()
+      WHERE c.chain_id=143 AND NOT c.history_verified AND c.start_block=54773010 AND c.next_block>$1
+        AND c.last_block_hash IS NOT NULL
+        AND EXISTS (SELECT 1 FROM analytics_blocks b WHERE b.block_number=c.next_block-1
+          AND lower(b.block_hash)=lower(c.last_block_hash) AND b.occurred_at>=$2)
+        AND (SELECT count(*) FROM analytics_raw_events e
+          WHERE e.block_number=54773010
+            AND lower(e.transaction_hash)='0x22d1d74e137c3a82ac4b702fd90024811b184fcdcf8fd4d1473097b4d8a619f3'
+            AND (e.log_index,e.event_name) IN
+              ((28,'Upgraded'),(30,'ExchangeInitialized'),(31,'Initialized'))) = 3
+      RETURNING c.chain_id`,
+      [confirmedHead.toString(), freshAfter],
+    )
+    return result.rowCount === 1
   }
 
   /** Roll back a rare deeper reorg. Raw-event FK cascades clean derived rows. */
@@ -67,7 +86,7 @@ export class AnalyticsRepository {
       await client.query('DELETE FROM analytics_blocks WHERE block_number >= $1', [fromBlock.toString()])
       await client.query('DELETE FROM analytics_accounts WHERE created_block >= $1', [fromBlock.toString()])
       await client.query(
-        `UPDATE analytics_checkpoint SET next_block=$1,last_block_hash=NULL,updated_at=now()
+        `UPDATE analytics_checkpoint SET next_block=$1,last_block_hash=NULL,history_verified=false,updated_at=now()
         WHERE chain_id=143`,
         [fromBlock.toString()],
       )
@@ -84,8 +103,22 @@ export class AnalyticsRepository {
   }
 
   /** Atomic checkpoint, raw-event, derived-event and rollup update. */
-  async saveChunk(blocks: IndexedBlock[], logs: IndexedLog[], fromBlock: bigint, startBlock: bigint): Promise<void> {
-    if (!blocks.length || blocks[0].number !== fromBlock) throw new Error('ANALYTICS_CHUNK_INVALID')
+  async saveChunk(
+    blocks: IndexedBlock[],
+    logs: IndexedLog[],
+    fromBlock: bigint,
+    startBlock: bigint,
+    toBlock: bigint = blocks.at(-1)?.number ?? -1n,
+  ): Promise<void> {
+    if (
+      !blocks.length ||
+      blocks[0].number !== fromBlock ||
+      blocks.at(-1)?.number !== toBlock ||
+      toBlock - fromBlock >= 100n ||
+      blocks.some((block, index) => index > 0 && block.number <= blocks[index - 1].number) ||
+      logs.some(({ raw }) => BigInt(raw.blockNumber) < fromBlock || BigInt(raw.blockNumber) > toBlock)
+    )
+      throw new Error('ANALYTICS_CHUNK_INVALID')
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
