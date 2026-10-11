@@ -24,6 +24,7 @@ import { TelegramLinks } from './infrastructure/telegram/links.js'
 import { StrategyTelegramCommands, telegramCommandSender } from './infrastructure/strategies/telegram-commands.js'
 import { createPublicCapital } from './infrastructure/capital/snapshot.js'
 import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
+import { startAnalyticsRollups } from './workers/analytics-rollups.js'
 
 export type ServerServices = {
   venue?: RuntimeVenue
@@ -82,6 +83,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     persistence instanceof PostgresStore
       ? new SnapshotRetention(persistence.pool, snapshotRetentionConfig(process.env))
       : undefined
+  let analyticsRollups: ReturnType<typeof startAnalyticsRollups> = null
   const origins = new Set(
     config.corsOrigin
       .split(',')
@@ -178,10 +180,12 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     await runtime?.start()
     telegram?.start()
     snapshotRetention?.start()
+    analyticsRollups = startAnalyticsRollups(process.env, config.environment)
   })
   app.addHook('onClose', async () => {
     enrollment?.stopCleanup()
     await snapshotRetention?.stop()
+    await analyticsRollups?.stop()
     try {
       await runtime?.stop()
     } finally {
