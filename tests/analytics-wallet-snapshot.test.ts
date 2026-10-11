@@ -176,3 +176,22 @@ it('wallet snapshot clamps available balance at zero when resting-order locks ex
   account.lockedBalanceCNS = 11_000_000n
   expect((await wallet.profile(address, context))?.data.margin.free).toBe('0.000000')
 })
+
+it('historical wallet view checks its own block hash, reads at that block and rechecks finality', async () => {
+  const { wallet, client, calls } = setup()
+  const snapshot = await wallet.profileAt(address, context, 95n, hash)
+  expect(snapshot?.block).toBe(95)
+  expect(snapshot?.blockHash).toBe(hash)
+  expect(snapshot?.data.margin.equity).toBe('12.050000')
+  expect(calls.every((call) => call.blockNumber === 95n)).toBe(true)
+  expect(client.getBlock).toHaveBeenCalledWith({ blockNumber: 100n })
+  await expect(wallet.profileAt(address, context, 95n, other)).rejects.toThrow('ANALYTICS_WALLET_BLOCK_MISMATCH')
+  await expect(wallet.profileAt(address, context, 101n, hash)).rejects.toThrow('ANALYTICS_WALLET_NOT_FINALIZED')
+  const changed = setup()
+  changed.client.getBlock.mockImplementation(async (input) => ({
+    number: input.blockNumber ?? 100n,
+    hash: input.blockNumber === 100n ? other : hash,
+    timestamp: seconds,
+  }))
+  await expect(changed.wallet.profileAt(address, context, 95n, hash)).rejects.toThrow('ANALYTICS_RPC_FINALITY_CHANGED')
+})

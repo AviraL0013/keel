@@ -185,6 +185,18 @@ export class WalletChainAnalytics {
   ownerAt(accountId: bigint, blockNumber: bigint, expectedHash: string) {
     return historicalAccountOwner(this.client, accountId, blockNumber, expectedHash)
   }
+  /** One historical block, independently checked against the finalized boundary. */
+  async profileAt(
+    address: string,
+    context: PublicContext,
+    blockNumber: bigint,
+    expectedHash: string,
+  ): Promise<(Envelope<WalletProfile> & { blockHash: string }) | null> {
+    this.contextIdentity(context)
+    if (blockNumber <= 0n || !/^0x[0-9a-f]{64}$/i.test(expectedHash)) throw Error('ANALYTICS_WALLET_BLOCK_INVALID')
+    const result = await this.load(getAddress(address), context, { blockNumber, expectedHash })
+    return result && { ...result, blockHash: expectedHash.toLowerCase() }
+  }
   async profile(address: string, context: PublicContext): Promise<Envelope<WalletProfile> | null> {
     const normalized = getAddress(address)
     const identity = this.contextIdentity(context)
@@ -237,31 +249,54 @@ export class WalletChainAnalytics {
       ]),
     )
   }
-  private async load(address: `0x${string}`, context: PublicContext): Promise<Envelope<WalletProfile> | null> {
+  private async load(
+    address: `0x${string}`,
+    context: PublicContext,
+    target?: { blockNumber: bigint; expectedHash: string },
+  ): Promise<Envelope<WalletProfile> | null> {
     if ((await this.client.getChainId()) !== 143) throw Error('ANALYTICS_RPC_CHAIN_MISMATCH')
     const finalized = await this.client.getBlock({ blockTag: 'finalized' })
-    const blockNumber = finalized.number,
-      hash = finalized.hash
-    const timestamp = Number(finalized.timestamp) * 1000
+    if (
+      finalized.number === null ||
+      finalized.number <= 0n ||
+      !Number.isSafeInteger(Number(finalized.number)) ||
+      !finalized.hash ||
+      !/^0x[0-9a-f]{64}$/i.test(finalized.hash)
+    )
+      throw Error('ANALYTICS_RPC_FINALITY_UNAVAILABLE')
+    if (target && target.blockNumber > finalized.number) throw Error('ANALYTICS_WALLET_NOT_FINALIZED')
+    const snapshot = target ? await this.client.getBlock({ blockNumber: target.blockNumber }) : finalized
+    const blockNumber = snapshot.number,
+      hash = snapshot.hash
+    const timestamp = Number(snapshot.timestamp) * 1000
     if (
       blockNumber === null ||
       blockNumber <= 0n ||
       !Number.isSafeInteger(Number(blockNumber)) ||
       !hash ||
       !/^0x[0-9a-f]{64}$/i.test(hash) ||
+      (target && (blockNumber !== target.blockNumber || hash.toLowerCase() !== target.expectedHash.toLowerCase())) ||
       !Number.isSafeInteger(timestamp) ||
       timestamp < 0 ||
       timestamp > Date.now() + 30_000
     )
-      throw Error('ANALYTICS_RPC_FINALITY_UNAVAILABLE')
+      throw Error(target ? 'ANALYTICS_WALLET_BLOCK_MISMATCH' : 'ANALYTICS_RPC_FINALITY_UNAVAILABLE')
     const finish = async () => {
       const after = await this.client.getBlock({ blockNumber })
       if (
         after.number !== blockNumber ||
         after.hash?.toLowerCase() !== hash.toLowerCase() ||
-        after.timestamp !== finalized.timestamp
+        after.timestamp !== snapshot.timestamp
       )
         throw Error('ANALYTICS_RPC_BLOCK_CHANGED')
+      if (target) {
+        const finalityAfter = await this.client.getBlock({ blockNumber: finalized.number! })
+        if (
+          finalityAfter.number !== finalized.number ||
+          finalityAfter.hash?.toLowerCase() !== finalized.hash!.toLowerCase()
+        )
+          throw Error('ANALYTICS_RPC_FINALITY_CHANGED')
+      }
     }
     const account = (await this.client.readContract({
       address: EXCHANGE,

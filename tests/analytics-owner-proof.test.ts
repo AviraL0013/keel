@@ -91,3 +91,26 @@ it('rejects mismatched roundtrip identity and hash before publishing or caching 
     'ANALYTICS_OWNER_INPUT_INVALID',
   )
 })
+
+it('resolves the same account independently on both sides of an ownership change', async () => {
+  const prior = '0x0000000000000000000000000000000000000025'
+  const later = '0x0000000000000000000000000000000000000035'
+  const client: HistoricalOwnerClient = {
+    getChainId: async () => 143,
+    getBlock: async (input) =>
+      input.blockTag === 'finalized'
+        ? { number: 102n, hash, timestamp: 1791388002n }
+        : {
+            number: input.blockNumber,
+            hash: input.blockNumber === 101n ? other : hash,
+            timestamp: 1791388000n + input.blockNumber - 100n,
+          },
+    readContract: async (input) => ({
+      accountId: 25n,
+      accountAddr: input.blockNumber === 100n ? prior : later,
+    }),
+  }
+  expect((await historicalAccountOwner(client, 25n, 100n, hash)).address).toBe(prior)
+  expect((await historicalAccountOwner(client, 25n, 101n, other)).address).toBe(later)
+  await expect(historicalAccountOwner(client, 25n, 101n, hash)).rejects.toThrow('ANALYTICS_OWNER_BLOCK_MISMATCH')
+})
