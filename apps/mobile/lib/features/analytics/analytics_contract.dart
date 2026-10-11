@@ -488,12 +488,14 @@ class V1WalletPerformance {
       this.bestMarketId,
       this.worstMarketId,
       this.closedTrades,
-      this.equityCurve);
+      this.equityCurve,
+      this.unavailableReason);
   final String address;
   final String? realizedPnl, winRatePct, profitFactor, maxDrawdownPct;
   final int currentStreak, longestWinStreak, longestLossStreak, closedTrades;
   final int? averageHoldSeconds, bestMarketId, worstMarketId;
   final List<V1TimePoint> equityCurve;
+  final String? unavailableReason;
   factory V1WalletPerformance.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
     return V1WalletPerformance(
@@ -509,7 +511,8 @@ class V1WalletPerformance {
         V1.optionalInteger(j, 'bestMarketId'),
         V1.optionalInteger(j, 'worstMarketId'),
         V1.integer(j, 'closedTrades'),
-        V1.list(j, 'equityCurve', V1TimePoint.fromJson));
+        V1.list(j, 'equityCurve', V1TimePoint.fromJson),
+        AnalyticsParse.optionalString(j, 'unavailableReason'));
   }
 }
 
