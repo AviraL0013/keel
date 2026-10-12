@@ -25,5 +25,13 @@
     "withdrawals": "67399.736529",
     "net": "-45956.870711"
   },
-  "ready": { "ready": true, "lockOwned": true, "venueReady": true }
+  "ready": { "ready": true, "lockOwned": true, "venueReady": true },
+  "ownerSourceAudit": {
+    "fromBlock": 54773010,
+    "throughBlockExclusive": 112829268,
+    "slices": 117,
+    "uniqueAccountIds": 5470,
+    "readOnly": true,
+    "productionDatabaseChanged": false
+  }
 }
