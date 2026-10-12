@@ -22,10 +22,12 @@
         "report:prod": "node dist/scripts/report.js",
         "mobile:analyze": "cd apps/mobile && flutter analyze",
         "mobile:test": "cd apps/mobile && flutter test",
-        "mobile:build": "cd apps/mobile && flutter build apk --debug"
+        "mobile:build": "cd apps/mobile && flutter build apk --debug",
+        "mobile:mera-sdk:bundle": "esbuild apps/mobile/mera-sdk/bridge.js --bundle --minify --format=iife --target=chrome100 --outfile=apps/mobile/android/app/src/main/assets/mera-sdk.js"
     },
     "dependencies": {
         "@aws-sdk/client-kms": "3.1146.0",
+        "@category-labs/mera": "0.2.0",
         "@fastify/cookie": "^11.1.2",
         "@fastify/cors": "^11.3.0",
         "@fastify/rate-limit": "^11.2.0",
@@ -41,6 +43,7 @@
         "@types/node": "^24.13.3",
         "@types/pg": "^8.23.1",
         "@types/ws": "^8.18.1",
+        "esbuild": "0.28.2",
         "oxlint": "^1.85.0",
         "prettier": "^3.9.9",
         "railway": "^3.12.0",

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/wallet/mera_wallet_connector.dart';
+import '../../../core/wallet/mera_wallet_export.dart';
 import '../../auth/data/auth_repository.dart';
 
 class WalletRecoveryScreen extends ConsumerStatefulWidget {
@@ -52,7 +54,7 @@ class _WalletRecoveryScreenState extends ConsumerState<WalletRecoveryScreen> {
               'Keep the EYELER passkey in a provider you can access on a replacement device. Check that provider’s sync, account recovery and device backup settings.'),
           const SizedBox(height: 16),
           const Text(
-              'EYELER cannot reset this wallet or restore it if the passkey is lost. There is no seed export or alternative recovery in this release. Creating another passkey creates another wallet; funds do not move automatically.'),
+              'EYELER cannot reset this wallet if the passkey is lost. You can export the private key after verifying the passkey. Creating another passkey creates another wallet; funds do not move automatically.'),
           const SizedBox(height: 16),
           SelectableText(ref.watch(authProvider).address ??
               'Sign in to verify your wallet.'),
@@ -61,6 +63,20 @@ class _WalletRecoveryScreenState extends ConsumerState<WalletRecoveryScreen> {
               onPressed: busy ? null : verify,
               icon: const Icon(Icons.fingerprint),
               label: Text(busy ? 'CHECKING PASSKEY…' : 'VERIFY MY PASSKEY')),
+          if (ref.watch(walletConnectorProvider) is MeraWalletConnector &&
+              ref.watch(authProvider).address != null) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => showMeraPrivateKeyExport(
+                      context,
+                      ref.read(walletConnectorProvider) as MeraWalletConnector,
+                      ref.read(authProvider).address!),
+              icon: const Icon(Icons.key),
+              label: const Text('EXPORT TO METAMASK'),
+            ),
+          ],
           const SizedBox(height: 12),
           const Text(
               'This checks wallet recovery on this device. It cannot prove your provider has synced or backed up the passkey.'),

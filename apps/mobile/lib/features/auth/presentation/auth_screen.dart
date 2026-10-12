@@ -7,6 +7,8 @@ import '../../../shared/widgets/eyeler_widgets.dart';
 import '../data/auth_repository.dart';
 import '../domain/auth_state.dart';
 import '../../../core/errors/eyeler_exception.dart';
+import '../../../core/wallet/mera_wallet_connector.dart';
+import '../../../core/wallet/mera_wallet_export.dart';
 
 class AuthScreen extends ConsumerWidget {
   const AuthScreen({super.key});
@@ -17,7 +19,7 @@ class AuthScreen extends ConsumerWidget {
         builder: (context) => AlertDialog(
               title: const Text('Create a new Mera wallet?'),
               content: const Text(
-                  'This creates a separate wallet. Save its passkey in a provider with sync and account recovery. EYELER cannot reset the wallet, export a seed, or recover funds if the passkey is lost. Sign in with your existing passkey if you already have an EYELER wallet.'),
+                  'This creates a separate wallet. Save its passkey in a provider with sync and account recovery. After creation, you can verify the passkey to export the private key for MetaMask. EYELER cannot reset the wallet if the passkey is lost. Sign in with your existing passkey if you already have an EYELER wallet.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -236,6 +238,19 @@ class AuthScreen extends ConsumerWidget {
                                                           text: auth.address!)),
                                               icon: const Icon(Icons.copy)),
                                         ]),
+                                        if (ref.read(walletConnectorProvider)
+                                            is MeraWalletConnector)
+                                          OutlinedButton.icon(
+                                              onPressed: () =>
+                                                  showMeraPrivateKeyExport(
+                                                      context,
+                                                      ref.read(
+                                                              walletConnectorProvider)
+                                                          as MeraWalletConnector,
+                                                      auth.address!),
+                                              icon: const Icon(Icons.key),
+                                              label: const Text(
+                                                  'EXPORT TO METAMASK')),
                                       ],
                                       if (auth.loading) ...[
                                         const SizedBox(

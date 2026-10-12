@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:passkeys/authenticator.dart';
 import 'package:passkeys/types.dart';
 import 'package:web3dart/crypto.dart';
+import 'package:web3dart/web3dart.dart';
 
 class FixtureAuthenticator extends PasskeyAuthenticator {
   bool noCredential = false;
@@ -117,6 +118,22 @@ void main() {
     connector.dispose();
     await expectLater(
         connector.signMessage(wallet.address, 'again'), throwsException);
+  });
+
+  test('private-key export rechecks the selected passkey wallet', () async {
+    final connector = MeraWalletConnector(
+        authenticator: FixtureAuthenticator(), network: MeraNetwork.mainnet);
+    final wallet = await connector.connect();
+    await expectLater(
+        connector.exportPrivateKey('0x${List.filled(40, '1').join()}'),
+        throwsException);
+    final exported = await connector.exportPrivateKey(wallet.address);
+    expect(exported, startsWith('0x'));
+    expect(exported.length, 66);
+    final exportedKey = EthPrivateKey(hexToBytes(exported));
+    expect(exportedKey.address.hexEip55, wallet.address);
+    exportedKey.privateKey.fillRange(0, exportedKey.privateKey.length, 0);
+    connector.dispose();
   });
 
   test(
