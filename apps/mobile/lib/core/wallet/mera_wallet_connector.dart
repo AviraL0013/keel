@@ -1,20 +1,22 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:passkeys/authenticator.dart';
 import 'package:passkeys/types.dart';
 import 'package:web3dart/crypto.dart';
 import 'package:web3dart/web3dart.dart';
 
 import 'mera_derivation.dart';
+import 'mera_sdk_passkeys.dart';
 import 'mera_transaction.dart';
 import 'perpl_enrollment_signing.dart';
 import 'wallet_types.dart';
 
 enum MeraNetwork { testnet, mainnet }
 
-/// Mera-compatible passkey wallet for native builds.
+/// Native passkey wallet. Mainnet Android creation and sign-in use the
+/// bundled official Mera SDK through [MeraSdkPasskeys].
 ///
 /// PRF output remains in process memory only long enough to derive account 0.
 /// The derived key is held by this connector until [dispose] and is never sent
@@ -23,6 +25,7 @@ class MeraWalletConnector extends WalletConnector
     implements MeraTransactionActions {
   MeraWalletConnector(
       {PasskeyAuthenticator? authenticator,
+      MeraSdkPasskeys? sdkPasskeys,
       DateTime Function()? now,
       MeraNetwork network = const String.fromEnvironment('EYELER_DEPLOYMENT',
                   defaultValue: 'testnet') ==
@@ -30,6 +33,13 @@ class MeraWalletConnector extends WalletConnector
           ? MeraNetwork.mainnet
           : MeraNetwork.testnet})
       : _authenticator = authenticator ?? PasskeyAuthenticator(),
+        _sdkPasskeys = sdkPasskeys ??
+            (authenticator == null &&
+                    !kIsWeb &&
+                    defaultTargetPlatform == TargetPlatform.android &&
+                    network == MeraNetwork.mainnet
+                ? MeraSdkPasskeys()
+                : null),
         _chainId = network == MeraNetwork.mainnet ? 143 : 10143,
         _now = now ?? DateTime.now;
 
@@ -38,6 +48,7 @@ class MeraWalletConnector extends WalletConnector
   static const _rpName = 'EYELER';
   final int _chainId;
   final PasskeyAuthenticator _authenticator;
+  final MeraSdkPasskeys? _sdkPasskeys;
   final DateTime Function() _now;
   EthPrivateKey? _key;
   MeraTransactionQuote? _prepared;
@@ -47,7 +58,7 @@ class MeraWalletConnector extends WalletConnector
   Future<WalletConnection> connect() async {
     dispose();
     final generation = _generation;
-    final prf = await _authenticate();
+    final prf = await (_sdkPasskeys?.getPrf() ?? _authenticate());
     try {
       _assertCurrent(generation);
       _key = _keyFromPrf(prf);
@@ -67,6 +78,26 @@ class MeraWalletConnector extends WalletConnector
     final signature = key.signPersonalMessageToUint8List(
         Uint8List.fromList(utf8.encode(message)));
     return bytesToHex(signature, include0x: true);
+  }
+
+  /// Re-authenticates with the passkey before a local, user-initiated export.
+  /// The caller must hide the result and clear it from the clipboard promptly.
+  Future<String> exportPrivateKey(String expectedAddress) async {
+    final prf = await (_sdkPasskeys?.getPrf() ?? _authenticate());
+    try {
+      final key = _keyFromPrf(prf);
+      try {
+        if (key.address.hexEip55.toLowerCase() !=
+            expectedAddress.toLowerCase()) {
+          throw const WalletException('Passkey does not match this wallet.');
+        }
+        return bytesToHex(key.privateKey, include0x: true);
+      } finally {
+        key.privateKey.fillRange(0, key.privateKey.length, 0);
+      }
+    } finally {
+      prf.fillRange(0, prf.length, 0);
+    }
   }
 
   @override
@@ -203,6 +234,17 @@ class MeraWalletConnector extends WalletConnector
     final generation = _generation;
     final accountLabel =
         'EYELER ${DateTime.now().toIso8601String().substring(0, 16)} ${_encode(_randomBytes(3))}';
+    if (_sdkPasskeys != null) {
+      final prf = await _sdkPasskeys.createPrf(accountLabel);
+      try {
+        _assertCurrent(generation);
+        _key = _keyFromPrf(prf);
+      } finally {
+        prf.fillRange(0, prf.length, 0);
+      }
+      return WalletConnection(
+          address: _key!.address.hexEip55, chainId: _chainId);
+    }
     final registered = await _authenticator.register(RegisterRequestType(
       challenge: _encode(_randomBytes(32)),
       relyingParty: RelyingPartyType(name: _rpName, id: _rpId),
