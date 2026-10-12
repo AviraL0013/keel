@@ -23,7 +23,7 @@ export class AnalyticsRollupWorker {
   private windowStart: { block: bigint; refreshed: number } | null = null
   private backfillCeiling: bigint | null = null
   private lastPrune = 0
-  private ownerCursor = 54_773_010
+  private ownerCursor: number | null = null
   private lastOwnerScan = 0
   constructor(
     readonly source: HyperSyncRollupSource,
@@ -70,11 +70,14 @@ export class AnalyticsRollupWorker {
       await this.repo.saveRange(range.coverage, range.buckets, range.actors)
       indexed = true
     }
-    if (now - this.lastOwnerScan >= 60_000 && this.ownerCursor <= safeHead) {
+    if (now - this.lastOwnerScan >= 60_000) {
+      this.ownerCursor ??= await this.repo.ownerCursor()
+    }
+    if (now - this.lastOwnerScan >= 60_000 && this.ownerCursor !== null && this.ownerCursor <= safeHead) {
       const end = Math.min(safeHead + 1, this.ownerCursor + 500_000)
       this.lastOwnerScan = now
       try {
-        await this.repo.applyOwners(await this.source.readOwners(this.ownerCursor, end, signal))
+        await this.repo.applyOwners(await this.source.readOwners(this.ownerCursor, end, signal), end)
         this.ownerCursor = end
       } catch (error) {
         if (!signal?.aborted)

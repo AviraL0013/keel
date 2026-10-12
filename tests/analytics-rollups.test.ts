@@ -188,6 +188,7 @@ describe('last 30 days rollups', () => {
       saveRange: async (range: { fromBlock: bigint; toBlock: bigint; endHash: string }) => {
         saved.push(range)
       },
+      ownerCursor: async () => 54_773_010,
       applyOwners: async () => {},
     } as unknown as RollupRepository
     const worker = new AnalyticsRollupWorker(source, repo, () => at.getTime())
@@ -206,6 +207,9 @@ describe('last 30 days rollups', () => {
     try {
       await db.exec(await readFile('database/migrations/020_analytics.sql', 'utf8'))
       await db.exec(await readFile('database/migrations/021_analytics_rollups.sql', 'utf8'))
+      const ownersMigration = await readFile('database/migrations/037_analytics_rollup_owners.sql', 'utf8')
+      await db.exec(ownersMigration)
+      await db.exec(ownersMigration)
       const query = async (sql: string, values?: unknown[]) => {
         const result = await db.query<Record<string, unknown>>(sql, values)
         return { ...result, rowCount: result.affectedRows ?? result.rows.length }
@@ -237,10 +241,22 @@ describe('last 30 days rollups', () => {
           ['1', '0x1234'],
           ['2', '0x5678'],
         ]),
+        100_000_021,
       )
+      expect(await repo.ownerCursor()).toBe(100_000_021)
+      await expect(repo.applyOwners(new Map([['1', '0x9999']]), 100_000_022)).rejects.toThrow('ROLLUP_OWNER_CONFLICT')
+      expect(await repo.ownerCursor()).toBe(100_000_021)
       expect((await readLast30Days(pool, bounds))?.activeUsers).toBe(2n)
-      await repo.saveRange(range, buckets, actors)
-      await repo.saveRange(range, buckets, actors)
+      await repo.saveRange(
+        range,
+        buckets,
+        actors.map((actor) => ({ ...actor, ownerAddress: null })),
+      )
+      await repo.saveRange(
+        range,
+        buckets,
+        actors.map((actor) => ({ ...actor, ownerAddress: null })),
+      )
       const value = await readLast30Days(pool, bounds)
       expect(value?.markets.find((market) => market.marketId === -1)?.feesMicros).toBe(16n)
       expect(value?.activeUsers).toBe(2n)
@@ -254,5 +270,5 @@ describe('last 30 days rollups', () => {
     } finally {
       await db.close()
     }
-  })
+  }, 30_000)
 })

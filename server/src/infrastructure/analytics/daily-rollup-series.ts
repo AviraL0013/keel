@@ -3,10 +3,11 @@ import { signedMoney } from '../../../../packages/analytics/src/aggregate.js'
 import type { TimePoint } from '../../../../packages/analytics/src/contract.js'
 import { completeRange } from '../../../../packages/analytics/src/rollups.js'
 
-export type DailyRollupMetric = 'fees' | 'revenue' | 'liquidation_notional' | 'active_users'
+export type DailyRollupMetric = 'fees' | 'revenue' | 'liquidation_notional' | 'active_users' | 'net_flows'
 export interface DailyRollupSeries {
   points: TimePoint[]
   completeDays: number
+  verifiedDays: number
   asOf: string | null
   block: number | null
   coverageFrom: string | null
@@ -24,7 +25,7 @@ export async function readDailyRollupSeries(
   marketId = -1,
 ): Promise<DailyRollupSeries> {
   if (
-    !['fees', 'revenue', 'liquidation_notional', 'active_users'].includes(metric) ||
+    !['fees', 'revenue', 'liquidation_notional', 'active_users', 'net_flows'].includes(metric) ||
     !Number.isSafeInteger(marketId) ||
     marketId < -1 ||
     !Number.isFinite(from.getTime()) ||
@@ -38,6 +39,7 @@ export async function readDailyRollupSeries(
     revenue: 'revenue_micros',
     liquidation_notional: 'liquidation_notional_micros',
     active_users: null,
+    net_flows: 'deposits_micros-withdrawals_micros',
   }[metric]
   const client = await pool.connect()
   try {
@@ -96,6 +98,7 @@ export async function readDailyRollupSeries(
     return {
       points,
       completeDays,
+      verifiedDays: points.filter((point) => point.value !== null).length,
       asOf: latest?.throughTime.toISOString() ?? null,
       block: latest ? Number(latest.toBlock - 1n) : null,
       coverageFrom: coverage[0]?.fromTime.toISOString() ?? null,

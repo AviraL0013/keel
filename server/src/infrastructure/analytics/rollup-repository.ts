@@ -109,6 +109,11 @@ export class RollupRepository {
          WHERE r.from_block=$1 AND r.to_block=$2 AND r.account_id=a.account_id AND r.owner_address IS NULL`,
         [range.fromBlock.toString(), range.toBlock.toString()],
       )
+      await client.query(
+        `UPDATE analytics_rollup_actor r SET owner_address=o.owner_address FROM analytics_rollup_owner o
+         WHERE r.from_block=$1 AND r.to_block=$2 AND r.account_id=o.account_id AND r.owner_address IS NULL`,
+        [range.fromBlock.toString(), range.toBlock.toString()],
+      )
       await client.query('COMMIT')
     } catch (error) {
       await client.query('ROLLBACK')
@@ -141,15 +146,47 @@ export class RollupRepository {
     ])
   }
 
-  async applyOwners(owners: Map<string, string>): Promise<void> {
+  async ownerCursor(): Promise<number> {
+    const result = await this.pool.query('SELECT next_block FROM analytics_rollup_owner_scan WHERE id=1')
+    const cursor = Number(result.rows[0]?.next_block)
+    if (!Number.isSafeInteger(cursor) || cursor < 54_773_010) throw new Error('ROLLUP_OWNER_CURSOR_INVALID')
+    return cursor
+  }
+
+  async applyOwners(owners: Map<string, string>, nextBlock: number): Promise<void> {
+    if (!Number.isSafeInteger(nextBlock) || nextBlock < 54_773_010) throw new Error('ROLLUP_OWNER_CURSOR_INVALID')
     const entries = [...owners].map(([account_id, owner_address]) => ({ account_id, owner_address }))
-    for (let start = 0; start < entries.length; start += 500) {
-      await this.pool.query(
-        `UPDATE analytics_rollup_actor r SET owner_address=x.owner_address
-         FROM jsonb_to_recordset($1::jsonb) AS x(account_id numeric, owner_address text)
-         WHERE r.account_id=x.account_id AND r.owner_address IS NULL`,
-        [JSON.stringify(entries.slice(start, start + 500))],
-      )
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const progress = await client.query('SELECT next_block FROM analytics_rollup_owner_scan WHERE id=1 FOR UPDATE')
+      const previous = Number(progress.rows[0]?.next_block)
+      if (!Number.isSafeInteger(previous) || nextBlock < previous) throw new Error('ROLLUP_OWNER_CURSOR_INVALID')
+      for (let start = 0; start < entries.length; start += 500) {
+        const batch = JSON.stringify(entries.slice(start, start + 500))
+        const saved = await client.query(
+          `INSERT INTO analytics_rollup_owner(account_id,owner_address)
+           SELECT x.account_id,x.owner_address FROM jsonb_to_recordset($1::jsonb)
+           AS x(account_id numeric,owner_address text)
+           ON CONFLICT (account_id) DO UPDATE SET owner_address=EXCLUDED.owner_address
+           WHERE analytics_rollup_owner.owner_address=EXCLUDED.owner_address RETURNING account_id`,
+          [batch],
+        )
+        if (saved.rows.length !== entries.slice(start, start + 500).length) throw new Error('ROLLUP_OWNER_CONFLICT')
+        await client.query(
+          `UPDATE analytics_rollup_actor r SET owner_address=x.owner_address
+           FROM jsonb_to_recordset($1::jsonb) AS x(account_id numeric,owner_address text)
+           WHERE r.account_id=x.account_id AND r.owner_address IS NULL`,
+          [batch],
+        )
+      }
+      await client.query('UPDATE analytics_rollup_owner_scan SET next_block=$1 WHERE id=1', [nextBlock])
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
     }
   }
 }
@@ -206,8 +243,10 @@ export async function readCoveredRollups(pool: pg.Pool, bounds: { from: Date; to
       [bounds.grain, bounds.from, bounds.to],
     )
     const flowRows = await client.query(
-      `SELECT bucket_start,deposits_micros,withdrawals_micros FROM analytics_rollup_bucket
-       WHERE grain=$1 AND market_id=-1 AND bucket_start >= $2 AND bucket_start < $3 ORDER BY bucket_start`,
+      `SELECT bucket_start,sum(deposits_micros)::text AS deposits_micros,
+        sum(withdrawals_micros)::text AS withdrawals_micros FROM analytics_rollup_bucket
+       WHERE grain=$1 AND market_id=-1 AND bucket_start >= $2 AND bucket_start < $3
+       GROUP BY bucket_start ORDER BY bucket_start`,
       [bounds.grain, bounds.from, bounds.to],
     )
     const actor = users.rows[0] as { users: string; accounts: string; unresolved: string }

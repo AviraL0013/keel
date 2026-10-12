@@ -21,12 +21,22 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
     await db.store.pool.query(
       `INSERT INTO analytics_rollup_coverage(from_block,to_block,from_time,through_time,end_hash,log_count)
        VALUES(54773010,54773110,$1,$2,$3,1)`,
-      [new Date(from), new Date(hourEnd), `0x${'a'.repeat(64)}`],
+      [new Date(from), new Date(to - 1), `0x${'a'.repeat(64)}`],
     )
     await db.store.pool.query(
       `INSERT INTO analytics_rollup_bucket(from_block,to_block,grain,bucket_start,market_id,fees_micros,
         revenue_micros,deposits_micros,withdrawals_micros,liquidation_count,liquidation_notional_micros,
         long_opens,short_opens) VALUES(54773010,54773110,'day',$1,-1,123456,50000,2000000,1000000,1,500000,1,0)`,
+      [new Date(to - day)],
+    )
+    await db.store.pool.query(
+      `INSERT INTO analytics_rollup_coverage(from_block,to_block,from_time,through_time,end_hash,log_count)
+       VALUES(54773110,54773120,$1,$2,$3,1)`,
+      [new Date(to - day + 1_000), new Date(hourEnd), `0x${'b'.repeat(64)}`],
+    )
+    await db.store.pool.query(
+      `INSERT INTO analytics_rollup_bucket(from_block,to_block,grain,bucket_start,market_id,
+        deposits_micros,withdrawals_micros) VALUES(54773110,54773120,'day',$1,-1,3000000,500000)`,
       [new Date(to - day)],
     )
     await db.store.pool.query(
@@ -68,6 +78,11 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
     )
     expect(userHistory.statusCode).toBe(200)
     expect(userHistory.json().data.points.at(-1).value).toBe('1')
+    const flowHistory = await app.inject(
+      `/analytics/v1/protocol/timeseries?metric=net_flows&interval=1d&from=${new Date(from).toISOString()}&to=${new Date(to).toISOString()}`,
+    )
+    expect(flowHistory.json().data.points.at(-1).value).toBe('3.500000')
+    expect(flowHistory.json().data.points).toHaveLength(30)
     const liquidations = await app.inject(
       `/analytics/v1/liquidations?from=${new Date(to - day).toISOString()}&to=${new Date(to).toISOString()}&limit=1`,
     )
@@ -80,9 +95,9 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
     })
     const flows = await app.inject('/analytics/v1/protocol/flows?window=30d')
     expect(flows.statusCode).toBe(200)
-    expect(flows.json().data.net).toBe('1.000000')
+    expect(flows.json().data.net).toBe('3.500000')
     expect(flows.json().data.buckets).toHaveLength(30)
-    expect(flows.json().data.buckets.at(-1).net).toBe('1.000000')
+    expect(flows.json().data.buckets.at(-1).net).toBe('3.500000')
     const week = await app.inject('/analytics/v1/protocol/summary?window=7d')
     expect(week.statusCode).toBe(200)
     expect(week.json().data.fees.value).toBe('0.123456')

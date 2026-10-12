@@ -20,8 +20,9 @@ it('returns daily revenue and liquidation totals only where block coverage prove
     )
     await db.query(
       `INSERT INTO analytics_rollup_bucket
-      (from_block,to_block,grain,bucket_start,market_id,fees_micros,revenue_micros,liquidation_notional_micros)
-      VALUES(54773010,54773020,'day',$1,-1,3000003,1000001,2000002)`,
+      (from_block,to_block,grain,bucket_start,market_id,fees_micros,revenue_micros,
+       liquidation_notional_micros,deposits_micros,withdrawals_micros)
+      VALUES(54773010,54773020,'day',$1,-1,3000003,1000001,2000002,3000000,1000001)`,
       [from],
     )
     await db.query(
@@ -34,12 +35,15 @@ it('returns daily revenue and liquidation totals only where block coverage prove
     const revenue = await readDailyRollupSeries(pool, 'revenue', from, to)
     const liquidations = await readDailyRollupSeries(pool, 'liquidation_notional', from, to)
     const fees = await readDailyRollupSeries(pool, 'fees', from, to)
+    const flows = await readDailyRollupSeries(pool, 'net_flows', from, to)
     const users = await readDailyRollupSeries(pool, 'active_users', from, to)
     expect(revenue.points.map((point) => point.value)).toEqual(['1.000001', null])
     expect(liquidations.points.map((point) => point.value)).toEqual(['2.000002', null])
     expect(fees.points.map((point) => point.value)).toEqual(['3.000003', null])
+    expect(flows.points.map((point) => point.value)).toEqual(['1.999999', null])
     expect(users.points.map((point) => point.value)).toEqual(['1', null])
     expect(revenue.completeDays).toBe(1)
+    expect(revenue.verifiedDays).toBe(1)
     expect(revenue.block).toBe(54773019)
   } finally {
     await db.close()
@@ -68,6 +72,7 @@ it('keeps a fully covered daily user count unavailable when any account owner is
     const users = await readDailyRollupSeries(pool, 'active_users', from, to)
     expect(users.points.map((point) => point.value)).toEqual([null, '0'])
     expect(users.completeDays).toBe(2)
+    expect(users.verifiedDays).toBe(1)
   } finally {
     await db.close()
   }
