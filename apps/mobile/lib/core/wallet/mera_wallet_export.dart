@@ -36,9 +36,10 @@ Future<void> showMeraPrivateKeyExport(
           barrierDismissible: false,
           builder: (context) => AlertDialog(
                 title: const Text('Your private key'),
-                content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                content: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
                   const Text(
-                    'Copy, switch to MetaMask and import as an account. Return here and tap Done; EYELER then clears the copied key. Check the full address matches.'),
+                      'Copy, switch to MetaMask and import as an account. Return here and tap Done; EYELER then clears the copied key. Check the full address matches.'),
                   const SizedBox(height: 12),
                   SelectableText(key, key: const Key('mera-private-key')),
                 ])),
