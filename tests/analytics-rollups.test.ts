@@ -267,6 +267,7 @@ describe('last 30 days rollups', () => {
       expect(await repo.coverage()).toEqual([])
       expect((await query('SELECT count(*) AS count FROM analytics_rollup_actor')).rows[0].count).toBe(0)
       expect((await query('SELECT count(*) AS count FROM analytics_rollup_bucket')).rows[0].count).toBe(0)
+      expect((await query('SELECT count(*) AS count FROM analytics_rollup_owner')).rows[0].count).toBe(2)
     } finally {
       await db.close()
     }
