@@ -1,0 +1,39 @@
+{
+  "source": "read-only GET https://api-mainnet-production-b042.up.railway.app/analytics/v1",
+  "utcWindow": ["2026-09-12T00:00:00.000Z", "2026-10-12T00:00:00.000Z"],
+  "capturedOnUtcDate": "2026-10-12",
+  "volumeRecheckAtUtc": "2026-10-12T18:59:53Z",
+  "volumeRecheck": { "points": 30, "verified": 30, "stale": false },
+  "rollupAsOf": "2026-10-12T17:57:08.000Z",
+  "daily": {
+    "fees": { "source": "monad_exchange", "covered": 30, "verified": 30, "stale": false, "sum": "114796.887249" },
+    "volume": { "source": "perpl_api", "verified": 30, "stale": true },
+    "active_users": { "source": "monad_exchange", "covered": 30, "verified": 2, "stale": true, "verifiedDays": ["2026-10-09", "2026-10-10"] },
+    "net_flows": { "source": "derived", "verified": 0, "stale": true, "coverage": "No indexed history" },
+    "revenue": { "source": "monad_exchange", "covered": 30, "verified": 30, "stale": false, "sum": "66009.561647" },
+    "liquidationNotional": { "source": "monad_exchange", "verified": 30, "sum": "815722.453626", "envelopeStale": true, "envelopeCoverage": "No indexed history" }
+  },
+  "summary30d": {
+    "fees": "114796.887249",
+    "revenue": "66009.561647",
+    "liquidations": "538",
+    "deposits": "1051533.079255",
+    "withdrawals": "1714878.880500",
+    "netFlows": "-663345.801245"
+  },
+  "flowBuckets30dBeforeFix": {
+    "count": 30,
+    "deposits": "21442.865818",
+    "withdrawals": "67399.736529",
+    "net": "-45956.870711"
+  },
+  "ready": { "ready": true, "lockOwned": true, "venueReady": true },
+  "ownerSourceAudit": {
+    "fromBlock": 54773010,
+    "throughBlockExclusive": 112829268,
+    "slices": 117,
+    "uniqueAccountIds": 5470,
+    "readOnly": true,
+    "productionDatabaseChanged": false
+  }
+}

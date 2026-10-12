@@ -685,6 +685,9 @@ class _HistoryCard extends ConsumerWidget {
       'active_users': 'Distinct account owners with a settled trade each day.'
     };
     final marketSeries = value?.data.markets ?? [];
+    final verifiedCoverage = metric == 'active_users' && total != null
+        ? ' · ${total.points.where((point) => point.value != null).length}/${total.points.length} verified daily values'
+        : '';
     final coverage = range == DashboardRange.all
         ? 'Up to 2 years · available history'
         : 'Last ${range.days} days · completed UTC days';
@@ -705,7 +708,7 @@ class _HistoryCard extends ConsumerWidget {
       source: value == null ? null : analyticsSource(value.source),
       asOf: value?.asOf,
       stale: value?.stale ?? false,
-      coverage: coverage,
+      coverage: '$coverage$verifiedCoverage',
       loading: state.isLoading && !state.hasValue,
       snapshot: snapshot ? summary?.data.metrics[summaryField]?.value : null,
       unavailableReason: value?.data.unavailableReason ??

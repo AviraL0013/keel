@@ -454,7 +454,7 @@ export function registerAnalyticsRoutes(
             if (
               pool &&
               interval === '1d' &&
-              (metric === 'fees' || metric === 'active_users') &&
+              (metric === 'fees' || metric === 'active_users' || metric === 'net_flows') &&
               process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true' &&
               to - from <= 90 * 86_400_000
             ) {
@@ -477,7 +477,7 @@ export function registerAnalyticsRoutes(
                     from: series.coverageFrom,
                     through: series.coverageThrough,
                     completeHistory: false,
-                    label: `Observed ${series.completeDays}/${series.points.length} complete UTC days`,
+                    label: `Observed ${series.completeDays}/${series.points.length} complete UTC days; ${series.verifiedDays}/${series.points.length} verified values`,
                   },
                 )
               }
