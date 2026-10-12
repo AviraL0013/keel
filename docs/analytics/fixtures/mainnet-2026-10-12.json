@@ -2,6 +2,8 @@
   "source": "read-only GET https://api-mainnet-production-b042.up.railway.app/analytics/v1",
   "utcWindow": ["2026-09-12T00:00:00.000Z", "2026-10-12T00:00:00.000Z"],
   "capturedOnUtcDate": "2026-10-12",
+  "volumeRecheckAtUtc": "2026-10-12T18:59:53Z",
+  "volumeRecheck": { "points": 30, "verified": 30, "stale": false },
   "rollupAsOf": "2026-10-12T17:57:08.000Z",
   "daily": {
     "fees": { "source": "monad_exchange", "covered": 30, "verified": 30, "stale": false, "sum": "114796.887249" },

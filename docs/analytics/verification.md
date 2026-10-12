@@ -53,7 +53,7 @@ Read-only source: direct **mainnet** Railway API `https://api-mainnet-production
 | Metric | Live coverage and status | Evidence and limit |
 | --- | --- | --- |
 | Fees | **30/30 verified daily values**, `stale=false`; 114,796.887249 AUSD | Daily sum exactly equals 30-day rollup summary. This is an event-derived observation, not independent receipt-by-receipt reconciliation. |
-| Volume | **30/30 daily candle values**, `stale=true` | Perpl API candles for currently listed markets; mutable upstream snapshot. No distinct-trader inference from candle counts. |
+| Volume | **30/30 daily candle values**; fixture capture `stale=true`, later recheck `stale=false` | Perpl API candles for currently listed markets; mutable upstream snapshot. No distinct-trader inference from candle counts. |
 | Active users | **2/30 verified daily values**, `stale=true`, despite **30/30 covered days** | Only October 9 (287) and October 10 (267) were non-null. The other 28 days are unavailable because unresolved account owners invalidate distinct-owner counts. The 30-day summary is null. |
 | Net flows time series | **0/30 verified daily values**, `stale=true`, `No indexed history` | Route reads only the incomplete raw indexer for this metric. The separate rollup-backed `/protocol/flows?window=30d` does have 30 daily buckets and reports 1,051,533.079255 deposits, 1,714,878.880500 withdrawals, net -663,345.801245 AUSD. |
 | Revenue | **30/30 verified daily rollup values**, `stale=false`; 66,009.561647 AUSD | Daily sum exactly equals 30-day summary; source is position protocol-fee events, not gross trading fees. |
