@@ -137,13 +137,21 @@ export class StrategyOrderRecovery {
     // A slow read may finish after another recovery result or intent change.
     // Preserve newer proof and compare the exact persisted command, not only status.
     await this.pool.query(
-      `UPDATE strategy_orders SET status=$2,venue_order_id=COALESCE($3,venue_order_id),
+      `WITH saved AS (UPDATE strategy_orders SET status=$2,venue_order_id=COALESCE($3,venue_order_id),
        transaction_hash=COALESCE($4,transaction_hash),venue_progress=$5,error=$6,updated_at=now()
        WHERE id=$1 AND status=$7 AND request_id=$8::numeric
          AND payload_hash IS NOT DISTINCT FROM $9 AND wire_order IS NOT DISTINCT FROM $10::jsonb
          AND market_terms IS NOT DISTINCT FROM $11::jsonb AND target_order_id IS NOT DISTINCT FROM $12::uuid
          AND last_execution_block IS NOT DISTINCT FROM $13::bigint AND updated_at=$14::timestamptz
-         AND venue_order_id IS NOT DISTINCT FROM $15::bigint`,
+         AND venue_order_id IS NOT DISTINCT FROM $15::bigint
+         RETURNING target_order_id,strategy_id,environment,account_id,market_id,kind,status)
+       UPDATE strategy_orders target SET status='CANCELED',updated_at=now()
+       FROM saved WHERE saved.kind='CANCEL' AND saved.status='CANCELED'
+         AND target.id=saved.target_order_id AND target.strategy_id=saved.strategy_id
+         AND target.environment=saved.environment AND target.account_id=saved.account_id
+         AND target.market_id=saved.market_id AND target.kind='POST' AND target.simulated=false
+         AND target.status IN ('OPEN','PARTIAL','UNKNOWN')
+         AND target.venue_progress->'strategyAdmission'->'identity'=$16::jsonb`,
       [
         row.id,
         resolution.status,
@@ -160,6 +168,7 @@ export class StrategyOrderRecovery {
         row.last_execution_block,
         row.recovery_version,
         row.venue_order_id,
+        row.market_terms?.targetIdentity ?? null,
       ],
     )
   }

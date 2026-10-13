@@ -25,6 +25,10 @@ export type PerplOrder = {
   p?: number
   ms?: number
   lp?: number
+  /** Explicit negative-PnL collateralization limit; omission uses the venue default. */
+  mnp?: number
+  /** Last chain block where a resting order remains fillable. Distinct from admission lb. */
+  tif?: number
   oid?: number
   fl?: 0 | 1 | 2 | 4
 }
@@ -228,7 +232,9 @@ export class PerplTradingClient {
         (!Number.isSafeInteger(order.p) || order.p! <= 0 || !Number.isSafeInteger(order.s) || order.s <= 0)) ||
       (canceling && order.s !== 0) ||
       order.a !== undefined ||
-      order.ms !== undefined
+      order.ms !== undefined ||
+      (order.mnp !== undefined && order.mnp !== 0) ||
+      (order.tif !== undefined && (!Number.isSafeInteger(order.tif) || order.tif < 0))
     )
       throw new PerplPreSubmissionError('PERPL_STRATEGY_ORDER_INVALID')
     return this.submitIntent({ id: intentId }, order, beforeSend, verifyBeforeSend, posting || amending, true)
@@ -331,6 +337,8 @@ export class PerplTradingClient {
     const current = this.heartbeat()
     if (!current || current.epoch !== expiry.epoch || current.head >= expiry.lastExecBlock)
       throw new PerplPreSubmissionError('PERPL_ORDER_EXPIRY_UNAVAILABLE')
+    if (strategy && order.tif && current.head >= order.tif)
+      throw new PerplPreSubmissionError('PERPL_STRATEGY_LIFETIME_EXPIRED')
     const { orderTtlBlocks: _ttl, ...wireOrder } = order
     wireOrder.lb = expiry.lastExecBlock
     return await new Promise((resolve) => {

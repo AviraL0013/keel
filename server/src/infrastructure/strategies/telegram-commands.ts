@@ -16,17 +16,17 @@ export class StrategyTelegramCommands {
   async execute(userId: string, command: StrategyTelegramCommand, transaction?: PoolClient): Promise<string> {
     if (command === 'killswitch') {
       await this.store.kill(userId, transaction)
-      return 'Eyeler Autopilot: kill switch ON. Strategies halted. Reset in app.'
+      return 'Eyeler Autopilot: kill switch ON. Strategies halted; live order cleanup queued. Open positions remain exposed. Reset in app.'
     }
     if (command === 'pause') {
       const count = await this.store.pauseAll(userId, transaction)
-      return `Eyeler Autopilot: ${count} paper strategies paused.`
+      return `Eyeler Autopilot: ${count} strategies paused. Live order cleanup queued; open positions remain exposed.`
     }
     if (command === 'resume') {
       if (await this.store.killed(userId, transaction))
         return 'Eyeler Autopilot: kill switch ON. Reset in app before resuming.'
       const count = await this.store.resumeAll(userId, transaction)
-      return `Eyeler Autopilot: ${count} paper strategies resumed.`
+      return `Eyeler Autopilot: ${count} paper strategies resumed. Live strategies require a new reviewed start in app.`
     }
     const rows = await this.store.list(userId, transaction)
     if (command === 'status') {

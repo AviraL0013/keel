@@ -407,6 +407,24 @@ export class PerplUserVenues implements RuntimeVenue {
                 use(async () => raw.openingMarketSnapshot!(marketId, transaction), transaction),
             }
           : {}),
+        ...(raw.strategySnapshot
+          ? {
+              strategySnapshot: (marketId: number, transaction?: Pick<PoolClient, 'query'>) =>
+                use(async () => raw.strategySnapshot!(marketId, transaction), transaction),
+            }
+          : {}),
+        ...(raw.strategyFillCandidates
+          ? {
+              strategyFillCandidates: (marketId: number, minBlock: number) =>
+                use(async () => raw.strategyFillCandidates!(marketId, minBlock)),
+            }
+          : {}),
+        ...(raw.strategyAccountMutations
+          ? {
+              strategyAccountMutations: (minBlock: number, transaction?: Pick<PoolClient, 'query'>) =>
+                use(async () => raw.strategyAccountMutations!(minBlock, transaction), transaction),
+            }
+          : {}),
         submit: (action, verifyBeforeSend = async () => undefined) =>
           use(() =>
             this.serializeSubmission(accountId, async () => {

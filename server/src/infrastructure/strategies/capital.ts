@@ -14,6 +14,8 @@ type Binding = {
   capital: string
   mode: string
   status: string
+  config?: { liveConfirmed?: boolean }
+  live_confirmed_at?: string | null
 }
 type Allocation = {
   strategy_id: string
@@ -86,9 +88,11 @@ export class StrategyCapital {
     client: PoolClient,
     binding: { environment: 'testnet' | 'mainnet'; account_id: string; user_id: string },
     balance: AccountCapitalBalance,
+    strategyId: string,
+    additional = '0.000000',
   ) {
     try {
-      await assertAccountCapitalCoverage(client, binding, balance, '0.000000')
+      await assertAccountCapitalCoverage(client, binding, balance, additional, undefined, Date.now(), strategyId)
     } catch (error) {
       if (error instanceof Error && error.message === 'ACCOUNT_CAPITAL_INSUFFICIENT')
         throw Error('STRATEGY_WOULD_UNDERFUND_BOOK_RESERVES')
@@ -106,7 +110,13 @@ export class StrategyCapital {
         return existing
       }
       if (row.status !== 'PAUSED' || moneyMicros(row.capital) <= 0n) throw Error('STRATEGY_CAPITAL_NOT_PAUSED')
-      await this.coverage(client, binding, await this.readBalance(row, client))
+      await this.coverage(
+        client,
+        binding,
+        await this.readBalance(row, client),
+        row.id,
+        row.config?.liveConfirmed === false && row.live_confirmed_at == null ? row.capital : '0.000000',
+      )
       return (
         await client.query<Allocation>(
           `INSERT INTO strategy_capital_allocations(strategy_id,environment,
@@ -146,7 +156,7 @@ export class StrategyCapital {
         amount = moneyMicros(cost.required)
       if (amount <= 0n) throw Error('STRATEGY_RESERVATION_AMOUNT_INVALID')
       // A held reservation is idempotent, but never a substitute for fresh pre-send state.
-      await this.coverage(client, binding, cost.balance)
+      await this.coverage(client, binding, cost.balance, row.id)
       const existing = (
         await client.query<{ amount: string; intent_hash: string; status: string }>(
           'SELECT amount,intent_hash,status FROM strategy_capital_reservations WHERE order_id=$1',

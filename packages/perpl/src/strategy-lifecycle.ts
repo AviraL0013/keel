@@ -165,7 +165,7 @@ const neutral = new Set([
 
 /** Prove one authenticated maker fill belongs to the original placement generation.
  * No capital, inventory, PnL or funding credit is made here. Unknown transitions fail closed.
- * Supported lifetime: post-only OpenLong/OpenShort, no expiry, zero requested builder fee.
+ * Supported lifetime: post-only OpenLong/OpenShort, fixed optional expiry, zero requested builder fee.
  */
 /** Trusted server-persisted replay state. Never accept this object from a client.
  * Persist only after a finalized reader validates a complete, consecutive chunk.
@@ -234,7 +234,8 @@ function replayStrategySlot(
       admission.block !== identity.creationBlock ||
       admission.transactionIndex !== identity.creationTransactionIndex ||
       admission.orderId !== '0' ||
-      admission.expiryBlock !== '0' ||
+      !rawAmount(admission.expiryBlock) ||
+      (admission.expiryBlock !== '0' && BigInt(admission.expiryBlock) < BigInt(admission.block)) ||
       !admission.postOnly ||
       admission.fillOrKill ||
       admission.immediateOrCancel ||
@@ -260,6 +261,7 @@ function replayStrategySlot(
         !candidate.at ||
         !positiveWire(candidate.at.b) ||
         candidate.at.b < admission.block ||
+        (admission.expiryBlock !== '0' && BigInt(candidate.at.b!) > BigInt(admission.expiryBlock)) ||
         uint(candidate.at.tx) === undefined ||
         uint(candidate.at.l) === undefined ||
         !strategyReceiptHash(candidate.at.txid))
@@ -408,7 +410,7 @@ function replayStrategySlot(
             continue
           }
           if (
-            args!.expiryBlock !== 0n ||
+            args!.expiryBlock !== BigInt(admission.expiryBlock) ||
             args!.lotLNS !== context!.size ||
             args!.pricePNS !== context!.price ||
             args!.expiryBlock !== context!.expiry ||

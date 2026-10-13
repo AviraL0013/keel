@@ -36,6 +36,9 @@ import { readCapital } from '../capital/snapshot.js'
 import { decodeEventLog, getAddress, parseAbi, parseUnits } from 'viem'
 import Decimal from 'decimal.js'
 import { brandEnv, executionDisabled, logger } from '../../config/index.js'
+import { exchangeReads } from '../../../../packages/analytics/src/exchange-reads.js'
+import { strategySnapshotFromViews } from '../../../../packages/perpl/src/strategy-snapshot.js'
+import type { WireFill } from '../../../../packages/perpl/src/decoder.js'
 
 function perplFreeBalance(
   balance: PerplBalance,
@@ -808,6 +811,126 @@ export function createPerplRuntime(
       if (order.t !== 5 && (env.EYELER_STRATEGIES_LIVE_ENABLED !== 'true' || executionDisabled(env)))
         throw new Error('STRATEGIES_LIVE_DISABLED')
       return trading.submitStrategy(intentId, order, beforeSend, verifyBeforeSend)
+    },
+    async strategySnapshot(marketId) {
+      if (!this.openingMarketSnapshot || !trading.isReady()) throw Error('PERPL_TRADING_STATE_UNTRUSTED')
+      const market = await this.openingMarketSnapshot(marketId)
+      const [protocol, telemetry, wallet] = await Promise.all([
+        adapter.getProtocolContext(),
+        adapter.getNormalizedMarket(marketId),
+        history.wallet(),
+      ])
+      const contextMarket = protocol.markets.find((row) => row.id === marketId)
+      const contractMarketId = (contextMarket as unknown as { perpetual_id?: number } | undefined)?.perpetual_id
+      if (
+        !Number.isSafeInteger(contractMarketId) ||
+        contractMarketId! <= 0 ||
+        !contextMarket ||
+        !telemetry ||
+        !Number.isFinite(telemetry.volatility) ||
+        !Number.isFinite(telemetry.fundingRate) ||
+        !telemetry.fundingTimestamp ||
+        Date.now() - telemetry.fundingTimestamp > 5000
+      )
+        throw Error('STRATEGY_MARKET_SNAPSHOT_UNAVAILABLE')
+      const heartbeat = trading.heartbeat()
+      const observedAt = trading.heartbeatObservedAt()
+      if (!heartbeat || !observedAt || !trading.isReady() || heartbeat.head < market.headBlock)
+        throw Error('PERPL_TRADING_STATE_UNTRUSTED')
+      if ((await chain.client.getChainId()) !== network.chainId) throw Error('STRATEGY_RPC_CHAIN_MISMATCH')
+      const finalized = await chain.client.getBlock({ blockTag: 'finalized' })
+      if (
+        !finalized.number ||
+        finalized.number > BigInt(heartbeat.head) ||
+        BigInt(heartbeat.head) - finalized.number > 3n
+      )
+        throw Error('STRATEGY_ACCOUNT_FINALITY_UNAVAILABLE')
+      const blockNumber = finalized.number
+      const [block, chainAccount, view] = await Promise.all([
+        chain.client.getBlock({ blockNumber }),
+        chain.client.readContract({
+          address: getAddress(network.exchangeAddress),
+          abi: exchangeReads,
+          functionName: 'getAccountById',
+          args: [BigInt(market.accountId)],
+          blockNumber,
+        }),
+        chain.client.readContract({
+          address: getAddress(network.exchangeAddress),
+          abi: exchangeReads,
+          functionName: 'getPositionV2',
+          args: [BigInt(contractMarketId!), BigInt(market.accountId)],
+          blockNumber,
+        }),
+      ])
+      const after = trading.heartbeat(),
+        state = trading.stateSnapshot()
+      const account = state.accounts.find((row) => row.id === market.accountId)
+      const stats = (wallet as unknown as { sts?: Array<{ id: number; td: string; tw: string }> }).sts?.find(
+        (row) => row.id === market.accountId,
+      )
+      const fees = contextMarket.config.maker_fees
+      const makerFee = Array.isArray(fees) && account ? fees[account.ft] : contextMarket.config.maker_fee
+      const funding = contextMarket.funding
+      const oracleRaw = contextMarket.state.orl
+      const canonical = await chain.client.getBlock({ blockNumber })
+      if (
+        !account ||
+        !stats ||
+        !after ||
+        after.epoch !== heartbeat.epoch ||
+        !trading.isReady() ||
+        after.head - heartbeat.head > 3 ||
+        canonical.hash !== block.hash ||
+        canonical.hash !== finalized.hash ||
+        !block.hash ||
+        !Number.isSafeInteger(oracleRaw) ||
+        !Number.isSafeInteger(funding.sum) ||
+        !Number.isSafeInteger(funding.div) ||
+        Number(funding.div) <= 0 ||
+        !Number.isSafeInteger(makerFee) ||
+        wallet.at.b! < Number(blockNumber) - 3 ||
+        Date.now() - Number(block.timestamp) * 1000 > 5000
+      )
+        throw Error('STRATEGY_ACCOUNT_SNAPSHOT_UNVERIFIED')
+      return strategySnapshotFromViews({
+        market,
+        contractMarketId: contractMarketId!,
+        account,
+        chainAccount,
+        chainPosition: view[0],
+        markValid: view[2],
+        orders: state.orders,
+        positions: state.positions,
+        chainBlock: Number(blockNumber),
+        chainHash: block.hash,
+        chainFinalized: true,
+        headBlock: after.head,
+        epoch: after.epoch,
+        sequence: after.sequence,
+        observedAt,
+        oracleRaw: Number(oracleRaw),
+        volatility: String(telemetry.volatility),
+        fundingRate: String(telemetry.fundingRate),
+        makerFeeMicros: Number(makerFee),
+        funding: { sumRaw: String(funding.sum), divisor: String(funding.div) },
+        depositRaw: stats.td,
+        withdrawalRaw: stats.tw,
+      })
+    },
+    async strategyFillCandidates(marketId, minBlock) {
+      return history.read<WireFill>(
+        'fills',
+        (row) => row.acc === Number(env.PERPL_ACCOUNT_ID) && row.mkt === marketId,
+        minBlock,
+      )
+    },
+    async strategyAccountMutations(minBlock) {
+      return history.read<import('../../../../packages/perpl/src/history.js').AccountEvent>(
+        'account-history',
+        (row) => row.id === Number(env.PERPL_ACCOUNT_ID),
+        minBlock,
+      )
     },
     async strategyOrderEvidence(intent) {
       if (intent.accountId !== Number(env.PERPL_ACCOUNT_ID)) throw new Error('PERPL_ACCOUNT_MISMATCH')

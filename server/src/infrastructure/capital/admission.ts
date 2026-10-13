@@ -86,6 +86,7 @@ export async function assertAccountCapitalCoverage(
   required: string,
   excludeOpeningId?: string,
   now = Date.now(),
+  excludeStrategyId?: string,
 ): Promise<string> {
   if (
     balance.environment !== binding.environment ||
@@ -105,6 +106,13 @@ export async function assertAccountCapitalCoverage(
   } catch {
     throw new InfrastructureError('PERPL_FREE_BALANCE_UNAVAILABLE')
   }
+  const strategyOwner = await client.query(
+    `SELECT 1 FROM strategies s JOIN strategy_capital_allocations a ON a.strategy_id=s.id
+     WHERE s.account_id=$1 AND s.environment=$2 AND s.mode='LIVE' AND a.status='HELD'
+       AND ($3::uuid IS NULL OR s.id<>$3) LIMIT 1`,
+    [binding.account_id, binding.environment, excludeStrategyId ?? null],
+  )
+  if (strategyOwner.rows.length) throw new ConflictError('STRATEGY_ACCOUNT_EXCLUSIVE')
   const claims = await client.query<{ amount: string }>(
     `SELECT (r.available+r.reserved)::text AS amount FROM reserves r
      JOIN books b ON b.id=r.book_id LEFT JOIN perpl_connections c ON c.id=b.perpl_connection_id
@@ -118,7 +126,9 @@ export async function assertAccountCapitalCoverage(
      UNION ALL
      SELECT (CASE WHEN a.status='RELEASED' THEN 0 ELSE COALESCE(a.amount,s.capital) END)::text
      FROM strategies s LEFT JOIN strategy_capital_allocations a ON a.strategy_id=s.id
-     WHERE s.account_id=$1 AND s.environment=$2 AND s.mode='LIVE'`,
+     WHERE s.account_id=$1 AND s.environment=$2 AND s.mode='LIVE'
+       AND NOT (a.strategy_id IS NULL AND s.live_confirmed_at IS NULL AND s.status<>'RUNNING'
+         AND (s.config->'liveConfirmed') IS NOT DISTINCT FROM 'false'::jsonb)`,
     [binding.account_id, binding.environment, excludeOpeningId ?? null],
   )
   let promised = 0n
