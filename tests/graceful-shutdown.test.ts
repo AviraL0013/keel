@@ -31,6 +31,7 @@ describe('graceful shutdown', () => {
       lease: {
         query: async () => {
           events.push('unlock')
+          return { rows: [{ pg_advisory_unlock: true }] }
         },
         release: () => {
           events.push('release-lease')
