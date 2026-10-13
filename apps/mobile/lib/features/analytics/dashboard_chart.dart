@@ -493,7 +493,7 @@ class _DashboardChartCardState extends ConsumerState<DashboardChartCard> {
           [
             widget.source ?? 'Source unavailable',
             if (freshness.isNotEmpty) freshness,
-            if (widget.stale) 'Stale / partial',
+            if (widget.stale) dashboardDataNotice,
             if (widget.coverage != null) widget.coverage!
           ].join(' · '),
           style: const TextStyle(

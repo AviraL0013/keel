@@ -527,14 +527,23 @@ class _SummaryKpi extends ConsumerWidget {
           : response?.coverage?.label ?? 'Coverage unavailable';
     }
     final reason = result.hasError
-        ? 'Summary unavailable. Refresh to retry.'
-        : metric?.note ?? 'The source has not supplied a verified value.';
+        ? 'Summary could not load; refresh to retry.'
+        : switch (field) {
+            'volume' => 'Perpl candle volume is not verified.',
+            'openInterest' => 'Verified open interest is unavailable.',
+            'tvl' => 'Exchange AUSD balance is unavailable.',
+            'fees' => 'Trading fees are not verified.',
+            'revenue' => 'Protocol revenue is not verified.',
+            'activeUsers' => 'Trader count is not verified.',
+            'netFlows' => 'Collateral flows are not verified.',
+            _ => 'A verified value is unavailable.',
+          };
     return Tooltip(
         message: [
           if (note != null) note,
           if (response != null)
             '${analyticsSource(response.source)} · ${utcExact(response.asOf)}',
-          if (response?.stale == true) 'Stale / partial source'
+          if (response?.stale == true) dashboardDataNotice
         ].join('\n'),
         child: DashboardKpi(
             label: label,
@@ -545,7 +554,7 @@ class _SummaryKpi extends ConsumerWidget {
                 ? metric?.changePct
                 : null,
             coverage:
-                '$actualCoverage${response?.stale == true ? ' · Stale / partial' : ''}',
+                '$actualCoverage${response?.stale == true ? ' · $dashboardDataNotice' : ''}',
             reason: reason,
             money: money,
             bare: bare,
@@ -646,8 +655,8 @@ class _FlowsKpi extends ConsumerWidget {
       const SizedBox(height: 14),
       Text(
           value == null
-              ? 'Flow source unavailable'
-              : '${analyticsSource(value.source)} · last 24 hours${value.stale ? ' · Stale / partial' : ''}',
+              ? 'Verified flow records were not returned.'
+              : '${analyticsSource(value.source)} · last 24 hours${value.stale ? ' · $dashboardDataNotice' : ''}',
           style: const TextStyle(fontSize: 10, color: AnalyticsPalette.muted)),
     ]));
   }
@@ -713,12 +722,14 @@ class _HistoryCard extends ConsumerWidget {
       snapshot: snapshot ? summary?.data.metrics[summaryField]?.value : null,
       unavailableReason: value?.data.unavailableReason ??
           (snapshot
-              ? 'Current snapshot. ${observed == null ? 'History start date is not reported.' : 'History recording since ${utcDate(observed)}.'}'
+              ? observed == null
+                  ? 'Current snapshot; historical coverage is not reported.'
+                  : 'History recorded since ${utcDate(observed)}.'
               : state.hasError
                   ? 'History unavailable from the source. Retry this chart.'
                   : total?.points.isEmpty == true
                       ? 'No observations in this range.'
-                      : 'No verified history in this range. Unavailable buckets remain unknown.'),
+                      : 'Daily values are not verified for this period.'),
       retry: state.hasError
           ? () => ref.invalidate(dashboardHistoryProvider((metric, range)))
           : null,
@@ -958,7 +969,7 @@ class DashboardMarketsTable extends ConsumerWidget {
         }),
       if (response != null)
         Text(
-            '${analyticsSource(response.source)} · ${utcExact(response.asOf)}${response.stale ? ' · Stale / partial' : ''}',
+            '${analyticsSource(response.source)} · ${utcExact(response.asOf)}${response.stale ? ' · $dashboardDataNotice' : ''}',
             style:
                 const TextStyle(fontSize: 10, color: AnalyticsPalette.muted)),
     ]));

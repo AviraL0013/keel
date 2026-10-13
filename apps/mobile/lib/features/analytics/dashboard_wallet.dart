@@ -288,7 +288,7 @@ class _DashboardWalletProfileState
             Text(
                 wallet == null
                     ? 'Snapshot source unavailable'
-                    : '${analyticsSource(wallet.source)} · ${utcExact(wallet.asOf)} · ${wallet.coverage?.label ?? 'Current snapshot'}${wallet.stale ? ' · Stale / partial' : ''}',
+                    : '${analyticsSource(wallet.source)} · ${utcExact(wallet.asOf)} · ${wallet.coverage?.label ?? 'Current snapshot'}${wallet.stale ? ' · $dashboardDataNotice' : ''}',
                 style: const TextStyle(
                     fontSize: 11, height: 1.6, color: AnalyticsPalette.muted)),
             const SizedBox(height: 24),
@@ -506,7 +506,7 @@ class _DashboardWalletTradesState extends ConsumerState<DashboardWalletTrades> {
       const SizedBox(height: 8),
       if (response != null)
         Text(
-            '${analyticsSource(response!.source)} · ${response!.coverage?.label ?? 'Coverage not reported'}${response!.stale ? ' · Stale / partial' : ''}',
+            '${analyticsSource(response!.source)} · ${response!.coverage?.label ?? 'Coverage not reported'}${response!.stale ? ' · $dashboardDataNotice' : ''}',
             style:
                 const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
       if (loading && items.isEmpty) const DashboardSkeleton(),
@@ -722,7 +722,7 @@ class _CompareWallet extends ConsumerWidget {
           loading: performance.isLoading),
       if (wallet != null)
         Text(
-            '${analyticsSource(wallet.source)} · ${utcExact(wallet.asOf)}${wallet.stale ? ' · Stale / partial' : ''}',
+            '${analyticsSource(wallet.source)} · ${utcExact(wallet.asOf)}${wallet.stale ? ' · $dashboardDataNotice' : ''}',
             style: const TextStyle(
                 fontSize: 10, height: 1.6, color: AnalyticsPalette.muted)),
       if (snapshot.hasError)

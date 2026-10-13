@@ -21,6 +21,8 @@ abstract final class AnalyticsPalette {
   ];
 }
 
+const dashboardDataNotice = 'Data may be delayed or incomplete';
+
 class AnalyticsDark extends StatelessWidget {
   const AnalyticsDark({super.key, required this.child});
   final Widget child;
@@ -210,11 +212,13 @@ class DashboardKpi extends StatelessWidget {
       if (!loading && value == null)
         Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(reason ?? 'Not supplied by the source.',
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontSize: 11, color: AnalyticsPalette.muted))),
+            child: Tooltip(
+                message: reason ?? 'Not supplied by the source.',
+                child: Text(reason ?? 'Not supplied by the source.',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 11, color: AnalyticsPalette.muted)))),
     ]);
     return bare
         ? Padding(padding: const EdgeInsets.all(20), child: content)
