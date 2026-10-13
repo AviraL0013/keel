@@ -20,7 +20,7 @@ key, see [Creating a key](#creating-a-key) below.
   wallet-signed enrollment flow.
 
 Either way you end up with two things, which the snippets below read from the
-environment (as the [examples](./examples.md) do):
+environment (as the [examples](https://github.com/PerplFoundation/api-docs/blob/main/examples.md) do):
 
 - `API_KEY` (from `PERPL_API_KEY`) — the opaque `X-API-Key` token.
 - `privateKey` (from `PERPL_API_KEY_SECRET`, hex of the 32-byte key) — the Ed25519 private key.

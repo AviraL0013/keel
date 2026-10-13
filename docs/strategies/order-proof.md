@@ -1,6 +1,6 @@
-# Receipt-backed strategy command recovery
+# Receipt proof and SDK provenance
 
-The internal strategy submission seam remains unmounted. No live strategy is enabled by this work, and all execution tests use fake RPC, fake venues, or local database fixtures.
+This appendix preserves the original verifier milestone's independent ABI fixture, pinned SDK references and regression rationale. Its milestone-specific support limits are historical, not the current controller status. The LIVE controller and recovery integration are now implemented; current consent, expiry, cleanup and risk rules are in [mainnet Autopilot](mainnet-autopilot.md). The tests described here use fake RPC, fake venues or local database fixtures and do not demonstrate real trading.
 
 ## What is proved
 
@@ -41,7 +41,7 @@ The first admitted command pins its transaction, block, request/outcome log indi
 
 A renewed credential may read old evidence only for the same verified owner, environment and account. The historical handle has no strategy submission method, and a revoked renewal cannot return evidence.
 
-## What is not proved yet
+## Historical proof boundary
 
 ### API and contract identity
 
@@ -57,13 +57,13 @@ The vendored `BlockTxLogTimestamp.l` is transaction-local, whereas RPC `logIndex
 
 Command admission and later order settlement are separate. A resting order's `lb` bounds admission only. Later maker fills may occur after `lb` and after three minutes. `st:10` means a command executed; it is not a fill. A verified placement plus a fresh OPEN/PARTIAL snapshot records the observed lifecycle; snapshot filled size is not a financial ledger credit.
 
-This milestone does not settle maker fills, fees, funding, realized PnL or inventory from receipts. Missing lifecycle proof keeps an admitted order UNKNOWN while retaining its admission. It does not release strategy capital. Unsupported or noncanonical extension formats remain unverified; a zero fee does not remove attribution bytes. Financial settlement, owned cancellation cleanup and explicit live confirmation still block the production live controller.
+At the original command-admission milestone, later maker fills, fees, funding, realized PnL and inventory were outside the proof. Missing lifecycle proof kept admission UNKNOWN and did not release capital. Subsequent integration added owned cleanup, explicit consent and verified fill ingestion. Complete net financial attribution remains a separate boundary; current evidence semantics are in [mainnet reports](mainnet-evidence.md).
 
 An authenticated API Fill plus a matching maker receipt is still not independent proof of a later slot lifetime. History signs the outbound request; it does not independently sign the server response. `MakerOrderFilled` identifies account, perpetual and slot but has no API ID or placement request. Financial credit therefore also requires complete canonical Exchange lifecycle events from the exact placement outcome through the fill, including preceding events in the same transaction, and replay of replacement, cancellation, clearing and full-fill removal. Missing coverage or unsupported transitions must remain UNKNOWN. No such financial credit is enabled by the identity bridge.
 
 ### Bounded slot lifetime proof
 
-The separate, unmounted `verifyStrategyMakerFill` now proves raw maker-fill attribution within a conservative supported subset: post-only OpenLong/OpenShort, zero expiry, and zero requested builder fee. It revalidates the original forwarded placement receipt and saved admission, including the exact request and outcome log indices. It never identifies a generation solely from the creation transaction or a reusable slot number.
+The original `verifyStrategyMakerFill` milestone proved attribution within a conservative subset: post-only OpenLong/OpenShort, zero expiry, and zero requested builder fee. Later integration includes bounded native quote expiry. The proof revalidates the original forwarded placement receipt and saved admission, including exact request and outcome indices; a creation transaction or reusable slot alone cannot identify a generation.
 
 The proof input enumerates every consecutive block from placement through the candidate fill, including empty blocks. Every block supplies its complete transaction inventory and every transaction supplies a consistently stamped receipt. All receipt logs, including foreign emitters, participate in block-global index validation and transaction-local ordinal derivation. Missing blocks, missing receipts, gaps, duplicates, removed logs, broken parent links and malformed recognized events refuse attribution.
 
@@ -73,7 +73,7 @@ The candidate must match the API account, market, order, side, maker classificat
 
 `StrategyLifecycleReader` provides an unsigned, bounded RPC inventory for this proof. It checks the expected Monad chain, requires an available `finalized` block covering the target, reads full blocks and every receipt, then rechecks the canonical target and finalized hashes. It makes no `eth_getLogs` request, transaction call, retry or alternate-provider attempt. HTTP 401/403 is a terminal error for that read. Bounds are 128 blocks, 2,048 receipts, 50,000 normalized logs and a two-minute read deadline with ten-second individual requests. Longer order lifetimes need durable replay checkpoints; they are refused, never truncated.
 
-The configured RPC's full-block, receipt and finality responses remain a trust boundary. This is not a cryptographic receipt-trie proof. The pure verifier alone does not establish finality; callers must use the separately checked reader evidence before any future ledger write. The existing analytics indexer filters to analytics event topics and cannot satisfy this lifetime coverage contract. Real provider support, sustained replay cost, ledger persistence, duplicate-credit protection and continued polling after pause/stop remain unverified or unfinished. Neither helper is mounted in the live controller.
+The configured RPC's full-block, receipt and finality responses remain a trust boundary, not a cryptographic receipt-trie proof. The pure verifier alone does not establish finality; callers require checked reader evidence before ledger writes. The analytics indexer's selected topics cannot satisfy this complete lifecycle contract. The mounted controller now uses durable replay and duplicate-credit protection. Authentic provider/history behavior and sustained real operation still require separate evidence.
 
 ## Regression evidence
 

@@ -436,4 +436,4 @@ registered with your code, on a periodic epoch schedule.
 Once you hold an `X-API-Key` token and its Ed25519 private key, sign every
 request as described in **[Authentication](./authentication.md)**. Runnable
 enrollment + signing programs for JavaScript, TypeScript, Python and Rust are in
-[`examples/`](./examples.md).
+[`examples/`](https://github.com/PerplFoundation/api-docs/blob/main/examples.md).

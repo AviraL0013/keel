@@ -48,3 +48,8 @@ Performance and skew are bounded to the observed checkpoint block. Their cache i
 ## Provenance and limits
 
 Perpl [vendored API docs](../vendor/perpl-api-docs/rest-endpoints.md) expose public context, candles and funding. Account history, fills and positions require signed API-key access, so public wallet coverage depends on Exchange logs. The event ABI subset is captured from [Perpl's official SDK](https://github.com/PerplFoundation/dex-sdk/blob/main/crates/sdk/abi/dex/Exchange.json) with source hash in `exchange-events.ts`. On-chain mapping and calculations must pass recorded-log tests before publishing non-null wallet metrics.
+
+
+## Current-account activity and optional wallet tools
+
+The wallet activity endpoint covers 30 completed UTC days for accounts linked to the wallet at the current snapshot. Complete-day rollup coverage permits a zero; missing coverage stays null. The active-account count is not a trade count and does not establish historical ownership or PnL. Position concentration, stress estimates and live snapshot comparisons are described in [wallet tools](wallet-tools.md).

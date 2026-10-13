@@ -110,7 +110,7 @@ console.log(await response.json());
 | [REST Endpoints](./rest-endpoints.md) | All HTTP endpoints |
 | [WebSocket](./websocket.md) | Real-time streams and trading |
 | [Types](./types.md) | Data type reference |
-| [Examples](./examples.md) | Code examples |
+| [Examples](https://github.com/PerplFoundation/api-docs/blob/main/examples.md) | Code examples |
 
 ## Configuration
 
@@ -369,7 +369,7 @@ These endpoints require a signed request from an enrolled API key (see [Authenti
 Create a key at the web UI ([app.perpl.xyz/apikeys](https://app.perpl.xyz/apikeys),
 testnet [testnet.perpl.xyz/apikeys](https://testnet.perpl.xyz/apikeys)) or enroll
 one programmatically, then run the examples in `examples/` (see
-[Examples](./examples.md)). The example programs read your enrolled key from
+[Examples](https://github.com/PerplFoundation/api-docs/blob/main/examples.md)). The example programs read your enrolled key from
 `PERPL_API_KEY` / `PERPL_API_KEY_SECRET`, and the wallet used for enrollment
 from a private key you supply.
 

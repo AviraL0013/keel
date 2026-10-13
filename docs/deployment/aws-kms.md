@@ -4,7 +4,7 @@ This configuration belongs to the candidate multi-user release. It does not chan
 
 ## Operator setup
 
-Create a symmetric `ENCRYPT_DECRYPT` customer-managed KMS key and a least-privilege runtime IAM role. Prefer the backend's region. Enable automatic key-material rotation and retain the key for the lifetime of credentials and retained backups. The application does not create, disable, schedule deletion of, or administer keys.
+Create a symmetric `ENCRYPT_DECRYPT` customer-managed KMS key and a least-privilege runtime IAM identity. Prefer a role with short-lived credentials and the backend's region. An IAM user's access keys can also authenticate through the standard AWS SDK environment provider. Enable automatic key-material rotation and retain the key for the lifetime of credentials and retained backups. The application does not create, disable, schedule deletion of, or administer keys.
 
 Set these names through the backend host's secure configuration:
 
@@ -15,13 +15,13 @@ Set these names through the backend host's secure configuration:
 | `EYELER_KMS_KEY_ARN`          | Full immutable key ARN for new encryption. Aliases are rejected.              |
 | `EYELER_KMS_DECRYPT_KEY_ARNS` | Optional comma-separated previous key ARNs in the same region, maximum eight. |
 
-Configure an AWS SDK credential provider that obtains short-lived credentials for the runtime role. The SDK supports workload credentials and web identity (`AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE`), among its standard providers. A role ARN alone is not authentication. A GitHub Actions identity cannot be reused as the continuously running Railway service's identity. Railway workload federation has not been verified for this installation; its documented “Login with Railway” OAuth integration is user login, not proof of an AWS workload identity. Resolve this before activation. Never paste credentials, web identity tokens, or private material into chat or the repository.
+Use the standard AWS SDK credential provider chain; the application does not implement custom credential handling. IAM user credentials can be supplied through host secrets named `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; temporary credentials also require `AWS_SESSION_TOKEN`. The chain supports workload credentials and web identity (`AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE`) where the host provides a valid identity. A role ARN alone is not authentication. A GitHub Actions identity cannot be reused as the continuously running Railway service's identity. Railway workload federation has not been verified for this installation. Verify the actual deployed identity and KMS context checks before activation. Never paste credentials, web identity tokens, or private material into chat or the repository.
 
 Unset `EYELER_KEY_ENCRYPTION_KEY` and `KEEL_KEY_ENCRYPTION_KEY` for deployed testnet/mainnet. `DevelopmentKeyCustody` is accepted only in `development` or `test`. Public mainnet access requires valid KMS configuration. An explicit team-wallet allowlist demo may instead use `railway-allowlist-demo` with `EYELER_DEMO_CUSTODY_KEYS` and `EYELER_DEMO_CUSTODY_ACTIVE_VERSION`; it requires mainnet per-user accounts and `EYELER_ACCESS_MODE=allowlist`. Deployed per-user testnet supports either AWS KMS or the separate versioned `railway-testnet` provider documented in [credentials](credentials.md). There is no automatic fallback when KMS is unavailable.
 
 ## Minimum runtime IAM policy
 
-Replace `KEY_ARN` in this template with the operator-created key ARN. It is an identity policy attached to the runtime role, not a complete KMS key policy or role trust policy. The KMS key policy must also allow that role (directly, or through appropriate account IAM delegation). Restrict the role trust policy to the actual workload identity and intended audience/subject.
+Replace `KEY_ARN` privately with the operator-created key ARN. This identity policy can be attached to the runtime role or dedicated IAM user; it is not a complete KMS key policy or role trust policy. The key policy must permit that identity directly or through appropriate account IAM delegation. If using a role, restrict its trust policy to the actual workload identity and intended audience/subject.
 
 ```json
 {
@@ -89,7 +89,7 @@ Each decrypt emits an attempt and a success/failure event with opaque user ID, c
 
 Enable and verify CloudTrail KMS events and retention in AWS. Encryption context is visible in CloudTrail, so it contains only opaque identifiers, never secrets. Check both application and CloudTrail audit records during staging; a unit test cannot prove the AWS policy or retained cloud audit trail.
 
-Local tests use a fake KMS client and isolated PostgreSQL/WASM fixtures. Required external proof: role authentication from the deployed workload, actual KMS round trip, denied-context decrypt, rotation/restore using nonproduction fixtures, CloudTrail delivery, then a reviewed mainnet activation. No AWS resources or real KMS calls were created or made during implementation.
+Local tests use a fake KMS client and isolated PostgreSQL/WASM fixtures. Required external proof: authentication through the deployed SDK provider chain, actual KMS round trip, denied-context decrypt, rotation/restore using nonproduction fixtures, CloudTrail delivery, then reviewed mainnet activation. Documentation and mocked tests do not establish those external checks.
 
 ### Work while AWS setup is pending
 
@@ -103,6 +103,6 @@ node node_modules/vitest/vitest.mjs run --dir tests tests/perpl-kms-custody.test
 
 There is deliberately no `fake` custody configuration for a deployed server and no local KMS endpoint override. Public mainnet access requires `aws-kms` and a successful startup probe; the explicit team-wallet allowlist demo is the only mainnet exception. Development custody is permitted only for local development and test environments. Do not mark an AWS readiness checkpoint complete because the fake tests pass.
 
-When AWS setup is ready, share only the region, KMS key ARN, and IAM role ARN. Configure workload authentication through the deployment platform; do not paste AWS access keys, session tokens, or private keys into chat. Public ARNs alone do not authenticate the deployed service or trigger an automatic mainnet activation.
+Keep key ARNs and identity configuration in private deployment settings. Report variable names and presence only; never print access keys, tokens, account-identifying ARNs, or private material. Configure SDK authentication through the host secret settings. Present variables alone do not prove authentication or authorize mainnet activation.
 
 Sources: [GenerateDataKey](https://docs.aws.amazon.com/kms/latest/APIReference/API_GenerateDataKey.html), [encryption context](https://docs.aws.amazon.com/kms/latest/developerguide/encrypt_context.html), [ReEncrypt](https://docs.aws.amazon.com/kms/latest/APIReference/API_ReEncrypt.html), [key rotation](https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html), [SDK credential providers](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html), [Railway OAuth](https://docs.railway.com/integrations/oauth).
