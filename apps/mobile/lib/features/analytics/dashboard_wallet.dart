@@ -132,6 +132,8 @@ String performanceReason(V1WalletPerformance? performance) =>
         'Ownership of all accounts in this period is not yet verified.',
       'STARTING_EQUITY_UNAVAILABLE' =>
         'Verified starting equity is unavailable.',
+      'PUBLIC_WALLET_HISTORY_UNAVAILABLE' =>
+        'Perpl exposes public current positions, but not this wallet’s 30-day trade history.',
       final String reason =>
         'Performance unavailable: ${reason.replaceAll('_', ' ').toLowerCase()}.',
       _ => 'The source has not supplied a verified performance value.',
@@ -221,6 +223,7 @@ class _DashboardWalletProfileState
     final exposure = DashboardWalletExposure.fromProfile(data);
     final perf = history?.data;
     final proven = perf != null && perf.unavailableReason == null;
+    final indexedGross = perf?.grossRealizedPnlScope != null;
     final perfReason = performance.hasError
         ? 'Performance endpoint unavailable. Current positions remain visible.'
         : performanceReason(perf);
@@ -321,15 +324,23 @@ class _DashboardWalletProfileState
                           : AnalyticsPalette.up,
                   reason: 'Verified position marks are required.'),
               DashboardKpi(
-                  label: 'Realized PnL (30d)',
-                  value: proven && isThirtyDayPerformance(history)
-                      ? perf.realizedPnl
-                      : null,
+                  label: indexedGross
+                      ? 'Gross realized PnL (30d)'
+                      : 'Realized PnL (30d)',
+                  value: indexedGross
+                      ? perf!.grossRealizedPnl
+                      : proven && isThirtyDayPerformance(history)
+                          ? perf.realizedPnl
+                          : null,
                   loading: performance.isLoading,
-                  coverage: 'Last 30 days',
-                  reason: proven && !isThirtyDayPerformance(history)
-                      ? '30-day performance is not verified.'
-                      : briefPerfReason),
+                  coverage: indexedGross
+                      ? 'Creation-linked accounts · before fees'
+                      : 'Last 30 days',
+                  reason: indexedGross
+                      ? 'Complete event coverage and block-level ownership proof are required.'
+                      : proven && !isThirtyDayPerformance(history)
+                          ? '30-day performance is not verified.'
+                          : briefPerfReason),
             ]),
             const SizedBox(height: 16),
             DashboardGrid(columns: 4, children: [
@@ -677,11 +688,14 @@ class _DashboardWalletTradesState extends ConsumerState<DashboardWalletTrades> {
                 const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
       if (loading && items.isEmpty) const DashboardSkeleton(),
       if (!loading && error == null && items.isEmpty)
-        DashboardUnavailable(
-            response?.data.unavailableReason == 'NO_INDEXED_HISTORY'
-                ? 'Historical trades are not indexed yet.'
-                : response?.data.unavailableReason == 'INCOMPLETE_HISTORY'
-                    ? 'Trade history is incomplete for this wallet.'
+        DashboardUnavailable(response?.data.unavailableReason ==
+                'NO_INDEXED_HISTORY'
+            ? 'Historical trades are not indexed yet.'
+            : response?.data.unavailableReason == 'INCOMPLETE_HISTORY'
+                ? 'Trade history is incomplete for this wallet.'
+                : response?.data.unavailableReason ==
+                        'PUBLIC_WALLET_HISTORY_UNAVAILABLE'
+                    ? 'Perpl’s public API does not provide this wallet’s trade history.'
                     : 'No observed trades.'),
       if (!loading &&
           items.isNotEmpty &&

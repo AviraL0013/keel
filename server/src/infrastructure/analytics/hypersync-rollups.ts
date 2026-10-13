@@ -6,6 +6,7 @@ import { RollupAccumulator } from '../../../../packages/analytics/src/rollups.js
 import { PerplPublicAnalytics } from './perpl-public.js'
 import { HyperSyncRequestPacer, sharedHyperSyncPacer } from './hypersync-pacer.js'
 import type { RollupCoverage } from './rollup-repository.js'
+import { walletLedgerRows, type WalletLedgerInput, type WalletLedgerRow } from './wallet-ledger.js'
 
 const endpoint = 'https://monad.hypersync.xyz'
 const selectedNames = new Set([
@@ -24,9 +25,20 @@ const selectedNames = new Set([
   'PositionDecreased',
   'PositionClosed',
   'PositionInverted',
+  'PositionDeleveraged',
+  'PositionDeleveragedV2',
+  'PositionUnwound',
+  'PositionUnwoundV2',
 ])
 const topics = exchangeEvents
   .filter((event) => selectedNames.has(event.name))
+  .map((event) => toEventSelector(event as AbiEvent))
+const rollupTopics = exchangeEvents
+  .filter(
+    (event) =>
+      selectedNames.has(event.name) &&
+      !['PositionDeleveraged', 'PositionDeleveragedV2', 'PositionUnwound', 'PositionUnwoundV2'].includes(event.name),
+  )
   .map((event) => toEventSelector(event as AbiEvent))
 const accountEvent = exchangeEvents.find((event) => event.name === 'AccountCreated') as AbiEvent
 const accountTopic = toEventSelector(accountEvent)
@@ -132,10 +144,12 @@ export class HyperSyncRollupSource {
     fromBlock: number,
     toBlock: number,
     signal?: AbortSignal,
+    includeWalletEvents = false,
   ): Promise<{
     coverage: RollupCoverage
     buckets: ReturnType<RollupAccumulator['result']>['buckets']
     actors: ReturnType<RollupAccumulator['result']>['actors']
+    walletEvents: WalletLedgerRow[]
   }> {
     if (checkBlock(fromBlock) >= checkBlock(toBlock)) throw new Error('ROLLUP_RANGE_INVALID')
     const [first, last] = await Promise.all([this.block(fromBlock, signal), this.block(toBlock - 1, signal)])
@@ -143,6 +157,7 @@ export class HyperSyncRollupSource {
     const markets: Map<number, MarketPrecision> = this.publicData.precision(context.value)
     const accumulator = new RollupAccumulator()
     const seen = new Set<string>()
+    const ledgerItems: WalletLedgerInput[] = []
     let cursor = fromBlock
     let logCount = 0
     while (cursor < toBlock) {
@@ -151,7 +166,7 @@ export class HyperSyncRollupSource {
         {
           from_block: cursor,
           to_block: toBlock,
-          logs: [{ address: [EXCHANGE], topics: [topics] }],
+          logs: [{ address: [EXCHANGE], topics: [includeWalletEvents ? topics : rollupTopics] }],
           field_selection: {
             block: ['number', 'hash', 'timestamp'],
             log: [
@@ -194,7 +209,10 @@ export class HyperSyncRollupSource {
             ) as Hex[],
           }
           const decoded = decodeExchangeLog(chainLog)
-          accumulator.add(decoded ? deriveEvent(decoded, markets) : null, blockTime(block))
+          const derived = decoded ? deriveEvent(decoded, markets) : null
+          const at = blockTime(block)
+          accumulator.add(derived, at)
+          if (includeWalletEvents && decoded) ledgerItems.push({ event: decoded, derived, at })
           logCount++
         }
       }
@@ -214,6 +232,7 @@ export class HyperSyncRollupSource {
         logCount,
       },
       ...accumulator.result(),
+      walletEvents: includeWalletEvents ? walletLedgerRows(ledgerItems) : [],
     }
   }
 

@@ -34,6 +34,10 @@ import {
   type VerifiedHistoryTrade,
 } from '../../../infrastructure/analytics/wallet-completion.js'
 import { WalletOnDemandAnalytics, walletOnDemandFromEnv } from '../../../infrastructure/analytics/wallet-ondemand.js'
+import {
+  readIndexedGrossSettlement,
+  readIndexedTradePage,
+} from '../../../infrastructure/analytics/wallet-ledger-reader.js'
 import { AnalyticsSnapshotRepository } from '../../../infrastructure/analytics/snapshots.js'
 import { readDailyRollupSeries } from '../../../infrastructure/analytics/daily-rollup-series.js'
 import { readWalletActivity } from '../../../infrastructure/analytics/wallet-activity.js'
@@ -1007,6 +1011,56 @@ export function registerAnalyticsRoutes(
         async (request, reply) => {
           const address = addressParam(request.params.address)
           const limit = numberParam(request.query.limit, 50, 1, 100)
+          if (
+            pool &&
+            process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true' &&
+            process.env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED === 'true'
+          ) {
+            const ctx = await publicData.context()
+            const precision = new Map(
+              [...publicData.precision(ctx.value).values()].map((market) => [market.marketId, market]),
+            )
+            const page = await readIndexedTradePage(
+              pool,
+              address,
+              precision,
+              wallet.ownerAt.bind(wallet),
+              Math.min(limit, 5),
+              request.query.cursor,
+            )
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              { items: page.items, nextCursor: page.nextCursor, unavailableReason: page.unavailableReason },
+              'monad_exchange',
+              page.asOf,
+              page.block,
+              !page.complete || page.unavailableReason !== null,
+              {
+                from: page.from,
+                through: page.through,
+                completeHistory: false,
+                label: page.complete
+                  ? '30 completed UTC days; event-block owner proof per displayed trade'
+                  : 'Wallet event backfill in progress; only individually proved trades appear',
+              },
+            )
+          }
+          if (onDemand && pool && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true') {
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              { items: [], nextCursor: null, unavailableReason: 'PUBLIC_WALLET_HISTORY_UNAVAILABLE' },
+              'derived',
+              new Date().toISOString(),
+              null,
+              true,
+              {
+                from: null,
+                through: null,
+                completeHistory: false,
+                label: 'Public trade index unavailable; current positions remain live',
+              },
+            )
+          }
           if (onDemand) {
             const ctx = await publicData.context()
             const result = await wallet30(address, ctx.value)
@@ -1175,6 +1229,49 @@ export function registerAnalyticsRoutes(
         async (request, reply) => {
           const address = addressParam(request.params.address)
           const ctx = await publicData.context()
+          if (
+            pool &&
+            process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true' &&
+            process.env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED === 'true'
+          ) {
+            const gross = await readIndexedGrossSettlement(pool, address, wallet.ownerAt.bind(wallet))
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              {
+                ...unavailablePerformance(address),
+                unavailableReason: 'ACCOUNT_ENUMERATION_UNVERIFIED',
+                grossRealizedPnl: gross.grossRealizedPnl,
+                grossRealizedPnlUnavailableReason: gross.unavailableReason,
+                grossRealizedPnlScope: 'Creation-linked accounts; price PnL plus funding before fees',
+              },
+              'monad_exchange',
+              gross.asOf,
+              gross.block,
+              gross.unavailableReason !== null,
+              {
+                from: gross.from,
+                through: gross.through,
+                completeHistory: false,
+                label: '30 completed UTC days; creation-linked accounts only',
+              },
+            )
+          }
+          if (onDemand && pool && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true') {
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              { ...unavailablePerformance(address), unavailableReason: 'PUBLIC_WALLET_HISTORY_UNAVAILABLE' },
+              'derived',
+              new Date().toISOString(),
+              null,
+              true,
+              {
+                from: null,
+                through: null,
+                completeHistory: false,
+                label: 'Public performance index unavailable; current positions remain live',
+              },
+            )
+          }
           if (onDemand) {
             const result = await wallet30(address, ctx.value)
             if (!result) throw fail('ANALYTICS_WALLET_HISTORY_UNAVAILABLE', 503)

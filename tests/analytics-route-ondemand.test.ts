@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import Fastify from 'fastify'
+import type pg from 'pg'
 import { expect, it } from 'vitest'
 import { PerplPublicAnalytics } from '../server/src/infrastructure/analytics/perpl-public.js'
 import { WalletChainAnalytics } from '../server/src/infrastructure/analytics/wallet-chain.js'
@@ -67,5 +68,36 @@ it('pages proven on-demand wallet trades while withholding totals for unverified
     expect(accountsComplete).toBe(false)
   } finally {
     await app.close()
+  }
+})
+
+it('returns an immediate, honest unavailable state instead of rescanning the full public window', async () => {
+  const priorRollups = process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED
+  const priorLedger = process.env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED
+  process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED = 'true'
+  process.env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED = 'false'
+  const app = Fastify()
+  const publicData = new PerplPublicAnalytics('https://fixture.invalid', async () => Response.json(context))
+  const walletOnDemand = {
+    load: async () => {
+      throw Error('ON_DEMAND_SCAN_MUST_NOT_RUN')
+    },
+  } as unknown as WalletOnDemandAnalytics
+  registerAnalyticsRoutes(app, {} as pg.Pool, { publicData, walletOnDemand })
+  try {
+    const path = `/analytics/v1/wallets/${address}`
+    const trades = await app.inject(`${path}/trades?limit=1`)
+    expect(trades.statusCode).toBe(200)
+    expect(trades.json().data).toMatchObject({ items: [], unavailableReason: 'PUBLIC_WALLET_HISTORY_UNAVAILABLE' })
+    const performance = await app.inject(`${path}/performance`)
+    expect(performance.statusCode).toBe(200)
+    expect(performance.json().data.realizedPnl).toBeNull()
+    expect(performance.json().data.unavailableReason).toBe('PUBLIC_WALLET_HISTORY_UNAVAILABLE')
+  } finally {
+    await app.close()
+    if (priorRollups === undefined) delete process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED
+    else process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED = priorRollups
+    if (priorLedger === undefined) delete process.env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED
+    else process.env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED = priorLedger
   }
 })
