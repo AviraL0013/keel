@@ -152,6 +152,9 @@ class _DashboardWalletProfileState
     final perfReason = performance.hasError
         ? 'Performance endpoint unavailable. Current positions remain visible.'
         : performanceReason(perf);
+    final briefPerfReason = performance.hasError
+        ? 'Performance data could not be loaded.'
+        : 'Verified trade history is unavailable.';
     final fullPositions = data?.margin.equity != null;
     final unrealized = !fullPositions
         ? null
@@ -227,14 +230,12 @@ class _DashboardWalletProfileState
                   value: data?.margin.equity,
                   coverage: 'Current Exchange snapshot',
                   loading: profile.isLoading,
-                  reason:
-                      'Equity requires complete positions and verified marks.'),
+                  reason: 'Complete positions and marks are required.'),
               DashboardKpi(
                   label: 'Margin used',
                   value: data?.marginUsed,
                   coverage: 'Current snapshot',
-                  reason: data?.marginUsedReason ??
-                      'The API reports locked order collateral, not verified total margin used.'),
+                  reason: 'Total margin used is not verified.'),
               DashboardKpi(
                   label: 'Unrealized PnL',
                   value: unrealized,
@@ -245,8 +246,7 @@ class _DashboardWalletProfileState
                       : unrealized.startsWith('-')
                           ? AnalyticsPalette.down
                           : AnalyticsPalette.up,
-                  reason:
-                      'Complete positions and valid venue marks are required.'),
+                  reason: 'Verified position marks are required.'),
               DashboardKpi(
                   label: 'Realized PnL (30d)',
                   value: proven && isThirtyDayPerformance(history)
@@ -255,8 +255,8 @@ class _DashboardWalletProfileState
                   loading: performance.isLoading,
                   coverage: 'Last 30 days',
                   reason: proven && !isThirtyDayPerformance(history)
-                      ? 'The API has not verified a 30-day performance window.'
-                      : perfReason),
+                      ? '30-day performance is not verified.'
+                      : briefPerfReason),
             ]),
             const SizedBox(height: 16),
             DashboardGrid(columns: 4, children: [
@@ -267,7 +267,7 @@ class _DashboardWalletProfileState
                   money: false,
                   loading: performance.isLoading,
                   coverage: period,
-                  reason: perfReason),
+                  reason: briefPerfReason),
               DashboardKpi(
                   label: 'Available margin',
                   value: data?.margin.free,
