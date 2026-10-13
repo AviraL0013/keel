@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { applyMarketMessage, type MarketStreamState, type L2Level } from './marketDecoder.js'
 import { defaultFreshnessThresholds } from '../../domain/src/index.js'
 import { emitPerplReliability } from './reliability-events.js'
+import { decodeTimestamp } from './units.js'
 
 type Subscription = { stream: string; sid?: number }
 type Frame = {
@@ -43,12 +44,18 @@ export class PerplMarketStream {
       this.subscriptions.set(marketStateStream, { stream: marketStateStream })
     const now = Date.now()
     // An OPEN socket is not proof that every subscription is advancing.
-    // Rebuild from venue snapshots; never freshen cached depth with a heartbeat.
+    // Rebuild from venue snapshots; heartbeats, depth, and other markets must
+    // not hide a stalled price stream or manufacture freshness after recovery.
     const stalled =
       now - (this.lastUpdateAt || this.connectedAt) > defaultFreshnessThresholds.orderbookMs ||
       marketIds.some((id) => {
-        const timestamp = this.states.get(id)?.book?.timestamp
-        return now - (timestamp || this.connectedAt) > defaultFreshnessThresholds.orderbookMs
+        const state = this.states.get(id)
+        const at = state?.market?.at as Record<string, unknown> | undefined
+        const marketTimestamp = decodeTimestamp(at?.t ?? state?.market?.timestamp)
+        return (
+          now - (state?.book?.timestamp || this.connectedAt) > defaultFreshnessThresholds.orderbookMs ||
+          now - (marketTimestamp ?? this.connectedAt) > defaultFreshnessThresholds.marketMs
+        )
       })
     if (this.socket?.readyState === WS.OPEN && stalled && now >= this.nextResyncAt) {
       this.nextResyncAt = now + 30_000 // Bound recovery attempts independently of the safety threshold.
