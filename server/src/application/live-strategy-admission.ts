@@ -381,7 +381,7 @@ export async function verifyLiveStrategySend(
             price
               .mul(size)
               .div(String(current.config.leverage))
-              .plus(price.mul(size).mul(value.market.takerFeeMicros).div(1_000_000))
+              .plus(price.mul(size).mul(Exact.max(value.market.takerFeeMicros, value.makerFeeMicros)).div(1_000_000))
               .plus(new Exact(value.market.recycleFeeRaw).div(1_000_000))
               .toDecimalPlaces(6, Decimal.ROUND_CEIL),
           )

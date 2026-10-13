@@ -28,6 +28,14 @@ describe('exact live proposals', () => {
     f.snapshot.equity = '9007199254740988.000000'
     expect(planLiveStrategy(f.config, f.snapshot, baseline, f.now).risk).toContain('RUN_LOSS')
   })
+  it('reserves the larger fee when the current maker tier exceeds the taker tier', () => {
+    const f = liveFixture(),
+      baseline = startLiveRisk(f.snapshot, f.now)
+    f.snapshot.makerFeeMicros = 9000
+    const plan = planLiveStrategy(f.config, f.snapshot, baseline, f.now)
+    expect(plan.quotes[0].required).toBe('5.039101')
+    expect(plan.quotes[1].required).toBe('5.191801')
+  })
   it('resets daily loss baseline at UTC midnight while retaining run loss and peak equity', () => {
     const f = liveFixture(Date.UTC(2026, 9, 14, 0, 0, 1))
     const baseline = startLiveRisk(f.snapshot, f.now - 2000)

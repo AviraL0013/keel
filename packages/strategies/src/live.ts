@@ -223,7 +223,7 @@ export function planLiveStrategy(
       continue
     const required = notional
       .div(leverage)
-      .plus(notional.mul(market.takerFeeMicros).div(1_000_000))
+      .plus(notional.mul(Exact.max(market.takerFeeMicros, snapshot.makerFeeMicros)).div(1_000_000))
       .plus(value(market.recycleFeeRaw).div(new Exact(10).pow(market.collateralDecimals)))
       .toDecimalPlaces(6, Decimal.ROUND_CEIL)
     if (reserved.plus(required).gt(budget)) continue
