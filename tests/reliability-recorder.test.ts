@@ -30,6 +30,7 @@ function fixture() {
     restartRecovery: vi.fn(async () => 'pending'),
     report: vi.fn(async () => ({ books: { duplicateActions: 0 }, limitations: [] })),
     ingestBookIncidents: vi.fn(async () => {}),
+    recordBookSend: vi.fn(async () => {}),
   }
   const health = { running: true, lastTickAgeMs: 100, lockOwned: true, venueReady: true }
   const pause = vi.fn(async () => {})
@@ -111,6 +112,29 @@ describe('seven-day recorder scheduling and fail-closed behavior', () => {
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect(f.restart).toHaveBeenCalledTimes(1)
     expect(f.store.claimRestart).toHaveBeenCalledWith(expect.any(Number), '00000000-0000-4000-8000-000000000001')
+  })
+  it('refuses a send when authority is revoked during asynchronous admission', async () => {
+    const f = fixture()
+    let release!: () => void
+    let entered!: () => void
+    const enteredSend = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    f.store.recordBookSend.mockImplementationOnce(async () => {
+      entered()
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    })
+    await f.recorder.start()
+    const sending = f.recorder.beforeBookSend('00000000-0000-4000-8000-000000000003')
+    await enteredSend
+    f.store.sample.mockRejectedValueOnce(Error('fixture failure'))
+    await f.recorder.pollOnce()
+    expect(f.pause).toHaveBeenCalledTimes(1)
+    release()
+    await expect(sending).rejects.toThrow('RELIABILITY_SUBMISSION_BLOCKED')
+    await f.recorder.stop()
   })
   it('revokes authority immediately after observation storage fails, then persists the pause on recovery', async () => {
     const f = fixture()

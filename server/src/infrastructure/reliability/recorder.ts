@@ -254,6 +254,8 @@ export class ReliabilityRecorder {
         throw Error('RELIABILITY_AUTOMATION_PAUSED')
       }
       await this.options.store.recordBookSend(actionId, this.now())
+      // A different observation may revoke authority while admission awaits SQL.
+      if (this.authorityRevoked) throw Error('RELIABILITY_AUTOMATION_PAUSED')
     } catch (error) {
       const kinds: Record<string, string> = {
         RELIABILITY_UNKNOWN_RESUBMISSION: 'unknown_resubmission',
