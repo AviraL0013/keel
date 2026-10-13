@@ -1,6 +1,8 @@
 import type { ApiKeySigner } from './index.js'
 import type { WireFill, WireOrder, WirePosition, Stamp } from './decoder.js'
 import { createNonce } from './signer.js'
+import { reportWalletHttp451, type WalletHttp451DiagnosticHandler } from './wallet-http-diagnostics.js'
+export type { WalletHttp451Diagnostic, WalletHttp451DiagnosticHandler } from './wallet-http-diagnostics.js'
 import { parsePerplRequestIds } from './request-id.js'
 import { decodeEventLog, decodeFunctionData, parseAbi } from 'viem'
 import { encodeAmount } from './units.js'
@@ -42,6 +44,7 @@ export class PerplHistory {
     private readonly transport: typeof fetch = fetch,
     private readonly rpcUrl?: string,
     private readonly exchangeAddress?: string,
+    private readonly onWalletHttp451?: WalletHttp451DiagnosticHandler,
   ) {}
   async read<T extends { at?: Stamp }>(
     resource: 'account-history' | 'order-history' | 'position-history' | 'fills',
@@ -102,7 +105,16 @@ export class PerplHistory {
         'X-API-Signature': signature,
       },
     })
-    if (!response.ok) throw new Error(`PERPL_WALLET_HTTP_${response.status}`)
+    if (!response.ok) {
+      if (response.status === 451 && this.onWalletHttp451) {
+        try {
+          await reportWalletHttp451(response, new URL(this.baseUrl).origin, this.onWalletHttp451)
+        } catch {
+          // Diagnostics are optional and cannot replace the upstream HTTP error.
+        }
+      }
+      throw new Error(`PERPL_WALLET_HTTP_${response.status}`)
+    }
     const data = parsePerplRequestIds(await response.text()) as Partial<PerplWalletSnapshot>
     if (
       !data.at ||
