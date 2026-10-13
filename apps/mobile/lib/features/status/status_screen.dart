@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../shared/widgets/android_app_download.dart';
 
 import 'status_models.dart';
 import 'status_repository.dart';
@@ -154,6 +156,7 @@ class _StatusScreenState extends ConsumerState<StatusScreen> {
                               _paused ? 'Resume updates' : 'Pause updates',
                             ),
                           ),
+                          if (kIsWeb) const AndroidAppDownload(),
                         ],
                       ),
                       const SizedBox(height: 8),

@@ -1,5 +1,9 @@
 # Agora mobile trading submission
 
+## Public Android download
+
+Judges can open <https://app.eyeler.xyz>, choose **Download Android app**, and follow the installation instructions. The signed APK is also available directly from the [Android release](https://github.com/AviraL0013/keel/releases/download/android-v1.0.0-45b214b/eyeler-android.apk). See [judge access and release identity](../deployment/android-download.md). Mainnet trading remains an allowlist demo: installation does not grant a new wallet trading access. Public analytics and the reliability report remain sign-in-free.
+
 ## Joint release integration, 2026-10-12
 
 IN PROGRESS — Daily analytics chart wiring on `feat/analytics-perpl-integration` uses verified rollup fees and distinct owner counts. Uncovered days and unresolved owner days stay null. Commit: this release change, pending CI. Proof: `analytics-daily-rollup-series.test.ts` and `analytics-route-rollups.test.ts`. Open: exact-head CI, main merge, Railway deploy, and full 30-day coverage. No trading variable or order path changed.
