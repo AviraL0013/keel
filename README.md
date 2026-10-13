@@ -2,9 +2,9 @@
 
 Eyeler watches a leveraged position against a reserve and clear risk limits. When conditions change, it chooses HOLD, bounded DEFEND, reduce-only REDUCE or EXIT, then checks Perpl before calling the action complete. If market data or execution evidence is uncertain, it pauses new orders and shows why.
 
-The repository implements Android Mera-compatible passkey wallets, owner-bound encrypted Perpl credentials, Monad mainnet AUSD activation, explicit opening orders, and opt-in position protection. Mainnet is an allowlisted demo profile; testnet operator and credentialless sandbox profiles remain separate. Deployment and device evidence is recorded in the [Agora journey](docs/product/agora-submission.md); historical checkpoints are not proof that the latest candidate is deployed.
+The repository implements Android wallets using the official Mera SDK, owner-bound encrypted Perpl credentials, Monad mainnet AUSD activation, explicit opening orders, and opt-in position protection. Mainnet is an allowlisted demo profile; testnet operator and credentialless sandbox profiles remain separate. Deployment and device evidence is recorded in the [Agora journey](docs/product/agora-submission.md); historical checkpoints are not proof that the latest candidate is deployed.
 
-For the **Best Use of Perpl's API** bounty, the mounted automation product is the Book protection bot, not the paper GRID or market maker. See the [Perpl submission and two-minute demo guide](docs/product/perpl-submission.md) for implementation, reliability tests, evidence requirements and remaining release gates. No guaranteed profitability or award claim is made.
+For the **Best Use of Perpl's API** bounty, Eyeler implements Book protection and separately gated PAPER/LIVE Grid and Market Maker strategies. LIVE requires owner-reviewed consent and operator gates; implementation is not proof of automatic mainnet activity. See the [Perpl submission and two-minute demo guide](docs/product/perpl-submission.md) for implementation, reliability tests, evidence requirements and remaining release gates. No guaranteed profitability or award claim is made.
 
 | Capability | Live testnet | Public sandbox |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ The Flutter app calls Fastify over HTTPS. The server owns authentication, the on
 
 ## Try it locally
 
-Use Node 22 and Flutter 3.19 or newer. Copy only the example configuration; never commit a real `.env` file.
+Use Node 22 and Flutter 3.47.5, matching CI. Copy only the example configuration; never commit a real `.env` file.
 
 ```bash
 npm ci
@@ -68,8 +68,13 @@ flutter run -d web-server --web-port 8082 --dart-define=EYELER_API_URL=http://lo
 
 ## Safety in plain words
 
-Automatic actions require an active, explicitly armed Book, fresh telemetry, sufficient reserve/cap/headroom and execution enabled. Manual actions require their own explicit authorization. Both paths recheck policy and connection authorization immediately before sending. REDUCE and EXIT are reduce-only. An UNKNOWN or PARTIAL outcome is reconciled, never blindly resubmitted. Pause and kill controls stop automation.
+Automatic Book actions require an active, explicitly armed Book, fresh telemetry, sufficient reserve/cap/headroom and execution enabled. Manual actions require their own explicit authorization. Both paths recheck policy and connection authorization immediately before sending. REDUCE and EXIT are reduce-only. An UNKNOWN or PARTIAL outcome is reconciled, never blindly resubmitted. Pause and kill controls stop automation. Autopilot uses separate owner-reviewed consent and dedicated-account gates; see [strategy execution](docs/strategies/mainnet-autopilot.md).
 
 Request identity and the exact execution deadline are persisted before socket submission. Interrupted new attempts with no durable reference can be fenced and their Book paused; referenced, ambiguous and legacy attempts cannot be reclaimed just because they are old. Per-user mode binds each Book and credential to its owner/account; operator mode retains its single-wallet restriction.
 
 `/health` only proves the HTTP process is alive. `/ready` also checks the database, venue, monitor ownership, latest completed tick and execution readiness; it reports when the emergency stop is on. Before deploying, follow the [deployment guide](docs/deployment/deploy.md) and the relevant [mainnet rollout plan](docs/deployment/mainnet-bounty.md). Run reports separate manual, automatic and historically unattributed attempts, and execution deadlines from confirmed blocks. They do not independently verify stored receipts or establish net profit; see the [report procedure](docs/product/perpl-submission.md#export-and-check-evidence).
+
+
+## Submission documentation
+
+Start at the [documentation index](docs/README.md). The separate [Agora mobile](docs/product/agora-submission.md), [Perpl analytics](docs/product/analytics-submission.md), and [Perpl automation](docs/product/perpl-submission.md) guides cover features, recorded evidence and remaining limitations. [Android installation](docs/deployment/android-download.md) and the [public reliability report](docs/deployment/reliability-run.md) provide judge access instructions.

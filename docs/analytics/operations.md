@@ -1,50 +1,55 @@
-# Analytics worker and API operations
+# Analytics operations
 
-Analytics v1 is public and read-only. `EYELER_ANALYTICS_ENABLED=true` mounts `/analytics/v1` on the HTTP server and permits the independent indexer script. Default is false. The indexer never signs, submits a transaction, or acquires the trading worker's lock.
+Analytics v1 is public and read-only. `EYELER_ANALYTICS_ENABLED` defaults to false and mounts `/analytics/v1` when enabled. Analytics workers do not sign, submit transactions, or acquire the trading lease. See [API contract](../api/analytics-v1.md), [metrics](metrics.md), and [dated evidence](verification.md).
 
-## Sources
+## Sources and configuration
 
-- Public, unsigned Perpl REST: `/v1/pub/context`, market candles and funding. Current market mark, OI, TVL, 24h volume and funding can work without an analytics database.
-- Monad mainnet Exchange logs: official SDK event ABI, pinned SHA-256 `766fc81326bdf27f243ca582f65c3e2ff72bc639d88674876697a63ae1c47cb3`. The worker stores raw decoded logs, account mappings, flows, maker fills, taker fees, liquidations and position changes, then refreshes hourly/daily market rollups.
-- Confirmation-depth on-chain view calls: `getAccountByAddr` and `getPositionV2` provide current wallet margin and open positions without a signed Perpl account key. The existing profile uses head minus 12; this is not consensus-finality proof. The internal historical-owner resolver separately requires an RPC `finalized` block, matching historical hash, address/ID roundtrip and repeated canonical hash checks.
+- Unsigned Perpl REST supplies context, market observations, candles, and funding. Signed account history is not a source for arbitrary public-wallet history.
+- Monad mainnet Exchange logs supply indexed events. The official SDK event ABI has pinned SHA-256 `766fc81326bdf27f243ca582f65c3e2ff72bc639d88674876697a63ae1c47cb3`.
+- Wallet views and event-block ownership checks use finalized RPC blocks, account/address roundtrips, and hash rereads. They trust the provider, not receipt-trie or storage proofs.
 
-## Configuration
+Keep backend secrets out of logs and Flutter builds, including private RPC URLs, database connections, and HyperSync tokens.
 
-| Variable                       | Purpose                                                                                                                                                              |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EYELER_ANALYTICS_ENABLED`     | `true` to expose routes and run worker; otherwise off.                                                                                                               |
-| `DATABASE_URL`                 | PostgreSQL connection for indexer and indexed API data. Run `npm run db:migrate` first.                                                                              |
-| `EYELER_ANALYTICS_START_BLOCK` | Optional start block. If absent, the worker finds a block around seven days before the head. For full history, set `54773010`, the verified Exchange creation block. |
-| `EYELER_ANALYTICS_RPC_URL`     | Optional read-only Monad RPC override for the worker and wallet-chain views. Without it, both use the repository's public Monad mainnet RPC; the worker starts with partial recent history. Full history requires complete historical logs and sufficient replay throughput. Never commit or log private RPC URLs. |
-| `ANALYTICS_PERPL_API_URL`      | Public REST base; defaults to `https://app.perpl.xyz/api`.                                                                                                           |
-| `ANALYTICS_CONFIRMATIONS`      | Confirmation depth, default 12 blocks, range 1–256; not a consensus-finalized tag.                                                                                   |
-| `ANALYTICS_CHUNK_SIZE`         | Bounded log chunk, default 20 blocks, range 1–100.                                                                                                                   |
-| `ANALYTICS_POLL_MS`            | Caught-up polling, default 3,000 ms.                                                                                                                                 |
-| `ANALYTICS_CORS_ORIGIN`        | Optional exact HTTPS origin for future analytics frontend. `https://app.eyeler.xyz` is always allowed.                                                               |
+Apply migrations against `DATABASE_URL` before workers. `EYELER_ANALYTICS_RPC_URL` optionally overrides the public Monad RPC. `EYELER_ANALYTICS_START_BLOCK` defaults to an approximately seven-day start; full replay starts at Exchange creation block `54773010`. `ANALYTICS_PERPL_API_URL` defaults to `https://app.perpl.xyz/api`.
 
-Start worker separately with `npm run analytics:indexer`. A dedicated PostgreSQL advisory lock `(143, 20261007)` prevents duplicate analytics workers; no trading lock is used. The default log range is 20 blocks, capped at 100, to stay below public RPC response limits. Each step checks chain 143 before checkpoint mutation and rereads its boundary hash before saving. Checkpoint advances in the same transaction as raw and derived rows. Restarting with an earlier configured start block moves the checkpoint back; existing rows remain and idempotent inserts replay the overlap. A mismatch in the previous confirmed block hash rewinds 64 blocks (bounded by the stored start), cascades derived rows from raw events and rebuilds rollups. HTTP 401/403 errors stop the worker. Other transient failures use exponential backoff up to 60 seconds and 100 ms pacing between successful chunks.
+Raw-indexer defaults: `ANALYTICS_CONFIRMATIONS=12` (range 1-256), `ANALYTICS_CHUNK_SIZE=20` (maximum 100 blocks), and `ANALYTICS_POLL_MS=3000`. Confirmation depth is not consensus finality. `ANALYTICS_CORS_ORIGIN` allows an optional exact HTTPS origin; `https://app.eyeler.xyz` is allowed. `EYELER_HYPERSYNC_TOKEN` is a backend-only bearer token for optional readers.
 
-The public RPC serves sampled logs at the verified creation block `54773010`, but limits `eth_getLogs` to 100-block ranges. It does not serve arbitrary old state through `eth_getCode`; historical state and historical logs are separate capabilities. A complete replay and sustained throughput remain unverified. See [verification](verification.md). Without `EYELER_ANALYTICS_START_BLOCK`, the automatic recent start is explicitly partial, whether the RPC is the public default or an override. Indexed responses expose `coverage.label` such as `Since 2026-10-01`. An earlier `EYELER_ANALYTICS_START_BLOCK` rewinds the next worker run safely. `completeHistory` remains false unless the pinned deployment start is stored and replay has reached a fresh confirmation-depth boundary. This coverage marker does not constitute consensus finality. Checkpoint write time alone never makes old history fresh.
+## Raw history indexer
 
-## Public mobile dashboard
+Run `npm run analytics:indexer` separately from the API. Advisory lock `(143, 20261007)` prevents duplicate raw indexers. Each chunk checks chain 143, validates logs/headers, rereads its boundary hash, and commits raw/derived rows with the checkpoint atomically. Exact duplicates are idempotent; conflicting, removed, or out-of-range logs and incomplete header batches fail closed.
 
-The Flutter application exposes `/analytics` without wallet authentication; its hash URL is `https://app.eyeler.xyz/#/analytics`. The signed-out screen also offers “Browse public analytics.” This route uses a separate GET-only transport scoped to `/analytics/v1/`, without access to session tokens or wallet storage. Private routes keep their existing authentication gates. The API flag must still be enabled by an operator before real analytics data can load. This implementation has not been deployed.
+Header batches are capped at 20. Log ranges grow after three successful chunks, up to 100 blocks; HTTP 413 or RPC `-32614` halves the range. HTTP 401/403 stops the worker. Other transient failures use backoff up to 60 seconds, with 100 ms pacing between successful chunks.
 
-The dashboard labels its data “Monad mainnet” independently of the trading environment. Historical window labels come from server coverage metadata. Fixtures are restricted to tests; missing or disabled API data must produce the normal unavailable state, never substitute sample data.
+A changed checkpoint hash rewinds 64 blocks, bounded by the stored start, and rebuilds derived data. An earlier start also rewinds. Both clear completion. Migration 035 invalidates premature `history_verified` claims. Completion requires the deployment start, creation-log anchor, stored hash/time, and continuous replay to a fresh confirmation boundary. Until proved, expose `Since YYYY-MM-DD` and incomplete coverage. Configuration or checkpoint write time alone cannot prove `All time`.
 
-## API behavior
+## Protocol rollups and snapshots
 
-Routes have a 60 requests/minute IP limit. Live snapshots cache 15 seconds; time series and funding cache 60 seconds. Wallet chain snapshots cache 15 seconds. Cursor pagination uses finalized `(block, transaction index, log index)` order. Query validation bounds ranges, market IDs, addresses, limits and compare size. `stale` flags incomplete backfill or lag; unavailable numbers are null, not zero. The historical trades route currently covers maker fills with an unambiguous position event in the same transaction. It remains `stale: true`; taker fills lack account and market IDs in the V2 event and need verified transaction correlation. Liquidation price, equity curve and drawdown remain unavailable until exact venue formulas or history are verified.
+`EYELER_ANALYTICS_ROLLUPS_ENABLED` defaults off. With the flag and HyperSync token configured, the mainnet API process runs a separate rollup worker using advisory lock `(143, 20261011)` and a dedicated two-connection pool. It reads bounded tail/backfill ranges and owner slices, with a 12-second idle cadence and a 12-block confirmation margin.
 
-The p95 target is under 250 ms for cached/local responses. Run `npx tsx scripts/analytics-load.ts` for the offline cached `/markets` check. That check excludes Perpl and Monad network latency. Real first-hit and database p95 still need measurement after deployment and full backfill.
+Migration 021 stores hourly/daily aggregates, account membership, and block coverage for 35 days, without raw payloads or transaction identities. Migration 037 retains only owner mapping and scan cursor beyond that window for restart-safe resolution. Unresolved owners keep user counts null; `activeAccounts` is diagnostic. Creation mapping never substitutes for event-block trade ownership.
 
-## Local verification
+Readers require contiguous UTC-bucket coverage. Gaps are null; zero requires complete coverage. Fees count maker/taker fees once; protocol-fee settlements determine revenue; external deposits/withdrawals determine net flows. Opening activity skew differs from open-interest skew. This store proves neither all-time history nor a previous 30-day comparison.
 
-- `node --env-file-if-exists=.env --import tsx scripts/analytics-record-sample.ts` captures public recent mainnet logs as fixtures.
-- `npx tsx scripts/analytics-record-public.ts` captures unsigned REST context, funding and candles.
-- `node --env-file-if-exists=.env --import tsx scripts/analytics-record-wallet.ts` captures one finalized public wallet view.
-- `node --env-file-if-exists=.env --import tsx scripts/analytics-backfill-recent.ts` indexes the first three chunks of the configured recent window into an in-memory PostgreSQL instance. It cannot modify production data.
-- `node --env-file-if-exists=.env --import tsx scripts/analytics-verify-live.ts` compares public Perpl stats with candles and checks a live wallet view.
-- `node --env-file-if-exists=.env --import tsx scripts/analytics-find-deployment.ts` checks initialization logs in a 20-block range from the configured start block.
+`EYELER_ANALYTICS_SNAPSHOTS_ENABLED` defaults off. OI history consists of actual Perpl context observations; TVL snapshots use the finalized AUSD balance of the pinned Exchange. History starts with collection, with no invented earlier values. Daily stock values use the last hourly observation, not a sum. TVL is unavailable after two hours without a fresh observation.
 
-See [verification](verification.md) and [metric definitions](metrics.md).
+## Wallet activity and history limits
+
+`GET /analytics/v1/wallets/:address/activity` counts distinct currently linked accounts active in each of the last 30 completed UTC days. It counts settled maker fills or non-liquidation position actions. This proves neither historical address ownership, trade count, nor realized PnL. `activeDays` remains null until all 30 days are covered. A disabled or failed store returns an unavailable reason without blocking the current profile.
+
+Trade readers support verified maker rows and strict receipt-correlated taker attribution. Each displayed trade requires ownership proof at its canonical event block. Taker events lack account/market IDs; unsupported, ambiguous, or incompletely reconstructed settlements remain unresolved. Creation-address candidates can miss transferred accounts, so visible rows do not prove a complete wallet total.
+
+`EYELER_ANALYTICS_WALLET_ONDEMAND_ENABLED` defaults off. Optional HyperSync scans cover a bounded last-30-day range, cache for 60 seconds, and fail on page/log caps. Incomplete account enumeration keeps aggregate performance unavailable. Whole-window scans per wallet page are not viable at measured source limits.
+
+`EYELER_ANALYTICS_WALLET_LEDGER_ENABLED` also defaults off. Migration 038 is additive. With the flag off, the rollup worker retains its original selector and writes no wallet-ledger rows. When enabled, it stores compact position events from bounded rollup reads and backfills aggregate-only ranges newest first. Wallet-indexed coverage/events commit atomically against the same canonical end-block hash; pruning 35-day coverage cascades to its ledger events.
+
+Keep the ledger off until a representative range is written to a bounded staging database, PostgreSQL bytes and query latency are measured, and projected 30-day storage/cost fits the available budget. Exact production growth and remaining trial credit are unmeasured. Trade pages cap owner proofs at five; gross-settlement attempts cap at 20 events. These limits can leave large wallets unavailable.
+
+Gross settlement is price PnL plus funding before fees. It requires complete window coverage, owner scan, supported settlements, and exact-block owner proofs. Net PnL, win rate, full equity curves, drawdown, and liquidation thresholds remain unavailable without their separate reconstruction/formula proofs. Unknown values remain null.
+
+## Dashboard and local verification
+
+The dashboard at `https://app.eyeler.xyz/#/analytics` was observed deployed in October 2026; [verification](verification.md) records limits. Its GET-only transport has no session-token access. Mainnet labels are independent of trading. Missing API data renders unavailable states; fixtures are test-only.
+
+Public routes allow 60 requests/minute per IP. Live/wallet caches last 15 seconds; series/funding caches last 60 seconds. Pagination preserves `(block, transaction index, log index)` order. Freshness and coverage labels remain visible.
+
+Offline cached latency target: p95 under 250 ms, excluding internet and cold database latency. Run `npx tsx scripts/analytics-load.ts`. For recorded Node-to-Flutter loopback proof, install both SDKs and run `flutter test tool/analytics_server_contract_test.dart --reporter expanded` from `apps/mobile`. This temporary replay uses recorded fixtures, starts no trading worker, and cannot establish fresh balances or complete history.

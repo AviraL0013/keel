@@ -1,6 +1,6 @@
 # Strategy reliability evidence
 
-This document separates offline simulation, fake-venue proof and real activity. No real strategy order, funding, transaction, deployment or production database change was performed. LIVE remains unmounted even when feature flags are set.
+This document records offline simulation and component tests. The evaluation below placed no real strategy order and changed no production state. The separate LIVE controller is implemented and gated; its execution rules are documented in [mainnet Autopilot](mainnet-autopilot.md). These historical simulations do not prove a real run.
 
 ## Recorded evaluation
 
@@ -51,8 +51,8 @@ The recorder has a fixed public origin, unsigned GET requests only, bounded wind
 - `strategies-backtest.test.ts`: recorded fixture, exact observed payment in simulation, same-interval update, missing/conflicting funding, unsupported scaling, candle gaps/invalid OHLC, touch refusal, queue/participation/penalty stress and candle-close timing.
 - `strategies-recording.test.ts`: fixed unsigned origin, completed hourly coverage, wrong-chain refusal, bounded funding requests and immediate 401/403 stop.
 - `strategies-evaluation.test.ts`: 720-candle recording, disjoint 360/360 split, no selected winner, all 24 sensitivity runs, short-window and LIVE refusal.
-- Existing `strategies-core.test.ts`, `strategies-orders.test.ts`, `strategies-command-proof.test.ts`, `strategies-fill-ledger.test.ts` and `strategies-capital-lifecycle.test.ts` provide component fault proof. They do not prove an integrated LIVE controller.
+- `strategies-core.test.ts`, `strategies-orders.test.ts`, `strategies-command-proof.test.ts`, `strategies-fill-ledger.test.ts` and `strategies-capital-lifecycle.test.ts` provide component fault proof. Live controller tests also cover consent, account admission, ownership and recovery. Tests do not demonstrate real exchange behavior or profitability.
 
 ## Remaining proof
 
-No 24-hour forward paper run has completed. No integrated LIVE restart, kill/cancel, lease-loss or handover exercise has completed. Exact account/perpetual funding and settlement attribution, exclusive baseline, safe capital release and the LIVE controller remain unfinished. There are no real strategy fills, receipts, realized PnL or uptime claims. These gaps remain release blockers.
+The recorded evaluation does not establish a 24-hour forward paper run, real LIVE restart/cancellation/handover behavior, or real strategy fills. Complete attributed funding, settlement, gas and capital-flow coverage is still required for net LIVE profit. The [public evidence procedure](mainnet-evidence.md) requires a separately authorized real run and independent receipt checks. A simulation, idle worker, feature flag, or manual trade cannot replace that evidence.

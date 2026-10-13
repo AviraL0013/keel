@@ -66,3 +66,8 @@ Perpl public REST provides context, market snapshots, candles and funding. Its a
 - 2026-10-08: Tightened coverage proof to the verified deployment start and included block timestamps. Fully covered chart buckets remain visible; uncovered tails and incomplete performance totals are unavailable. Flutter serializes query boundaries as UTC ISO strings with exactly three fractional digits. Public mobile dashboard and GET-only transport are documented in [`operations.md`](../analytics/operations.md).
 - 2026-10-07: Added optional `coverage` envelope metadata for indexed responses. Existing fields and endpoint paths are unchanged.
 - 2026-10-07: Initial v1 contract and synthetic endpoint fixtures.
+
+
+## Current-account wallet activity
+
+`GET /analytics/v1/wallets/:address/activity` reports the last 30 completed UTC days for Perpl accounts linked to the address **now**. It counts distinct active account IDs per covered day, not fills or trades. Zero requires complete gap-free coverage; other days remain null. `activeDays` remains null unless all 30 days are verified. This does not prove historical ownership or realized PnL. Disabled or unavailable rollups return an explicit reason without blocking the current wallet profile.

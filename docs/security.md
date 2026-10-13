@@ -1,15 +1,15 @@
-﻿# Security
+# Security
 
-- Wallet ownership verified server-side with one-time, message-bound challenge and signature.
-- Session challenge, verification, and reuse follow explicit access policy. Allowlist remains the default; removing a wallet invalidates its existing sessions. Public access requires per-user account mode and is never inferred from an empty allowlist.
-- Session cookies are HTTP-only and server-controlled; sessions persist in PostgreSQL and support revoke/expiry.
-- Perpl API credentials stay server-side. Per-user enrollment and runtime access use the same asynchronous KeyCustody interface, bound to the user and credential ID. AWS KMS generates a fresh data key per credential and wraps it; AES-256-GCM encrypts locally. Mainnet refuses startup without KMS and a successful access probe. DevelopmentKeyCustody is restricted to local/test environments. See [KMS setup, rotation, audit, and recovery](deployment/aws-kms.md).
-- Per-Book action uniqueness is enforced by PostgreSQL partial unique index plus runtime advisory lock.
-- Stale or malformed telemetry produces SAFE_MODE and blocks new orders. Transient data/venue outages preserve the armed setting and resume only after consecutive fresh ticks; unresolved actions and runtime failures turn automation off.
-- UNKNOWN actions reconcile signed venue history before any retry.
-- Reserve deployments require confirmed action state, Book cap, available balance, ledger uniqueness, and transaction commit.
-- Reduce/exit order construction is reduce-only and reconciles position/fills before confirmation.
-- Testnet/mainnet CORS uses explicit origins; development/test accept any origin. Rate limiting, runtime input validation, ownership checks, and notification deduplication are enabled.
-- Never log signatures, API keys, private keys, session secrets, raw authorization headers, or credential values.
+- Wallet ownership is verified server-side using a one-time message-bound challenge and signature. Native Mera passkeys and wallet signing stay on the device.
+- Session cookies are HTTP-only. PostgreSQL stores session expiry and revocation. Access follows explicit configuration; an empty allowlist never silently enables public access. Removing an allowed wallet invalidates its sessions.
+- Per-user Perpl enrollment binds the credential to its owner, connection and account. Credentials stay server-side and request trade-only access, without withdrawal permission.
+- Public mainnet access requires AWS KMS custody and a successful startup probe. The explicit `railway-allowlist-demo` exception requires mainnet per-user mode, a nonempty allowlist and valid versioned wrapping keys. Local development custody is rejected on deployed networks. See [custody and recovery](deployment/aws-kms.md).
+- Credential envelopes are bound to environment, user and credential identity. New wraps and retained key versions must remain readable during rotation. No fallback grants broader access if custody fails.
+- Book actions use database uniqueness, account capital admission and worker locks. New execution requires owner authorization, current connection authority and fresh telemetry.
+- Stale or malformed telemetry pauses execution. Transient data outages resume only under the configured fresh-tick policy; unresolved actions and runtime failures disable automation.
+- UNKNOWN and PARTIAL actions are reconciled rather than blindly resubmitted. Reserve debits require confirmed action evidence and transactional uniqueness. REDUCE and EXIT remain reduce-only.
+- LIVE Autopilot has separate reviewed consent and dedicated-account limits. Stop and kill do not guarantee that an exposed position is flattened. See [execution limits](strategies/mainnet-autopilot.md).
+- Deployed CORS uses explicit approved origins. Authentication, enrollment and opening endpoints apply validation, rate limits and ownership checks. Public analytics uses a separate GET-only transport; it cannot access private Books or credentials.
+- Never log or publish private keys, passkey material, API credentials, session secrets, authorization headers, credential envelopes, or secret-bearing configuration exports.
 
-Live deployment still requires operator-created KMS/role configuration, verified workload authentication and CloudTrail retention, dependency review, external security review, and staged evidence before mainnet use. Local mocked tests do not establish production readiness.
+Automated tests and historical demonstrations are not an external security audit or a guarantee of production readiness. Deployment requires verified custody, migration compatibility, the correct worker lease, current safety settings and retained rollback evidence.

@@ -1,6 +1,6 @@
-# Mainnet Autopilot candidate
+# Mainnet Autopilot execution
 
-Grid and Market Maker now have a real Perpl execution path. This document describes the feature branch, not the currently deployed application. No deployment, Railway variable change, production migration, public evidence publication, or real-money run is part of this change.
+Grid and Market Maker have an implemented Perpl execution path. This document describes its consent, recovery and risk boundaries. Implementation does not establish that LIVE is enabled, that a particular revision is serving, or that real automatic trading has been demonstrated. Deployment and recording evidence must be checked separately.
 
 ## Admission and account scope
 

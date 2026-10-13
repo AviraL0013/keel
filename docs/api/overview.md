@@ -2,7 +2,7 @@
 
 Public analytics adds `GET /analytics/v1/markets/:id/prices?interval=1h|1d&from=<UTC>&to=<UTC>` for completed candle closes. Values are exact decimal strings; missing or unfinished buckets are null. See [analytics v1](analytics-v1.md) for limits, freshness, provenance and the other read-only routes.
 
-Routes below match `server/src/interfaces/http/register.ts` as of 2026-09-28.
+The route registrations in `server/src/interfaces/http` are authoritative. This overview groups the public and authenticated interfaces; deployment flags determine which optional routes are available.
 
 Public status:
 
@@ -10,6 +10,8 @@ Public status:
 - `GET /health`
 - `GET /ready`
 - `GET /metrics`
+- `GET /status.json` and `GET /status/incidents.json` (sanitized reliability evidence)
+- `GET /evidence/:id` (an existing owner-reviewed publication; HTML or JSON)
 
 Wallet session:
 
@@ -46,7 +48,7 @@ Connections, capital, and notifications (authenticated):
 
 - `GET /connections`
 - `POST /connections/revoke`
-- `POST /connections/perpl/enrollment` (development/testnet key enrollment; returns typed data, never a credential)
+- `POST /connections/perpl/enrollment` (per-user enrollment in a supported custody profile; returns typed data, never a credential)
 - `POST /connections/perpl/enrollment/:id/complete` (wallet signature)
 - `POST /connections/perpl/:id/disconnect` (shreds local credentials; Perpl web UI handles venue revocation)
 - `POST /connections/perpl/validate`
@@ -64,7 +66,7 @@ Test venue (authenticated; only when the deterministic test runtime is enabled):
 
 - `POST /dev/test-venue/scenario`
 
-`POST /books/:id/close` enters the server execution worker. It never reports a position closed before venue reconciliation. `POST /connections/perpl` is not registered. Enrollment is a backend foundation only; Books and the trading runtime still use the existing server-wide Perpl key.
+`POST /books/:id/close` enters the server execution worker. It never reports a position closed before venue reconciliation. `POST /connections/perpl` is not registered. In per-user mode, Books and the trading runtime use the authenticated owner's verified connection and encrypted credentials. Shared operator credentials apply only to the separate operator profile.
 
 Opening trades (authenticated; previews and confirmation require per-user mode and `EYELER_OPENING_ENABLED=true`):
 
@@ -88,6 +90,9 @@ Public analytics (read-only; requires `EYELER_ANALYTICS_ENABLED=true`):
 - `/analytics/v1/protocol/summary`, `/protocol/timeseries`, `/protocol/flows`
 - `/analytics/v1/markets`, `/markets/:id`, `/markets/:id/funding`
 - `/analytics/v1/liquidations`, `/search`
-- `/analytics/v1/wallets/:address`, `/wallets/:address/trades`, `/wallets/:address/performance`, `/wallets/compare`
+- `/analytics/v1/wallets/:address`, `/wallets/:address/trades`, `/wallets/:address/performance`, `/wallets/:address/activity`, `/wallets/compare`
 
 All paths above share the `/analytics/v1` prefix. See [the analytics contract](analytics-v1.md) for fields, parameters, coverage and rate limits. Flutter's `/analytics` route is public and uses a separate GET-only client without private session access. This does not expose private Books, positions, credentials, or controls.
+
+
+LIVE strategy starts and resumes require a separate expiring review and confirmation, not a client-supplied flag. See [execution rules](../strategies/mainnet-autopilot.md). Owner-scoped publication and revocation routes are documented in [mainnet evidence](../strategies/mainnet-evidence.md).
