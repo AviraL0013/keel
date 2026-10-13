@@ -132,6 +132,8 @@ String performanceReason(V1WalletPerformance? performance) =>
         'Ownership of all accounts in this period is not yet verified.',
       'STARTING_EQUITY_UNAVAILABLE' =>
         'Verified starting equity is unavailable.',
+      'PUBLIC_WALLET_HISTORY_UNAVAILABLE' =>
+        'Perpl exposes public current positions, but not this wallet’s 30-day trade history.',
       final String reason =>
         'Performance unavailable: ${reason.replaceAll('_', ' ').toLowerCase()}.',
       _ => 'The source has not supplied a verified performance value.',
@@ -686,11 +688,14 @@ class _DashboardWalletTradesState extends ConsumerState<DashboardWalletTrades> {
                 const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
       if (loading && items.isEmpty) const DashboardSkeleton(),
       if (!loading && error == null && items.isEmpty)
-        DashboardUnavailable(
-            response?.data.unavailableReason == 'NO_INDEXED_HISTORY'
-                ? 'Historical trades are not indexed yet.'
-                : response?.data.unavailableReason == 'INCOMPLETE_HISTORY'
-                    ? 'Trade history is incomplete for this wallet.'
+        DashboardUnavailable(response?.data.unavailableReason ==
+                'NO_INDEXED_HISTORY'
+            ? 'Historical trades are not indexed yet.'
+            : response?.data.unavailableReason == 'INCOMPLETE_HISTORY'
+                ? 'Trade history is incomplete for this wallet.'
+                : response?.data.unavailableReason ==
+                        'PUBLIC_WALLET_HISTORY_UNAVAILABLE'
+                    ? 'Perpl’s public API does not provide this wallet’s trade history.'
                     : 'No observed trades.'),
       if (!loading &&
           items.isNotEmpty &&

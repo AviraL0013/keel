@@ -1045,6 +1045,22 @@ export function registerAnalyticsRoutes(
               },
             )
           }
+          if (onDemand && pool && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true') {
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              { items: [], nextCursor: null, unavailableReason: 'PUBLIC_WALLET_HISTORY_UNAVAILABLE' },
+              'derived',
+              new Date().toISOString(),
+              null,
+              true,
+              {
+                from: null,
+                through: null,
+                completeHistory: false,
+                label: 'Public trade index unavailable; current positions remain live',
+              },
+            )
+          }
           if (onDemand) {
             const ctx = await publicData.context()
             const result = await wallet30(address, ctx.value)
@@ -1237,6 +1253,22 @@ export function registerAnalyticsRoutes(
                 through: gross.through,
                 completeHistory: false,
                 label: '30 completed UTC days; creation-linked accounts only',
+              },
+            )
+          }
+          if (onDemand && pool && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true') {
+            reply.header('Cache-Control', 'public, max-age=15')
+            return wrap(
+              { ...unavailablePerformance(address), unavailableReason: 'PUBLIC_WALLET_HISTORY_UNAVAILABLE' },
+              'derived',
+              new Date().toISOString(),
+              null,
+              true,
+              {
+                from: null,
+                through: null,
+                completeHistory: false,
+                label: 'Public performance index unavailable; current positions remain live',
               },
             )
           }
