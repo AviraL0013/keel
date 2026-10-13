@@ -919,6 +919,17 @@ class DashboardMarketsTable extends ConsumerWidget {
                           ]),
                           const SizedBox(height: 10),
                           Row(children: [
+                            const Text('30D long openings',
+                                style: TextStyle(
+                                    color: AnalyticsPalette.muted,
+                                    fontSize: 12)),
+                            const Spacer(),
+                            Text(market.openingLongSharePct30d == null
+                                ? '—'
+                                : '${market.openingLongSharePct30d}%')
+                          ]),
+                          const SizedBox(height: 10),
+                          Row(children: [
                             const Text('Funding / interval',
                                 style: TextStyle(
                                     color: AnalyticsPalette.muted,
@@ -942,6 +953,7 @@ class DashboardMarketsTable extends ConsumerWidget {
                   DataColumn(label: Text('Market')),
                   DataColumn(label: Text('24h Volume'), numeric: true),
                   DataColumn(label: Text('Open Interest'), numeric: true),
+                  DataColumn(label: Text('30D Long Openings'), numeric: true),
                   DataColumn(label: Text('Funding / interval'), numeric: true),
                   DataColumn(label: Text('Mark price'), numeric: true)
                 ],
@@ -959,6 +971,12 @@ class DashboardMarketsTable extends ConsumerWidget {
                           message: market.openInterest ??
                               'Open interest unavailable',
                           child: Text(money(market.openInterest)))),
+                      DataCell(Tooltip(
+                          message:
+                              'Share of verified position-opening events that were long in the last 30 completed UTC days.',
+                          child: Text(market.openingLongSharePct30d == null
+                              ? '—'
+                              : '${market.openingLongSharePct30d}%'))),
                       DataCell(rate(market)),
                       DataCell(Tooltip(
                           message: market.markPrice ?? 'Mark unavailable',
