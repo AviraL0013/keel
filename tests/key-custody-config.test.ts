@@ -40,6 +40,24 @@ describe('custody deployment guard', () => {
       'INVALID_TESTNET_CUSTODY_CONFIGURATION',
     )
   })
+  it('keeps dormant KMS configuration unused during an allowlist demo rollback', () => {
+    const demo = {
+      ...kms,
+      EYELER_KEY_CUSTODY: 'railway-allowlist-demo',
+      EYELER_PERPL_ACCOUNT_MODE: 'per-user',
+      EYELER_ACCESS_MODE: 'allowlist',
+      EYELER_DEMO_CUSTODY_KEYS: JSON.stringify({ v1: '11'.repeat(32) }),
+      EYELER_DEMO_CUSTODY_ACTIVE_VERSION: 'v1',
+    }
+    expect(loadKeyCustodyConfig(demo, 'mainnet')).toEqual({
+      provider: 'railway-allowlist-demo',
+      keys: { v1: '11'.repeat(32) },
+      activeVersion: 'v1',
+    })
+    expect(() => loadKeyCustodyConfig({ ...demo, EYELER_ACCESS_MODE: 'public' }, 'mainnet')).toThrow(
+      'KMS_CUSTODY_REQUIRED',
+    )
+  })
   it('blocks mainnet without KMS even in operator mode and forbids DevelopmentKeyCustody outside local/test', () => {
     for (const environment of ['mainnet', 'testnet']) {
       expect(() => loadKeyCustodyConfig({ EYELER_KEY_ENCRYPTION_KEY: '11'.repeat(32) }, environment)).toThrow(

@@ -47,11 +47,10 @@ export function loadKeyCustodyConfig(
       ) ||
       developmentKey ||
       testnetKeys ||
-      activeVersion ||
-      env.EYELER_KMS_KEY_ARN ||
-      env.EYELER_KMS_DECRYPT_KEY_ARNS
+      activeVersion
     )
       throw new Error('INVALID_DEMO_CUSTODY_CONFIGURATION')
+    // Explicit demo rollback leaves AWS configuration dormant; it never selects KMS or falls back from KMS.
     return { provider, keys, activeVersion: demoVersion }
   }
   if (demoKeys || demoVersion) throw new Error('INVALID_DEMO_CUSTODY_CONFIGURATION')
