@@ -96,6 +96,89 @@ void main() {
     expect(session.status, 'Linked accounts changed. Watch baseline reset.');
   });
 
+  for (final restart in ['gap', 'pause/resume']) {
+    test('$restart clears observations when linked accounts change', () {
+      final session = WalletWatchSession(walletAddress)
+        ..start(walletSnapshot(1, [], accounts: ['1', '2']))
+        ..accept(walletSnapshot(
+            2, [walletPosition('a', 'long', '1', '10', '10')],
+            accounts: ['2', '1']));
+      expect(session.events, hasLength(1));
+      if (restart == 'gap') {
+        session.gap('Network unavailable.');
+      } else {
+        session.pause();
+        session.resume();
+      }
+
+      session.accept(walletSnapshot(3, [], accounts: ['3']));
+
+      expect(session.events, isEmpty);
+      expect(session.baseline?.block, 3);
+      expect(session.reference?.block, 3);
+      expect(session.latest?.block, 3);
+      expect(session.status, 'Linked accounts changed. Watch baseline reset.');
+    });
+
+    test('$restart retains observations for reordered linked accounts', () {
+      final session = WalletWatchSession(walletAddress)
+        ..start(walletSnapshot(1, [], accounts: ['1', '2']))
+        ..accept(walletSnapshot(
+            2, [walletPosition('a', 'long', '1', '10', '10')],
+            accounts: ['2', '1']));
+      if (restart == 'gap') {
+        session.gap('Network unavailable.');
+      } else {
+        session.pause();
+        session.resume();
+      }
+
+      session.accept(walletSnapshot(3, [], accounts: ['1', '2']));
+
+      expect(session.events, hasLength(1));
+      expect(session.baseline?.block, 3);
+      expect(session.reference?.block, 3);
+      expect(session.latest?.block, 3);
+      expect(session.status, isNot(contains('Linked accounts changed')));
+    });
+
+    test('$restart requires a newer block and non-regressing timestamp', () {
+      final session = WalletWatchSession(walletAddress)
+        ..start(walletSnapshot(1, []))
+        ..accept(
+            walletSnapshot(2, [walletPosition('a', 'long', '1', '10', '10')]));
+      if (restart == 'gap') {
+        session.gap('Network unavailable.');
+      } else {
+        session.pause();
+        session.resume();
+      }
+
+      session.accept(walletSnapshot(2, [], accounts: ['3']));
+      expect(session.baseline, isNull);
+      expect(session.reference, isNull);
+      expect(session.latest?.block, 2);
+      expect(session.events, hasLength(1));
+      expect(session.status, contains('Waiting for a newer verified snapshot'));
+
+      session.accept(walletSnapshot(3, [],
+          accounts: ['3'], asOf: DateTime.utc(2026, 10, 13, 11)));
+      expect(session.baseline, isNull);
+      expect(session.reference, isNull);
+      expect(session.latest?.block, 2);
+      expect(session.events, hasLength(1));
+      expect(session.status, contains('Snapshot order could not be verified'));
+
+      // A valid later snapshot restarts without inferring changes across the gap.
+      session.accept(walletSnapshot(4, [], accounts: ['3']));
+      expect(session.baseline?.block, 4);
+      expect(session.reference?.block, 4);
+      expect(session.latest?.block, 4);
+      expect(session.events, isEmpty);
+      expect(session.status, 'Linked accounts changed. Watch baseline reset.');
+    });
+  }
+
   testWidgets('watch card renders session controls and observation',
       (tester) async {
     final session = WalletWatchSession(walletAddress)
@@ -116,4 +199,38 @@ void main() {
     expect(find.text('Pause watch'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final width in [360.0, 1280.0]) {
+    testWidgets('watch layout fits ${width.toInt()}px', (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final session = WalletWatchSession(walletAddress)
+        ..start(walletSnapshot(1, []))
+        ..accept(walletSnapshot(2, [
+          walletPosition(
+              'a', 'long', '9007199254740993.0', '1', '9007199254740993'),
+        ]));
+
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: LiveWalletWatchPanel(
+                      session: session,
+                      onStart: () {},
+                      onPause: () {},
+                      onResume: () {})))));
+
+      final summary =
+          tester.getRect(find.byKey(const ValueKey('watch_summary')));
+      final feed = tester.getRect(find.byKey(const ValueKey('watch_feed')));
+      if (width >= 700) {
+        expect(summary.right, lessThan(feed.left));
+        expect(summary.top, feed.top);
+      } else {
+        expect(feed.top, greaterThanOrEqualTo(summary.bottom));
+      }
+      expect(find.text('Newly observed position'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

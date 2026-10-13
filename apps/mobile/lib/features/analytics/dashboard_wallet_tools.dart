@@ -21,12 +21,15 @@ class DashboardWalletTools extends ConsumerStatefulWidget {
 }
 
 class _DashboardWalletToolsState extends ConsumerState<DashboardWalletTools>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   late WalletWatchSession watch = WalletWatchSession(widget.address);
   Timer? timer;
   bool refreshing = false;
   int generation = 0;
   V1Envelope<DashboardWalletData>? lastSnapshot;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -120,6 +123,7 @@ class _DashboardWalletToolsState extends ConsumerState<DashboardWalletTools>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final profile = ref.watch(dashboardWalletProvider(widget.address));
     final activity = ref.watch(dashboardWalletActivityProvider(widget.address));
     final value = profile.asData?.value;

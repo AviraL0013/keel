@@ -61,6 +61,10 @@ String signedMoney(AnalyticsDecimal value) {
 
 String analyticsMoney(AnalyticsDecimal value) {
   final absolute = value.units.isNegative ? value.negative : value;
+  if (absolute.units != BigInt.zero &&
+      absolute.compareTo(AnalyticsDecimal(BigInt.one, 2)) < 0) {
+    return '${value.units.isNegative ? '-' : ''}<\$0.01';
+  }
   if (absolute.compareTo(AnalyticsDecimal.parse('100000')) >= 0) {
     return AnalyticsNumbers.compact(value.toString(), places: 2);
   }

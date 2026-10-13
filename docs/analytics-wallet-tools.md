@@ -1,17 +1,17 @@
 # Public wallet position tools
 
-`DashboardWalletTools(address: widget.address)` mounts Position insights, Stress my
-wallet, and Live wallet watch. Import `dashboard_wallet_tools.dart` in
-`dashboard_wallet.dart` and place the widget after the open positions card on
-the Positions tab. This file is the integration handoff; `dashboard_wallet.dart`
-is owned by another terminal and is intentionally not edited on this branch.
+The public wallet page mounts `DashboardWalletTools(address: widget.address)`
+after the open positions card on the Positions tab. The wrapper displays
+Position insights, Stress my wallet, and Live wallet watch using the established
+dark analytics design. Desktop layouts put controls and summaries beside results;
+phone layouts stack them.
 
 The wrapper reuses `dashboardWalletProvider` and
-`dashboardWalletActivityProvider`. Existing `dashboardWallet.dart` passes
-`profile.isLoading` to wallet KPIs and the positions skeleton. During live
-watch refreshes, the dashboard owner should preserve the previous loaded
-snapshot while loading (for example, use `profile.isLoading && wallet == null`
-for these loading flags) so the page does not flash skeletons every 30 seconds.
+`dashboardWalletActivityProvider`. Wallet KPIs and open positions preserve the
+previous loaded snapshot while live watch refreshes, using
+`profile.isLoading && wallet == null` for loading states. Watch stays mounted
+while scrolling within Positions, pauses when the app becomes inactive, and
+stops when the tab or wallet page is removed.
 
 ## Data and limits
 

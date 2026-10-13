@@ -9,6 +9,7 @@ import 'analytics_screen.dart' show openAnalyticsMarket, openAnalyticsWallet;
 import 'dashboard_chart.dart';
 import 'dashboard_data.dart';
 import 'dashboard_style.dart';
+import 'dashboard_wallet_tools.dart';
 
 String _walletPath(String address) {
   if (!isAnalyticsAddress(address)) {
@@ -215,7 +216,7 @@ class _DashboardWalletProfileState
     final activity = tab == 2
         ? ref.watch(dashboardWalletActivityProvider(widget.address))
         : null;
-    final wallet = profile.asData?.value;
+    final wallet = profile.hasError ? null : profile.valueOrNull;
     final history = performance.asData?.value;
     final data = wallet?.data;
     final exposure = DashboardWalletExposure.fromProfile(data);
@@ -302,7 +303,7 @@ class _DashboardWalletProfileState
                   label: 'Equity',
                   value: data?.margin.equity,
                   coverage: 'Current Exchange snapshot',
-                  loading: profile.isLoading,
+                  loading: profile.isLoading && wallet == null,
                   reason: 'Complete positions and marks are required.'),
               DashboardKpi(
                   label: 'Margin used',
@@ -313,7 +314,7 @@ class _DashboardWalletProfileState
                   label: 'Unrealized PnL',
                   value: unrealized,
                   coverage: 'Current open positions',
-                  loading: profile.isLoading,
+                  loading: profile.isLoading && wallet == null,
                   color: unrealized == null
                       ? null
                       : unrealized.startsWith('-')
@@ -345,17 +346,17 @@ class _DashboardWalletProfileState
                   label: 'Available margin',
                   value: data?.margin.free,
                   coverage: 'Current snapshot',
-                  loading: profile.isLoading),
+                  loading: profile.isLoading && wallet == null),
               DashboardKpi(
                   label: 'Locked order collateral',
                   value: data?.margin.locked,
                   coverage: 'Current snapshot',
-                  loading: profile.isLoading),
+                  loading: profile.isLoading && wallet == null),
               DashboardKpi(
                   label: 'Account balance',
                   value: data?.margin.balance,
                   coverage: 'Excludes open positions',
-                  loading: profile.isLoading),
+                  loading: profile.isLoading && wallet == null),
             ]),
             const SizedBox(height: 18),
             Text(
@@ -468,7 +469,7 @@ class _DashboardWalletProfileState
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 16),
-                    if (profile.isLoading)
+                    if (profile.isLoading && wallet == null)
                       const DashboardSkeleton()
                     else if (data == null)
                       const DashboardUnavailable('Positions unavailable.')
@@ -480,6 +481,10 @@ class _DashboardWalletProfileState
                           _Position(position)
                       ]),
                   ])),
+            if (tab == 0) ...[
+              const SizedBox(height: 16),
+              DashboardWalletTools(address: widget.address),
+            ],
             if (tab == 1) DashboardWalletTrades(address: widget.address),
             if (tab == 2) ...[
               DashboardGrid(columns: 4, children: [

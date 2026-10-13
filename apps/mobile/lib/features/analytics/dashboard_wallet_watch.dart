@@ -65,17 +65,26 @@ class WalletWatchSession {
     }
     final incoming = snapshot!;
     final previous = latest;
-    if (previous != null &&
-        baseline == null &&
-        incoming.block! <= previous.block!) {
-      status = 'Waiting for a newer verified snapshot to restart baseline.';
-      return;
-    }
     if (baseline == null) {
+      if (previous != null) {
+        if (incoming.asOf.isBefore(previous.asOf)) {
+          gap('Snapshot order could not be verified.');
+          return;
+        }
+        if (incoming.block! <= previous.block!) {
+          status = 'Waiting for a newer verified snapshot to restart baseline.';
+          return;
+        }
+      }
+      final accountsChanged = previous != null &&
+          !_sameAccounts(previous.data.accountIds, incoming.data.accountIds);
+      if (accountsChanged) events.clear();
       baseline = incoming;
       reference = incoming;
       latest = incoming;
-      status = 'Watching · no verified position changes observed yet.';
+      status = accountsChanged
+          ? 'Linked accounts changed. Watch baseline reset.'
+          : 'Watching · no verified position changes observed yet.';
       return;
     }
     final earlier = baseline!;
@@ -194,18 +203,10 @@ class LiveWalletWatchPanel extends StatelessWidget {
     final initialInsights = reference == null
         ? null
         : calculatePositionInsights(reference.data, null);
-    return DashboardCard(
-      padding: 20,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Live wallet watch',
-            style: TextStyle(
-                color: AnalyticsPalette.text,
-                fontSize: 17,
-                fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        const Text('Verified changes since watch started',
-            style: TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
-        const SizedBox(height: 12),
+    final summary = Column(
+      key: const ValueKey('watch_summary'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         Wrap(spacing: 8, runSpacing: 4, children: [
           if (!session.active && latest == null)
             OutlinedButton(
@@ -251,8 +252,13 @@ class LiveWalletWatchPanel extends StatelessWidget {
                 style: TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
           ],
         ],
+      ],
+    );
+    final feed = Column(
+      key: const ValueKey('watch_feed'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         if (session.events.isNotEmpty) ...[
-          const Divider(height: 20),
           for (final event in session.events.take(3)) _WatchEventRow(event),
           if (session.events.length > 3)
             ExpansionTile(
@@ -263,6 +269,40 @@ class LiveWalletWatchPanel extends StatelessWidget {
                     _WatchEventRow(event)
                 ]),
         ],
+      ],
+    );
+    return DashboardCard(
+      padding: 20,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Live wallet watch',
+            style: TextStyle(
+                color: AnalyticsPalette.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text('Verified changes since watch started',
+            style: TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
+        const SizedBox(height: 12),
+        LayoutBuilder(builder: (context, constraints) {
+          if (constraints.maxWidth >= 700) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: summary),
+                const SizedBox(width: 24),
+                Expanded(flex: 3, child: feed),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              summary,
+              if (session.events.isNotEmpty) const Divider(height: 20),
+              feed,
+            ],
+          );
+        }),
         const SizedBox(height: 8),
         const Text(
             'Observations compare current snapshots of accounts linked now. '

@@ -138,12 +138,24 @@ class _WalletStressPanelState extends State<WalletStressPanel> {
   bool expanded = false;
 
   @override
+  void initState() {
+    super.initState();
+    selectedMarket = largestWalletMarket(widget.snapshot);
+  }
+
+  @override
   void didUpdateWidget(WalletStressPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final markets =
-        widget.snapshot?.data.positions.map((p) => p.marketId).toSet() ?? {};
-    if (selectedMarket != null && !markets.contains(selectedMarket)) {
-      selectedMarket = null;
+    final snapshot = widget.snapshot;
+    if (snapshot == null ||
+        walletSnapshotReason(snapshot, snapshot.data.address) != null) {
+      return;
+    }
+    final markets = snapshot.data.positions.map((p) => p.marketId).toSet();
+    if (!markets.contains(selectedMarket) ||
+        oldWidget.snapshot?.data.address.toLowerCase() !=
+            snapshot.data.address.toLowerCase()) {
+      selectedMarket = largestWalletMarket(snapshot);
       ticks = 0;
       expanded = false;
     }
@@ -180,92 +192,125 @@ class _WalletStressPanelState extends State<WalletStressPanel> {
           Text(result.reason!,
               style: const TextStyle(color: AnalyticsPalette.muted))
         else ...[
-          DropdownButtonFormField<int>(
-            key: ValueKey('stress_market_$marketId'),
-            initialValue: marketId,
-            decoration: const InputDecoration(labelText: 'Market'),
-            items: [
-              for (final entry in marketNames.entries)
-                DropdownMenuItem(
-                    value: entry.key,
-                    child: Text(entry.value, overflow: TextOverflow.ellipsis)),
-            ],
-            onChanged: (value) => setState(() {
-              selectedMarket = value;
-              expanded = false;
-            }),
-          ),
-          const SizedBox(height: 12),
-          Text('Price move: ${_shockLabel(ticks * 25)}',
-              style: const TextStyle(
-                  color: AnalyticsPalette.text, fontWeight: FontWeight.w600)),
-          Slider(
-            key: const ValueKey('stress_slider'),
-            value: ticks.toDouble(),
-            min: -40,
-            max: 40,
-            divisions: 80,
-            label: _shockLabel(ticks * 25),
-            onChanged: (value) => setState(() => ticks = value.round()),
-          ),
-          Wrap(spacing: 8, runSpacing: 4, children: [
-            for (final basisPoints in [-500, 0, 500])
-              OutlinedButton(
-                onPressed: () => setState(() => ticks = basisPoints ~/ 25),
-                child: Text(_shockLabel(basisPoints)),
-              ),
-          ]),
-          const SizedBox(height: 12),
-          const Text('Estimated PnL change',
-              style: TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
-          Text(signedMoney(result.total!),
-              key: const ValueKey('stress_total'),
-              style: const TextStyle(
-                  color: AnalyticsPalette.text,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 5),
-          Text(
-              'Current mark ${result.currentMark} · scenario mark ${result.scenarioMark}',
-              softWrap: true,
-              style:
-                  const TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
-          const SizedBox(height: 8),
-          Wrap(spacing: 14, runSpacing: 6, children: [
-            Text('Longs ${signedMoney(result.longChange!)}'),
-            Text('Shorts ${signedMoney(result.shortChange!)}'),
-          ]),
-          const SizedBox(height: 10),
-          Text(
-              result.contributions.first.change.units == BigInt.zero
-                  ? 'Position contributions'
-                  : 'Largest contributor first',
-              style:
-                  const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
-          for (final contribution in result.contributions
-              .take(expanded ? result.contributions.length : 3))
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(children: [
-                Expanded(
-                    child: Text(
-                        '${contribution.position.side} · '
-                        '${contribution.position.id}',
-                        overflow: TextOverflow.ellipsis)),
-                Text(signedMoney(contribution.change)),
-              ]),
-            ),
-          if (result.contributions.length > 3)
-            TextButton(
-              onPressed: () => setState(() => expanded = !expanded),
-              child: Text(expanded
-                  ? 'Show less'
-                  : 'Show ${result.contributions.length - 3} more'),
-            ),
-          const SizedBox(height: 8),
-          Text('Only ${marketNames[marketId]} moves; other markets unchanged.',
-              style:
-                  const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
+          LayoutBuilder(builder: (context, constraints) {
+            final controls = Column(
+                key: const ValueKey('stress_controls'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<int>(
+                    key: ValueKey('stress_market_$marketId'),
+                    initialValue: marketId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Market'),
+                    items: [
+                      for (final entry in marketNames.entries)
+                        DropdownMenuItem(
+                            value: entry.key,
+                            child: Text(entry.value,
+                                overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (value) => setState(() {
+                      selectedMarket = value;
+                      expanded = false;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Price move: ${_shockLabel(ticks * 25)}',
+                      style: const TextStyle(
+                          color: AnalyticsPalette.text,
+                          fontWeight: FontWeight.w600)),
+                  Slider(
+                    key: const ValueKey('stress_slider'),
+                    value: ticks.toDouble(),
+                    min: -40,
+                    max: 40,
+                    divisions: 80,
+                    label: _shockLabel(ticks * 25),
+                    onChanged: (value) => setState(() => ticks = value.round()),
+                  ),
+                  Wrap(spacing: 8, runSpacing: 4, children: [
+                    for (final basisPoints in [-500, 0, 500])
+                      OutlinedButton(
+                        onPressed: () =>
+                            setState(() => ticks = basisPoints ~/ 25),
+                        child: Text(_shockLabel(basisPoints)),
+                      ),
+                  ]),
+                ]);
+            final results = Column(
+                key: const ValueKey('stress_results'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Estimated PnL change',
+                      style: TextStyle(
+                          color: AnalyticsPalette.muted, fontSize: 12)),
+                  Text(signedMoney(result.total!),
+                      key: const ValueKey('stress_total'),
+                      style: const TextStyle(
+                          color: AnalyticsPalette.text,
+                          fontSize: 27,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 5),
+                  Text(
+                      'Current mark ${result.currentMark} · scenario mark ${result.scenarioMark}',
+                      softWrap: true,
+                      style: const TextStyle(
+                          color: AnalyticsPalette.muted, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 14, runSpacing: 6, children: [
+                    Text('Longs ${signedMoney(result.longChange!)}'),
+                    Text('Shorts ${signedMoney(result.shortChange!)}'),
+                  ]),
+                  const SizedBox(height: 10),
+                  Text(
+                      result.contributions.first.change.units == BigInt.zero
+                          ? 'Position contributions'
+                          : 'Largest contributor first',
+                      style: const TextStyle(
+                          color: AnalyticsPalette.muted, fontSize: 11)),
+                  for (final contribution in result.contributions
+                      .take(expanded ? result.contributions.length : 3))
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(children: [
+                        Expanded(
+                            child: Text(
+                                '${contribution.position.side} · '
+                                '${contribution.position.id}',
+                                overflow: TextOverflow.ellipsis)),
+                        Text(signedMoney(contribution.change)),
+                      ]),
+                    ),
+                  if (result.contributions.length > 3)
+                    TextButton(
+                      onPressed: () => setState(() => expanded = !expanded),
+                      child: Text(expanded
+                          ? 'Show less'
+                          : 'Show ${result.contributions.length - 3} more'),
+                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                      'Only ${marketNames[marketId]} moves; other markets unchanged.',
+                      style: const TextStyle(
+                          color: AnalyticsPalette.muted, fontSize: 11)),
+                ]);
+            if (constraints.maxWidth >= 800) {
+              return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 4, child: controls),
+                    const SizedBox(width: 28),
+                    Expanded(flex: 6, child: results),
+                  ]);
+            }
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  controls,
+                  const SizedBox(height: 16),
+                  results,
+                ]);
+          }),
         ],
         const SizedBox(height: 8),
         const Text(
