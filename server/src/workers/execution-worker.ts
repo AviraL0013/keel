@@ -43,6 +43,7 @@ export class ExecutionWorker {
     private readonly refreshAfterConfirmation?: (book: Book) => Promise<void>,
     private readonly now: () => number = Date.now,
     private readonly executionDisabled: () => boolean = () => isExecutionDisabled(process.env),
+    private readonly beforeSubmission?: (actionId: string) => Promise<void>,
   ) {}
   async evaluate(bookId: string): Promise<Decision> {
     const context = await this.repo.getBookContext(bookId)
@@ -131,6 +132,7 @@ export class ExecutionWorker {
       const submitted = await this.venue.submit(action, async () => {
         try {
           await this.validateDecision(decision, manualClose, manualAction)
+          await this.beforeSubmission?.(action.id)
         } catch (error) {
           // The transport calls this after asynchronous venue reads and durable
           // persistence, before any frame is sent. Refusal is not an unknown trade.

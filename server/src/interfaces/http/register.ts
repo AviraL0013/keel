@@ -29,6 +29,7 @@ import { OpeningTrades, type OpeningPreviewInput } from '../../application/openi
 import { registerAnalyticsRoutes, type AnalyticsRouteDependencies } from './routes/analytics.js'
 import { registerStrategyRoutes } from './routes/strategies.js'
 import { registerStrategyEvidenceRoutes } from './routes/strategy-evidence.js'
+import { registerStatusRoute } from './routes/status.js'
 import {
   toActionDto,
   toAutopsyDto,
@@ -61,6 +62,8 @@ export type HttpContext = {
   telegramLinks?: TelegramLinks
   publicCapital?: (wallet: string, userId: string) => Promise<CapitalSnapshot>
   analytics?: AnalyticsRouteDependencies
+  reliabilityReport?: () => Promise<unknown>
+  reliabilityIncidents?: (cursor?: string) => Promise<unknown>
 }
 
 type Session = { userId: string; walletAddress: string; expiresAt: number }
@@ -68,6 +71,7 @@ type RequestWithSession = FastifyRequest & { user?: Session }
 
 export function registerRoutes(context: HttpContext) {
   const { app, config, persistence, auth, notificationStore } = context
+  registerStatusRoute(app, context.reliabilityReport, context.reliabilityIncidents)
   if (process.env.EYELER_ANALYTICS_ENABLED === 'true')
     registerAnalyticsRoutes(app, persistence instanceof PostgresStore ? persistence.pool : null, context.analytics)
   const books = new BooksApplication(persistence, context.venue)
@@ -291,6 +295,8 @@ export function registerRoutes(context: HttpContext) {
     // unknown lookalike URLs still pass through the session gate.
     if (request.method === 'GET' && request.routeOptions.url?.startsWith('/analytics/v1/')) return
     if (request.method === 'GET' && request.routeOptions.url === '/evidence/:id') return
+    if (request.method === 'GET' && request.routeOptions.url === '/status.json') return
+    if (request.method === 'GET' && request.routeOptions.url === '/status/incidents.json') return
     // Telegram has no browser session. This one route authenticates the webhook secret itself.
     if (request.method === 'POST' && request.routeOptions.url === '/integrations/telegram/webhook') return
     if (

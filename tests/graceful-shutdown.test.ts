@@ -6,6 +6,7 @@ import { installShutdownHandlers, shutdownServer } from '../server/src/shutdown.
 import { PostgresStore } from '../server/src/infrastructure/database/postgres-store.js'
 import { logger } from '../server/src/config/index.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
+import * as rollups from '../server/src/workers/analytics-rollups.js'
 
 describe('graceful shutdown', () => {
   it('drains an in-flight tick before closing Perpl and releasing the advisory lock', async () => {
@@ -31,6 +32,7 @@ describe('graceful shutdown', () => {
       lease: {
         query: async () => {
           events.push('unlock')
+          return { rows: [{ pg_advisory_unlock: true }] }
         },
         release: () => {
           events.push('release-lease')
@@ -104,6 +106,50 @@ describe('graceful shutdown', () => {
       start.mockRestore()
       stop.mockRestore()
     }
+  })
+
+  it('releases trading authority before waiting for stalled analytics cleanup', async () => {
+    const events: string[] = []
+    let finish!: () => void
+    let entered!: () => void
+    const enteredAnalytics = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const start = vi.spyOn(EyelerRuntime.prototype, 'start').mockResolvedValue(undefined)
+    const stop = vi.spyOn(EyelerRuntime.prototype, 'stop').mockImplementation(async () => {
+      events.push('stop-worker')
+    })
+    const collector = vi.spyOn(rollups, 'startAnalyticsRollups').mockReturnValue({
+      stop: async () => {
+        events.push('stop-analytics')
+        entered()
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+      },
+    } as never)
+    const store = Object.assign(Object.create(PostgresStore.prototype) as PostgresStore, {
+      pool: {
+        end: async () => {
+          events.push('end-pool')
+        },
+      },
+    })
+    const app = createServer(store, { venue: { ready: () => false, close: async () => undefined } as RuntimeVenue })
+    let closing: Promise<void> | undefined
+    try {
+      await app.ready()
+      closing = app.close()
+      await enteredAnalytics
+      expect(events).toEqual(['stop-worker', 'stop-analytics'])
+    } finally {
+      finish?.()
+      await closing
+      start.mockRestore()
+      stop.mockRestore()
+      collector.mockRestore()
+    }
+    expect(events).toEqual(['stop-worker', 'stop-analytics', 'end-pool'])
   })
 
   it('stops waiting at the shutdown deadline', async () => {

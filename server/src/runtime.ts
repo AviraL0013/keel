@@ -90,6 +90,10 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
   close(): Promise<void>
   ready(): boolean
 }
+export type RuntimeReliabilityObserver = {
+  lifecycle(kind: 'lock_acquired' | 'lock_released' | 'lock_lost'): void
+  beforeBookSend(actionId: string): Promise<void>
+}
 
 export async function resolveRuntimeVenue(venue: RuntimeVenue | undefined, userId: string, book?: Book) {
   if (!venue?.forUser) return venue
@@ -151,12 +155,14 @@ export class EyelerRuntime {
   private venueStarted = false
   private stopping = false
   private nextOpeningReconcileAt = 0
+  private reliabilityPaused = false
   constructor(
     private readonly store: PostgresStore,
     private readonly venue?: RuntimeVenue,
     private readonly now: () => number = Date.now,
     private readonly safeModeResumeTicks = 5,
     private readonly openingEnvironment?: 'testnet' | 'mainnet',
+    private readonly reliability?: RuntimeReliabilityObserver,
   ) {
     this.repository = new PostgresExecutionRepository(store)
     this.scheduler = new MonitorScheduler({ tick: () => this.tick() }, 1000, () => undefined, now)
@@ -213,6 +219,16 @@ export class EyelerRuntime {
       executionReady: lockOwned && venueReady,
     }
   }
+  pauseForReliability() {
+    this.reliabilityPaused = true
+  }
+  private observeLifecycle(kind: 'lock_acquired' | 'lock_released' | 'lock_lost') {
+    try {
+      this.reliability?.lifecycle(kind)
+    } catch {
+      // Observations cannot grant or retain trading authority.
+    }
+  }
   async stop() {
     this.stopping = true
     if (this.lockRetryTimer) {
@@ -234,7 +250,8 @@ export class EyelerRuntime {
           const lease = this.lease
           this.lease = undefined
           try {
-            await lease.query('SELECT pg_advisory_unlock(187471,1)')
+            const released = await lease.query('SELECT pg_advisory_unlock(187471,1)')
+            if (released.rows[0]?.pg_advisory_unlock === true) this.observeLifecycle('lock_released')
           } finally {
             lease.release()
           }
@@ -276,6 +293,7 @@ export class EyelerRuntime {
         return
       }
       this.lease = candidate
+      this.observeLifecycle('lock_acquired')
       this.waitingForLock = false
       if (this.lockRetryTimer) {
         clearInterval(this.lockRetryTimer)
@@ -285,6 +303,7 @@ export class EyelerRuntime {
       ownedLease.on('error', () => {
         if (this.lease !== ownedLease) return
         this.lease = undefined
+        this.observeLifecycle('lock_lost')
         this.waitingForLock = true
         this.venueStarted = false
         ownedLease.release()
@@ -316,7 +335,7 @@ export class EyelerRuntime {
     }
   }
   private async tick() {
-    if (!this.lease) return
+    if (!this.lease || this.reliabilityPaused) return
     await this.lease.query('SELECT 1')
     if (this.openingEnvironment && this.now() >= this.nextOpeningReconcileAt) {
       this.nextOpeningReconcileAt = this.now() + 5_000
@@ -450,6 +469,8 @@ export class EyelerRuntime {
             venue,
             (current) => venue.refresh(current),
             this.now,
+            () => isExecutionDisabled(process.env),
+            this.reliability?.beforeBookSend.bind(this.reliability),
           ).execute(decision)
           if (
             'status' in result &&

@@ -4,6 +4,7 @@ import { createNonce, type Ed25519PerplSigner } from './signer.js'
 import type { Action, VenueProgress } from '../../domain/src/index.js'
 import type { PerplConfig } from './index.js'
 import { PerplStateStore } from './decoder.js'
+import { emitPerplReliability } from './reliability-events.js'
 import {
   forwardedRequestDelta,
   forwardedRequestProcessed,
@@ -136,6 +137,9 @@ export class PerplTradingClient {
   private reconnectAttempt = 0
   private stopped = false
   private authenticationFailed = false
+  private readonly reliabilityStreamId = randomUUID()
+  private reliabilityDisconnected = false
+  private reliabilitySocketReady = false
   private lastHeartbeatDiagnosticAt = 0
   private readyWaiter?: { resolve: () => void; reject: (error: Error) => void }
   private readonly diagnostic: (line: string) => void
@@ -155,6 +159,7 @@ export class PerplTradingClient {
       this.readAuthoritativeBaseline(accountId),
     private readonly keepAliveIntervalMs = 30_000,
     private readonly orderResponseTimeoutMs = 15_000,
+    private readonly emitReliability: typeof emitPerplReliability = emitPerplReliability,
   ) {
     this.diagnostic = diagnostic
   }
@@ -494,6 +499,7 @@ export class PerplTradingClient {
   }
   close() {
     this.stopped = true
+    this.reliabilityDisconnected = false
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
     this.stopKeepAlive()
@@ -561,11 +567,16 @@ export class PerplTradingClient {
     })
     this.lastHeartbeatDiagnosticAt = 0
     this.socket = socket
+    this.reliabilitySocketReady = false
     this.streamEpoch = randomUUID()
     this.requestBySequence.clear()
     this.seenRequestStatuses.clear()
     socket.on('message', (data) => this.handleMessage(String(data)))
     socket.on('close', (code, reason) => {
+      if (this.socket === socket && !this.stopped) {
+        this.reliabilityDisconnected = true
+        this.emitReliability('websocket_disconnect', 'trading', this.reliabilityStreamId)
+      }
       const now = Date.now()
       this.diagnostic(
         `PERPL_WS_CLOSE at=${new Date(now).toISOString()} code=${code} reason=${JSON.stringify(String(reason))} protocolPings=${protocolPings} lastProtocolPingAgeMs=${lastProtocolPingAt ? now - lastProtocolPingAt : 'never'} appPingAgeMs=${lastAppPingAt ? now - lastAppPingAt : 'never'} maxKeepAliveDelayMs=${maxKeepAliveDelayMs}`,
@@ -690,6 +701,15 @@ export class PerplTradingClient {
       if (message.mt === 19 && this.lifecycle === 'AUTHENTICATING') this.lifecycle = 'AUTHENTICATED'
       if (this.state.snapshotsReady() && this.lifecycle === 'AUTHENTICATED') this.lifecycle = 'SNAPSHOTS_READY'
       if (this.state.ready()) {
+        if (!this.reliabilitySocketReady) {
+          this.reliabilitySocketReady = true
+          this.emitReliability(
+            this.reliabilityDisconnected ? 'websocket_reconnect' : 'websocket_ready',
+            'trading',
+            this.reliabilityStreamId,
+          )
+          this.reliabilityDisconnected = false
+        }
         if (this.lifecycle !== 'READY') this.diagnostic('PERPL_WS_READY')
         this.lifecycle = 'READY'
         this.reconnectAttempt = 0
