@@ -10,6 +10,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'dashboard_fixture.dart';
 
 void main() {
+  test(
+      'current exposure sums marked notionals exactly and fails closed on missing marks',
+      () async {
+    final raw = await RecordedDashboard()
+            .get('/analytics/v1/wallets/${RecordedDashboard.wallet}')
+        as Map<String, dynamic>;
+    final profile = raw['data'] as Map<String, dynamic>;
+    final positions = profile['positions'] as List;
+    profile['positions'] = [positions[0], positions[1]];
+    (positions[0] as Map)['notional'] = '9007199254740993.000001';
+    (positions[1] as Map)['notional'] = '0.000002';
+    final exposure =
+        DashboardWalletExposure.fromProfile(V1WalletProfile.fromJson(profile));
+    expect(exposure?.gross, '9007199254740993.000003');
+    expect(exposure?.long, '9007199254740993.000001');
+    expect(exposure?.short, '0.000002');
+    (positions[1] as Map)['notional'] = null;
+    expect(
+        DashboardWalletExposure.fromProfile(V1WalletProfile.fromJson(profile)),
+        isNull);
+  });
+
   test('All liquidation view requests only the 90 days accepted by the API',
       () async {
     final recorded = RecordedDashboard();
