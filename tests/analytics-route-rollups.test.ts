@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import { expect, it } from 'vitest'
 import { PerplPublicAnalytics } from '../server/src/infrastructure/analytics/perpl-public.js'
 import { registerAnalyticsRoutes } from '../server/src/interfaces/http/routes/analytics.js'
+import type { WalletChainAnalytics } from '../server/src/infrastructure/analytics/wallet-chain.js'
 import { databaseFixture } from './helpers/database.js'
 
 const context = JSON.parse(readFileSync('packages/analytics/fixtures/mainnet-public.json', 'utf8')).context
@@ -61,11 +62,29 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
       [new Date(hourEnd - hour), '0x1234567890abcdef1234567890abcdef12345678'],
     )
     const publicData = new PerplPublicAnalytics('https://fixture.invalid', async () => Response.json(context))
-    registerAnalyticsRoutes(app, db.store.pool, { publicData })
+    const wallet = {
+      profile: async (address: string) => ({
+        asOf: new Date(to).toISOString(),
+        block: 54773119,
+        source: 'monad_exchange' as const,
+        stale: false,
+        data: { address, accountIds: ['5438'] },
+      }),
+    } as unknown as WalletChainAnalytics
+    registerAnalyticsRoutes(app, db.store.pool, { publicData, wallet })
     const summary = await app.inject('/analytics/v1/protocol/summary?window=30d')
     expect(summary.statusCode).toBe(200)
     expect(summary.json().data.fees.value).toBe('0.123456')
     expect(summary.json().data.activeUsers.value).toBe('1')
+    const activity = await app.inject('/analytics/v1/wallets/0x1234567890abcdef1234567890abcdef12345678/activity')
+    expect(activity.statusCode).toBe(200)
+    expect(activity.json().data).toMatchObject({
+      scope: 'currently_linked_accounts',
+      activeDays: 1,
+      verifiedDays: 30,
+      unavailableReason: null,
+    })
+    expect(activity.json().data.points).toHaveLength(30)
     const markets = await app.inject('/analytics/v1/markets')
     expect(markets.json().source).toBe('derived')
     expect(markets.json().data.items.find((market: { id: number }) => market.id === 1).openingLongSharePct30d).toBe(

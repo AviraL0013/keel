@@ -36,6 +36,7 @@ import {
 import { WalletOnDemandAnalytics, walletOnDemandFromEnv } from '../../../infrastructure/analytics/wallet-ondemand.js'
 import { AnalyticsSnapshotRepository } from '../../../infrastructure/analytics/snapshots.js'
 import { readDailyRollupSeries } from '../../../infrastructure/analytics/daily-rollup-series.js'
+import { readWalletActivity } from '../../../infrastructure/analytics/wallet-activity.js'
 import { readCoveredRollups } from '../../../infrastructure/analytics/rollup-repository.js'
 import { completePublicProtocol } from '../../../infrastructure/analytics/protocol-completion.js'
 import { chainConfigs } from '../../../../../packages/chain/src/index.js'
@@ -960,6 +961,44 @@ export function registerAnalyticsRoutes(
             },
           },
         }
+      })
+
+      routes.get<{ Params: { address: string } }>('/wallets/:address/activity', routeConfig, async (request, reply) => {
+        const address = addressParam(request.params.address)
+        const ctx = await publicData.context()
+        const profile = await walletProfile(address, ctx.value)
+        if (!profile) throw fail('WALLET_NOT_FOUND', 404)
+        const to = Math.floor(Date.now() / 86_400_000) * 86_400_000
+        const from = new Date(to - 30 * 86_400_000).toISOString()
+        const through = new Date(to).toISOString()
+        const activity =
+          pool && process.env.EYELER_ANALYTICS_ROLLUPS_ENABLED === 'true'
+            ? await cache
+                .get(`wallet-activity:${address}:${profile.data.accountIds.join(',')}:${to}`, 60_000, () =>
+                  readWalletActivity(pool, profile.data.accountIds),
+                )
+                .catch(() => null)
+            : null
+        reply.header('Cache-Control', 'public, max-age=15')
+        return wrap(
+          {
+            address,
+            scope: 'currently_linked_accounts',
+            activeDays: activity?.activeDays ?? null,
+            verifiedDays: activity?.verifiedDays ?? 0,
+            points: activity?.points ?? [],
+            unavailableReason: !activity
+              ? 'ACTIVITY_SOURCE_UNAVAILABLE'
+              : activity.verifiedDays < 30
+                ? 'INCOMPLETE_30_DAY_COVERAGE'
+                : null,
+          },
+          'monad_exchange',
+          activity?.asOf ?? profile.asOf,
+          activity?.block ?? profile.block,
+          !activity || activity.verifiedDays < 30,
+          { from, through, completeHistory: false, label: 'Last 30 completed UTC days' },
+        )
       })
 
       routes.get<{ Params: { address: string }; Querystring: { limit?: string; cursor?: string } }>(
