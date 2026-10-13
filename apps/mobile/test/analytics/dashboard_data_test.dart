@@ -10,6 +10,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'dashboard_fixture.dart';
 
 void main() {
+  test('All liquidation view requests only the 90 days accepted by the API',
+      () async {
+    final recorded = RecordedDashboard();
+    await recorded.api.liquidations(DashboardRange.all);
+    final uri = Uri.parse(recorded.requests.single);
+    final from = DateTime.parse(uri.queryParameters['from']!);
+    final to = DateTime.parse(uri.queryParameters['to']!);
+    expect(to.difference(from), const Duration(days: 90));
+  });
+
   test('daily flows sum only observed hours and preserve exact signs', () {
     final flows = dailyAnalyticsFlows([
       V1FlowBucket(

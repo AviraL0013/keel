@@ -990,6 +990,13 @@ class DashboardLiquidations extends ConsumerWidget {
     final state = ref.watch(dashboardLiquidationsProvider(range));
     final response = state.asData?.value;
     final data = response?.data;
+    final observedRange =
+        range == DashboardRange.all ? DashboardRange.quarter : range;
+    final verifiedDays = data?.dailyNotional?.points
+            .where((point) => point.value != null)
+            .length ??
+        0;
+    final dailyComplete = verifiedDays == observedRange.days;
     final markets =
         ref.watch(dashboardMarketsProvider).asData?.value.data ?? [];
     final names = {for (final m in markets) m.id: m.symbol};
@@ -1013,7 +1020,9 @@ class DashboardLiquidations extends ConsumerWidget {
     return Column(children: [
       DashboardChartCard(
           title: 'Daily liquidations',
-          description: 'Liquidated notional for complete observed days.',
+          description: range == DashboardRange.all
+              ? 'Liquidated notional from the last 90 available days.'
+              : 'Liquidated notional for completed UTC days.',
           series: [
             DashboardSeries(
                 'Notional',
@@ -1025,8 +1034,10 @@ class DashboardLiquidations extends ConsumerWidget {
               'Complete daily liquidation totals are unavailable. The feed shows individually observed events.',
           source: response == null ? null : analyticsSource(response.source),
           asOf: response?.asOf,
-          stale: response?.stale ?? false,
-          coverage: response?.coverage?.label),
+          stale: !dailyComplete && (response?.stale ?? false),
+          coverage: data?.dailyNotional == null
+              ? response?.coverage?.label
+              : '$verifiedDays/${observedRange.days} verified daily totals'),
       const SizedBox(height: 24),
       DashboardCard(
           child:
@@ -1036,7 +1047,7 @@ class DashboardLiquidations extends ConsumerWidget {
         const SizedBox(height: 8),
         Text(
             data?.count == null
-                ? 'Total unavailable · observed events only'
+                ? 'Individual event count unavailable; daily totals above use verified rollups.'
                 : '${data!.count} events in requested range',
             style:
                 const TextStyle(fontSize: 12, color: AnalyticsPalette.muted)),
@@ -1046,7 +1057,9 @@ class DashboardLiquidations extends ConsumerWidget {
           DashboardUnavailable(
               state.hasError
                   ? 'Liquidation feed unavailable.'
-                  : 'No observed liquidation events in this range.',
+                  : response?.coverage?.completeHistory == true
+                      ? 'No liquidation events in this range.'
+                      : 'Individual liquidation events are not indexed for this range.',
               retry: state.hasError
                   ? () => ref.invalidate(dashboardLiquidationsProvider(range))
                   : null)

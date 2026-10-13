@@ -332,16 +332,20 @@ class DashboardApi {
   Future<V1Envelope<DashboardLiquidationPage>> liquidations(
       DashboardRange range,
       {String? cursor}) async {
+    // The public endpoint accepts at most 90 days. Keep "All" usable while
+    // showing the available range explicitly in the dashboard.
+    final observedRange =
+        range == DashboardRange.all ? DashboardRange.quarter : range;
     final result = await request(
-        '/liquidations?${rangeQuery(range)}&limit=100${cursor == null ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}'}',
+        '/liquidations?${rangeQuery(observedRange)}&limit=100${cursor == null ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}'}',
         DashboardLiquidationPage.fromJson);
     final daily = result.data.dailyNotional;
-    final (from, to) = bounds(range);
+    final (from, to) = bounds(observedRange);
     DateTime? previous;
     if (daily != null) {
       var valid = daily.from == from &&
           daily.to == to &&
-          daily.points.length <= range.days;
+          daily.points.length <= observedRange.days;
       for (final point in daily.points) {
         valid = valid &&
             !point.time.isBefore(from) &&
