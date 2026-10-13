@@ -139,7 +139,20 @@ export class LiveStrategyAdmission implements StrategyLiveController {
     )
     if (unresolved.rows.length || row.live_cleanup_pending) throw Error('STRATEGY_CLEANUP_PENDING')
     const state = proposal(row, value, this.now())
-    // Coverage includes this draft's full capital promise. The account is still empty here.
+    const allocation = (
+      await transaction.query<{ status: string; amount: string }>(
+        'SELECT status,amount::text FROM strategy_capital_allocations WHERE strategy_id=$1 FOR UPDATE',
+        [row.id],
+      )
+    ).rows[0]
+    const unallocatedDraft = !allocation && row.live_confirmed_at === null && row.config.liveConfirmed === false
+    const additional =
+      unallocatedDraft || allocation?.status === 'RELEASED'
+        ? new Exact(row.capital)
+        : allocation?.status === 'HELD'
+          ? Exact.max(0, new Exact(row.capital).minus(allocation.amount))
+          : new Exact(0)
+    // An unapproved draft has no promise. Confirmation claims its full capital here.
     await assertAccountCapitalCoverage(
       transaction,
       { environment: row.environment, account_id: row.account_id, user_id: userId },
@@ -150,7 +163,7 @@ export class LiveStrategyAdmission implements StrategyLiveController {
         observedAt: value.observedAt,
         observedBlock: value.chainBlock,
       },
-      '0.000000',
+      additional.toFixed(6),
       undefined,
       this.now(),
       row.id,

@@ -126,7 +126,9 @@ export async function assertAccountCapitalCoverage(
      UNION ALL
      SELECT (CASE WHEN a.status='RELEASED' THEN 0 ELSE COALESCE(a.amount,s.capital) END)::text
      FROM strategies s LEFT JOIN strategy_capital_allocations a ON a.strategy_id=s.id
-     WHERE s.account_id=$1 AND s.environment=$2 AND s.mode='LIVE'`,
+     WHERE s.account_id=$1 AND s.environment=$2 AND s.mode='LIVE'
+       AND NOT (a.strategy_id IS NULL AND s.live_confirmed_at IS NULL AND s.status<>'RUNNING'
+         AND (s.config->'liveConfirmed') IS NOT DISTINCT FROM 'false'::jsonb)`,
     [binding.account_id, binding.environment, excludeOpeningId ?? null],
   )
   let promised = 0n

@@ -11,6 +11,7 @@ import { StrategyStore } from '../server/src/infrastructure/strategies/store.js'
 import { StrategyOrders } from '../server/src/application/strategy-orders.js'
 import { LiveStrategyWorker } from '../server/src/workers/live-strategy-worker.js'
 import { assertAccountCapitalCoverage } from '../server/src/infrastructure/capital/admission.js'
+import { StrategyCapital } from '../server/src/infrastructure/strategies/capital.js'
 import type { RuntimeVenue } from '../server/src/runtime.js'
 import type { PerplOrder } from '../packages/perpl/src/trading.js'
 
@@ -301,6 +302,59 @@ it('holds the dedicated account against subsequent Book or opening capital admis
     } finally {
       client.release()
     }
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('does not reserve money for unapproved drafts, but claims full capital during confirmation', async () => {
+  const f = await fixture()
+  try {
+    const unused = await f.strategies.create(f.user, f.connection, { ...f.data.config, liveConfirmed: false })
+    expect((await f.strategies.stop(f.user, unused.id)).live_cleanup_pending).toBe(false)
+    const client = await f.store.pool.connect()
+    try {
+      expect(
+        await assertAccountCapitalCoverage(
+          client,
+          { environment: 'testnet', account_id: '642', user_id: f.user },
+          { environment: 'testnet', accountId: 642, free: '100.000000', observedAt: f.clock.value, observedBlock: 100 },
+          '1.000000',
+          undefined,
+          f.clock.value,
+        ),
+      ).toBe('99.000000')
+    } finally {
+      client.release()
+    }
+    await f.approve()
+    expect((await f.db.query('SELECT amount::text,status FROM strategy_capital_allocations')).rows).toEqual([
+      { amount: '100.000000', status: 'HELD' },
+    ])
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('keeps the existing capital allocator from overfunding an unapproved draft', async () => {
+  const f = await fixture()
+  try {
+    const capital = new StrategyCapital(
+      f.store.pool,
+      'testnet',
+      async () => ({
+        environment: 'testnet',
+        accountId: 642,
+        free: '50.000000',
+        observedAt: Date.now(),
+        observedBlock: 100,
+      }),
+      async () => {
+        throw Error('NO_ORDER_COST_REQUESTED')
+      },
+    )
+    await expect(capital.allocate(f.user, f.draft.id)).rejects.toThrow('STRATEGY_WOULD_UNDERFUND_BOOK_RESERVES')
+    expect((await f.db.query('SELECT * FROM strategy_capital_allocations')).rows).toEqual([])
   } finally {
     await f.db.close()
   }

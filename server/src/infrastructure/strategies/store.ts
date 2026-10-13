@@ -484,7 +484,7 @@ export class StrategyStore {
       await client.query('BEGIN')
       const result = await client.query<StrategyRecord>(
         `UPDATE strategies SET status=$3,state=jsonb_set(jsonb_set(state,'{openOrders}','[]'::jsonb),'{status}','"PAUSED"'::jsonb),
-         live_cleanup_pending=CASE WHEN mode='LIVE' THEN true ELSE live_cleanup_pending END,
+         live_cleanup_pending=CASE WHEN mode='LIVE' AND live_confirmed_at IS NOT NULL THEN true ELSE live_cleanup_pending END,
          version=version+1,updated_at=now()
          WHERE id=$1 AND user_id=$2 AND status IN ('PAUSED','RUNNING','HALTED') RETURNING *`,
         [id, userId, status],
