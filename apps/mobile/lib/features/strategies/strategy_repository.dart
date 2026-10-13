@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/networking/api_client.dart';
@@ -93,9 +95,16 @@ class StrategyAccountingRow {
 }
 
 class StrategySetup {
-  const StrategySetup(this.accounts, this.markets);
+  const StrategySetup(
+    this.accounts,
+    this.markets, {
+    this.liveEnabled = false,
+    this.liveReason,
+  });
   final List<StrategyAccount> accounts;
   final List<StrategyMarket> markets;
+  final bool liveEnabled;
+  final String? liveReason;
   factory StrategySetup.fromJson(Map<String, dynamic> json) => StrategySetup(
         (json['accounts'] as List)
             .map(
@@ -109,7 +118,15 @@ class StrategySetup {
                   Map<String, dynamic>.from(row as Map)),
             )
             .toList(),
+        liveEnabled: json['liveEnabled'] == true,
+        liveReason: json['liveReason'] as String?,
       );
+}
+
+class StrategyPublication {
+  const StrategyPublication({required this.id, required this.url});
+  final String id;
+  final String url;
 }
 
 abstract class StrategyRepository {
@@ -120,7 +137,17 @@ abstract class StrategyRepository {
     Map<String, dynamic> config,
   );
   Future<StrategyEntry> control(String id, String action);
+  Future<Map<String, dynamic>> livePreview(String id, int maxRunMs);
+  Future<StrategyEntry> confirmLive(
+    String id,
+    String previewId,
+    String idempotencyKey,
+  );
   Future<Map<String, dynamic>> status(String id);
+  Future<List<StrategyPublication>> publications(String strategyId);
+  Future<StrategyPublication> publishEvidence(
+      String strategyId, DateTime from, DateTime to);
+  Future<void> revokePublication(String publicationId);
   Future<Map<String, dynamic>> pnl(String id);
   Future<List<StrategyAccountingRow>> verifiedAccounting(String id);
   Future<List<Map<String, dynamic>>> orders(String id);
@@ -166,9 +193,61 @@ class HttpStrategyRepository implements StrategyRepository {
             StrategyEntry.fromJson(Map<String, dynamic>.from(value as Map)),
       );
   @override
+  Future<Map<String, dynamic>> livePreview(String id, int maxRunMs) => api.post(
+        '/strategies/$id/live-preview',
+        body: {'maxRunMs': maxRunMs},
+        decode: (value) => Map<String, dynamic>.from(value as Map),
+      );
+  @override
+  Future<StrategyEntry> confirmLive(
+    String id,
+    String previewId,
+    String idempotencyKey,
+  ) =>
+      api.post(
+        '/strategies/$id/live-confirm',
+        body: {
+          'previewId': previewId,
+          'idempotencyKey': idempotencyKey,
+          'acknowledgeRealOrders': true,
+        },
+        decode: (value) =>
+            StrategyEntry.fromJson(Map<String, dynamic>.from(value as Map)),
+      );
+  @override
   Future<Map<String, dynamic>> status(String id) => api.get(
         '/strategies/$id/status',
         (value) => Map<String, dynamic>.from(value as Map),
+      );
+  @override
+  Future<List<StrategyPublication>> publications(String strategyId) => api.get(
+        '/strategies/evidence-publications?strategyId=${Uri.encodeQueryComponent(strategyId)}',
+        (value) => rows(value)
+            .map((row) => StrategyPublication(
+                  id: row['id'] as String,
+                  url: api.resolve(row['path'] as String),
+                ))
+            .toList(),
+      );
+  @override
+  Future<StrategyPublication> publishEvidence(
+          String strategyId, DateTime from, DateTime to) =>
+      api.post(
+        '/strategies/evidence-publications',
+        body: {
+          'strategyId': strategyId,
+          'from': from.toUtc().toIso8601String(),
+          'to': to.toUtc().toIso8601String(),
+          'ownerReviewed': true
+        },
+        decode: (value) => StrategyPublication(
+            id: (value as Map)['id'] as String,
+            url: api.resolve(value['path'] as String)),
+      );
+  @override
+  Future<void> revokePublication(String publicationId) => api.delete(
+        '/strategies/evidence-publications/$publicationId',
+        decode: (_) {},
       );
   @override
   Future<Map<String, dynamic>> pnl(String id) => api.get(
@@ -207,3 +286,14 @@ final strategyRepositoryProvider = Provider<StrategyRepository>((ref) {
   );
   return HttpStrategyRepository(ref.watch(apiClientProvider));
 });
+
+String strategyIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex =
+      bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-${hex.substring(20)}';
+}

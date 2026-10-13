@@ -27,6 +27,8 @@ export type StrategyIntentInput = {
   /** Server-produced units. The required admission callback must revalidate them against fresh venue metadata. */
   marketTerms: Terms
   targetOrderId?: string
+  /** Internal provenance. HTTP clients cannot submit this application command. */
+  origin?: 'INTERNAL' | 'AUTOMATION'
 }
 export type StrategyOrderRecord = {
   id: string
@@ -49,6 +51,7 @@ export type StrategyOrderRecord = {
   price: string | null
   error: string | null
   venue_progress?: Record<string, unknown> | null
+  execution_origin?: 'INTERNAL' | 'AUTOMATION'
 }
 type StrategyBinding = {
   id: string
@@ -66,9 +69,7 @@ type Options = {
   accountMode: 'operator' | 'per-user'
 }
 
-/** Internal, fake-tested submission seam. Not mounted in HTTP or the worker.
- * LIVE startup remains blocked until capital isolation, verified cleanup and confirmation are implemented.
- */
+/** Durable strategy submission. Cleanup can only cancel receipt-bound owned orders. */
 export class StrategyOrders {
   constructor(
     private readonly store: PostgresStore,
@@ -76,15 +77,14 @@ export class StrategyOrders {
     private readonly environment: 'testnet' | 'mainnet',
     private readonly options: Options,
     private readonly verifyBeforeSend: (intent: StrategyOrderRecord) => Promise<void>,
+    private readonly beforeDispatch: (intent: StrategyOrderRecord) => Promise<void> = async () => undefined,
   ) {
     if (typeof verifyBeforeSend !== 'function') throw new Error('STRATEGY_ADMISSION_REQUIRED')
   }
 
-  private assertEnabled() {
+  private assertEnabled(cleanup = false) {
     if (
-      !this.options.enabled ||
-      !this.options.liveEnabled ||
-      this.options.executionDisabled ||
+      (!cleanup && (!this.options.enabled || !this.options.liveEnabled || this.options.executionDisabled)) ||
       this.options.accountMode !== 'per-user'
     )
       throw new Error('STRATEGY_SUBMISSION_DISABLED')
@@ -115,17 +115,18 @@ export class StrategyOrders {
     return { builderId: binding.builder_id, builderFeePer100K: 0 }
   }
 
-  private async authorize(userId: string, binding: StrategyBinding, terms: Terms) {
-    this.assertEnabled()
+  private async authorize(userId: string, binding: StrategyBinding, terms: Terms, cleanup = false) {
+    this.assertEnabled(cleanup)
     const allowed = await this.store.pool.query(
       `SELECT c.builder_id,c.builder_fee_ceiling FROM strategies s JOIN perpl_connections c ON c.id=s.connection_id AND c.user_id=s.user_id
        JOIN perpl_accounts a ON a.connection_id=c.id AND a.account_id=s.account_id
        JOIN perpl_account_owners o ON o.environment=s.environment AND o.account_id=s.account_id AND o.user_id=s.user_id
-       WHERE s.id=$1 AND s.user_id=$2 AND s.environment=$3 AND s.connection_id=$4::uuid AND s.mode='LIVE' AND s.status='RUNNING'
+       WHERE s.id=$1 AND s.user_id=$2 AND s.environment=$3 AND s.connection_id=$4::uuid AND s.mode='LIVE'
+         AND ($5::boolean OR s.status='RUNNING')
          AND s.live_confirmed_at IS NOT NULL AND c.environment=s.environment AND c.status='ACTIVE'
          AND c.revoked_at IS NULL AND c.expires_at>now() AND c.scope='trade' AND a.forwarding=true AND a.frozen=false
-         AND NOT EXISTS(SELECT 1 FROM strategy_user_controls u WHERE u.user_id=s.user_id AND u.killed=true)`,
-      [binding.id, userId, this.environment, binding.connection_id],
+         AND ($5::boolean OR NOT EXISTS(SELECT 1 FROM strategy_user_controls u WHERE u.user_id=s.user_id AND u.killed=true))`,
+      [binding.id, userId, this.environment, binding.connection_id, cleanup],
     )
     if (!allowed.rows.length) throw new Error('STRATEGY_CONNECTION_UNAVAILABLE')
     if (this.builderTerms(allowed.rows[0]).builderId !== terms.builderId || terms.builderFeePer100K !== 0)
@@ -160,7 +161,12 @@ export class StrategyOrders {
       !positive(raw.orderTtlBlocks) ||
       !positive(terms.contractMarketId) ||
       ![terms.priceDecimals, terms.sizeDecimals].every((n) => Number.isSafeInteger(n) && n >= 0 && n <= 18) ||
-      Object.keys(raw).some((key) => !['acc', 'mkt', 't', 's', 'p', 'lv', 'fl', 'oid', 'orderTtlBlocks'].includes(key))
+      (raw.mnp !== undefined && raw.mnp !== 0) ||
+      (raw.tif !== undefined && (!Number.isSafeInteger(raw.tif) || raw.tif < 0)) ||
+      Object.keys(raw).some(
+        (key) => !['acc', 'mkt', 't', 's', 'p', 'lv', 'fl', 'oid', 'mnp', 'tif', 'orderTtlBlocks'].includes(key),
+      ) ||
+      (input.origin !== undefined && !['INTERNAL', 'AUTOMATION'].includes(input.origin))
     )
       throw new Error('STRATEGY_ORDER_INVALID')
     if (raw.acc !== Number(binding.account_id) || raw.mkt !== binding.market_id)
@@ -176,7 +182,11 @@ export class StrategyOrders {
       fl: raw.fl,
       orderTtlBlocks: raw.orderTtlBlocks,
     }
+    if (raw.mnp !== undefined) order.mnp = raw.mnp
+    if (raw.tif !== undefined) order.tif = raw.tif
+    if (input.origin === 'AUTOMATION' && raw.mnp !== 0) throw new Error('STRATEGY_ORDER_INVALID')
     if (kind === 'POST') {
+      if (input.origin === 'AUTOMATION' && !positive(raw.tif)) throw new Error('STRATEGY_ORDER_INVALID')
       if (
         target ||
         raw.oid !== undefined ||
@@ -194,6 +204,7 @@ export class StrategyOrders {
         !uuid.test(target) ||
         raw.lv !== 0 ||
         raw.fl !== 0 ||
+        (kind === 'CANCEL' && raw.tif !== undefined && raw.tif !== 0) ||
         (kind === 'CANCEL' ? raw.s !== 0 || raw.p !== undefined : !positive(raw.s) || !positive(raw.p))
       )
         throw new Error('STRATEGY_ORDER_TARGET_INVALID')
@@ -277,13 +288,17 @@ export class StrategyOrders {
     const existing = async () => {
       const row = await findExisting()
       if (row && row.payload_hash !== payload.payloadHash) throw new Error('STRATEGY_IDEMPOTENCY_CONFLICT')
+      if (row && (row.execution_origin ?? 'INTERNAL') !== (input.origin ?? 'INTERNAL'))
+        throw new Error('STRATEGY_IDEMPOTENCY_CONFLICT')
       return row ? { ...row, createdNow: false } : null
     }
     if (prior) {
       if (prior.payload_hash !== payload.payloadHash) throw new Error('STRATEGY_IDEMPOTENCY_CONFLICT')
+      if ((prior.execution_origin ?? 'INTERNAL') !== (input.origin ?? 'INTERNAL'))
+        throw new Error('STRATEGY_IDEMPOTENCY_CONFLICT')
       return { ...prior, createdNow: false }
     }
-    await this.authorize(userId, binding, payload.terms)
+    await this.authorize(userId, binding, payload.terms, payload.kind === 'CANCEL')
     const price =
       payload.order.p === undefined
         ? null
@@ -299,8 +314,8 @@ export class StrategyOrders {
     try {
       const inserted = await this.store.pool.query<StrategyOrderRecord>(
         `INSERT INTO strategy_orders(id,strategy_id,environment,account_id,market_id,kind,simulated,status,
-          side,price,size,idempotency_key,wire_order,market_terms,payload_hash,target_order_id,venue_order_id)
-         VALUES($1,$2,$3,$4,$5,$6,false,'QUEUED',$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+          side,price,size,idempotency_key,wire_order,market_terms,payload_hash,target_order_id,venue_order_id,execution_origin)
+         VALUES($1,$2,$3,$4,$5,$6,false,'QUEUED',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
         [
           randomUUID(),
           strategyId,
@@ -317,6 +332,7 @@ export class StrategyOrders {
           payload.payloadHash,
           payload.target,
           payload.order.oid ?? null,
+          input.origin ?? 'INTERNAL',
         ],
       )
       return { ...inserted.rows[0]!, createdNow: true }
@@ -343,7 +359,12 @@ export class StrategyOrders {
     let ownedRequest: string | null = null
     let ownedExpiry: number | null = null
     try {
-      const venue = await this.authorize(userId, binding, intent.market_terms)
+      try {
+        await this.beforeDispatch(intent)
+      } catch (error) {
+        throw new PerplPreSubmissionError(error instanceof Error ? error.message : 'STRATEGY_DISPATCH_ADMISSION_FAILED')
+      }
+      const venue = await this.authorize(userId, binding, intent.market_terms, intent.kind === 'CANCEL')
       const result = await venue.submitStrategy!(
         intent.id,
         intent.wire_order,
@@ -375,7 +396,7 @@ export class StrategyOrders {
         },
         async () => {
           const verifyIdentity = async () => {
-            await this.authorize(userId, binding, intent.market_terms)
+            await this.authorize(userId, binding, intent.market_terms, intent.kind === 'CANCEL')
             const saved = await current()
             if (
               saved.status !== 'SUBMITTING' ||

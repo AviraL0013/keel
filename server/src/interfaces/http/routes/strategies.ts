@@ -8,7 +8,7 @@ import {
   ValidationError,
 } from '../../../application/errors.js'
 import { PostgresStore } from '../../../infrastructure/database/postgres-store.js'
-import { StrategyStore } from '../../../infrastructure/strategies/store.js'
+import { StrategyStore, type StrategyLiveController } from '../../../infrastructure/strategies/store.js'
 import { PerplAdapter } from '../../../../../packages/perpl/src/index.js'
 
 type Context = {
@@ -16,13 +16,16 @@ type Context = {
   persistence: PostgresStore | null
   environment: 'testnet' | 'mainnet'
   session(request: FastifyRequest): Promise<{ userId: string } | null>
+  liveController?: StrategyLiveController
 }
 const uuid = (value: unknown): value is string =>
   typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 
 export function registerStrategyRoutes(context: Context): void {
   const paperEnabled = process.env.EYELER_STRATEGIES_ENABLED === 'true'
-  const repo = context.persistence ? new StrategyStore(context.persistence.pool, context.environment) : null
+  const repo = context.persistence
+    ? new StrategyStore(context.persistence.pool, context.environment, context.liveController)
+    : null
   const owned = async (request: FastifyRequest, id: unknown) => {
     const current = await context.session(request)
     if (!current) throw new AuthenticationError()
@@ -58,9 +61,17 @@ export function registerStrategyRoutes(context: Context): void {
         markets: protocol.markets
           .filter((market) => market.config.is_open === true)
           .map((market) => ({ id: market.id, symbol: market.symbol || `Market ${market.id}` })),
+        liveEnabled: repo?.liveEnabled ?? false,
+        liveReason: repo?.liveEnabled ? null : 'STRATEGIES_LIVE_DISABLED',
       }
     } catch {
-      return { accounts: accounts.rows, markets: [], marketStatus: 'UNAVAILABLE' }
+      return {
+        accounts: accounts.rows,
+        markets: [],
+        marketStatus: 'UNAVAILABLE',
+        liveEnabled: false,
+        liveReason: 'PERPL_MARKET_UNAVAILABLE',
+      }
     } finally {
       adapter.close()
     }
@@ -111,6 +122,34 @@ export function registerStrategyRoutes(context: Context): void {
         throw new AuthorizationError(error instanceof Error ? error.message : 'STRATEGY_CONTROL_REJECTED')
       }
     })
+  context.app.post<{ Params: { id: string }; Body: { maxRunMs?: number } }>(
+    '/strategies/:id/live-preview',
+    async (request) => {
+      const { userId } = await owned(request, request.params.id)
+      if (!repo!.liveEnabled) throw new InfrastructureError('STRATEGIES_LIVE_DISABLED')
+      try {
+        return await repo!.livePreview(userId, request.params.id, request.body?.maxRunMs as number)
+      } catch (error) {
+        throw new ValidationError(error instanceof Error ? error.message : 'STRATEGY_LIVE_REVIEW_REJECTED')
+      }
+    },
+  )
+  context.app.post<{
+    Params: { id: string }
+    Body: {
+      previewId: string
+      idempotencyKey: string
+      acknowledgeRealOrders: boolean
+    }
+  }>('/strategies/:id/live-confirm', async (request) => {
+    const { userId } = await owned(request, request.params.id)
+    if (!repo!.liveEnabled) throw new InfrastructureError('STRATEGIES_LIVE_DISABLED')
+    try {
+      return await repo!.confirmLive(userId, request.params.id, request.body)
+    } catch (error) {
+      throw new AuthorizationError(error instanceof Error ? error.message : 'STRATEGY_LIVE_CONFIRM_REJECTED')
+    }
+  })
   context.app.get<{ Params: { id: string } }>('/strategies/:id/status', async (request) => {
     const { row, userId } = await owned(request, request.params.id)
     return {
@@ -133,7 +172,13 @@ export function registerStrategyRoutes(context: Context): void {
       state: row.state,
       killed: await repo!.killed(userId),
       paperEnabled,
-      liveEnabled: false,
+      liveEnabled: repo!.liveEnabled,
+      liveReason: repo!.liveEnabled ? null : 'STRATEGIES_LIVE_DISABLED',
+      liveExpiresAt: row.live_expires_at ?? null,
+      liveMaxRunMs: row.live_max_run_ms ?? null,
+      cleanupPending: row.live_cleanup_pending ?? false,
+      liveState: row.live_state ?? null,
+      liveObservation: row.mode === 'LIVE' ? await repo!.liveObservation(userId, row.id) : null,
     }
   })
   context.app.get<{ Params: { id: string } }>('/strategies/:id/pnl', async (request) => {

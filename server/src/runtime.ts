@@ -22,6 +22,12 @@ import { ExecutionWorker } from './workers/execution-worker.js'
 import { StrategyWorker, PerplPaperFeed } from './workers/strategy-worker.js'
 import { StrategyStore } from './infrastructure/strategies/store.js'
 import { StrategyOrderRecovery } from './infrastructure/strategies/order-recovery.js'
+import type { LiveStrategySnapshot } from '../../packages/strategies/src/live.js'
+import type { WireFill } from '../../packages/perpl/src/decoder.js'
+import { LiveStrategyWorker } from './workers/live-strategy-worker.js'
+import { LiveStrategyAdmission } from './application/live-strategy-admission.js'
+import { StrategyFillRecovery } from './workers/strategy-fill-recovery.js'
+import { perplNetworks } from '../../packages/perpl/src/index.js'
 import type {
   StrategyOrderEvidence,
   StrategyCommandIntent,
@@ -69,6 +75,12 @@ export type RuntimeVenue = Pick<VenueAdapter, 'submit' | 'reconcile'> & {
     verifyBeforeSend?: () => Promise<void>,
   ): Promise<PerplSubmitResult>
   strategyOrderEvidence?(intent: StrategyCommandIntent): Promise<StrategyOrderEvidence>
+  strategySnapshot?(marketId: number, transaction?: Pick<PoolClient, 'query'>): Promise<LiveStrategySnapshot>
+  strategyFillCandidates?(marketId: number, minBlock: number): Promise<WireFill[]>
+  strategyAccountMutations?(
+    minBlock: number,
+    transaction?: Pick<PoolClient, 'query'>,
+  ): Promise<Array<{ et: number; at: { b?: number }; r?: string | number }>>
   reconcileOpening?(intent: Parameters<typeof reconcileOpening>[0]): Promise<OpeningReconciliation>
   capital?(walletAddress?: string, userId?: string): Promise<CapitalSnapshot>
   agoraActivity?(walletAddress?: string, cursor?: string): Promise<AgoraActivity>
@@ -124,6 +136,10 @@ export class EyelerRuntime {
   private readonly scheduler: MonitorScheduler
   private readonly strategyWorker?: StrategyWorker
   private readonly strategyRecovery?: StrategyOrderRecovery
+  private readonly liveStrategyWorker?: LiveStrategyWorker
+  private readonly strategyFillRecovery?: StrategyFillRecovery
+  readonly strategyLiveController?: LiveStrategyAdmission
+  private strategyFillTask?: Promise<void>
   private nextStrategyReconcileAt = 0
   private readonly reconciliationSchedule = new Map<string, { nextAt: number; rateLimitFailures: number }>()
   private readonly freshRecoveryTicks = new Map<string, number>()
@@ -151,7 +167,32 @@ export class EyelerRuntime {
         now,
         () => isExecutionDisabled(process.env),
       )
+    }
+    if (openingEnvironment && process.env.EYELER_STRATEGIES_ENABLED === 'true') {
+      const options = {
+        enabled: () =>
+          process.env.EYELER_STRATEGIES_ENABLED === 'true' &&
+          process.env.EYELER_STRATEGIES_LIVE_ENABLED === 'true' &&
+          (process.env.EYELER_PERPL_ACCOUNT_MODE ?? process.env.KEEL_PERPL_ACCOUNT_MODE) === 'per-user',
+        executionDisabled: () => isExecutionDisabled(process.env),
+        leaseOwned: () => Boolean(this.lease) && !this.stopping,
+      }
+      this.strategyLiveController = new LiveStrategyAdmission(store.pool, venue, openingEnvironment, options, now)
+      this.liveStrategyWorker = new LiveStrategyWorker(
+        store.pool,
+        new StrategyStore(store.pool, openingEnvironment),
+        venue,
+        openingEnvironment,
+        options,
+        now,
+      )
       this.strategyRecovery = new StrategyOrderRecovery(store.pool, venue, openingEnvironment)
+      this.strategyFillRecovery = new StrategyFillRecovery(
+        store.pool,
+        venue,
+        openingEnvironment,
+        process.env.MONAD_RPC_URL ?? perplNetworks[openingEnvironment].rpcUrl,
+      )
     }
   }
   async start() {
@@ -460,7 +501,21 @@ export class EyelerRuntime {
     if (this.strategyRecovery && this.now() >= this.nextStrategyReconcileAt) {
       this.nextStrategyReconcileAt = this.now() + 5_000
       await this.strategyRecovery.recover()
+      if (!this.strategyFillTask && this.strategyFillRecovery) {
+        this.strategyFillTask = this.strategyFillRecovery
+          .tick()
+          .catch((error) => {
+            logger.warn(
+              { error: error instanceof Error ? error.message : 'STRATEGY_FILL_RECOVERY_FAILED' },
+              'Strategy financial evidence remains unavailable',
+            )
+          })
+          .finally(() => {
+            this.strategyFillTask = undefined
+          })
+      }
     }
+    if (this.lease && !this.stopping) await this.liveStrategyWorker?.tick()
   }
   private async recordDecision(decision: Decision, explicitManualRequest = false) {
     const fingerprint = JSON.stringify([decision.state, decision.action, decision.amount, decision.reasonCodes])

@@ -20,6 +20,15 @@ class EyelerApiClient {
   Future<T> patch<T>(String path,
           {Object? body, required T Function(dynamic) decode}) =>
       _request('PATCH', path, decode, body: body);
+  Future<T> delete<T>(String path, {required T Function(dynamic) decode}) =>
+      _request('DELETE', path, decode);
+  String resolve(String path) {
+    if (!path.startsWith('/') || path.startsWith('//')) {
+      throw const EyelerException('INVALID_API_PATH');
+    }
+    return Uri.parse('${_config.apiBaseUrl}$path').toString();
+  }
+
   Future<Map<String, dynamic>> health() => _request(
       'GET', '/health', (value) => Map<String, dynamic>.from(value as Map));
   Future<T> _request<T>(String method, String path, T Function(dynamic) decode,
@@ -36,6 +45,7 @@ class EyelerApiClient {
           headers: headers, body: body == null ? null : jsonEncode(body)),
       'PATCH' => await _http.patch(uri,
           headers: headers, body: body == null ? null : jsonEncode(body)),
+      'DELETE' => await _http.delete(uri, headers: headers),
       _ => throw const EyelerException('UNSUPPORTED_HTTP_METHOD'),
     };
     if (response.statusCode == 401 &&

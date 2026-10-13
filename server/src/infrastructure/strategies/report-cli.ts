@@ -9,15 +9,17 @@ const option = (name: string) => {
 }
 const from = option('from'),
   to = option('to'),
-  strategy = option('strategy')
-if (!from || !to)
+  strategy = option('strategy'),
+  userId = option('user'),
+  environment = option('environment') ?? process.env.EYELER_ENV
+if (!from || !to || !userId || (environment !== 'testnet' && environment !== 'mainnet'))
   throw new Error(
-    'USAGE: tsx server/src/infrastructure/strategies/report-cli.ts --from <ISO> --to <ISO> [--strategy <uuid>]',
+    'USAGE: tsx server/src/infrastructure/strategies/report-cli.ts --from <ISO> --to <ISO> --user <owner uuid> --environment <testnet|mainnet> [--strategy <uuid>]',
   )
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL_REQUIRED')
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 try {
-  const report = await buildStrategyRunReport(pool, from, to, strategy)
+  const report = await buildStrategyRunReport(pool, from, to, strategy, { userId, environment })
   const name = `run-${Date.parse(from)}-${Date.parse(to)}${strategy ? `-${strategy}` : ''}.json`
   const path = resolve('reports/strategies', name)
   await mkdir(resolve('reports/strategies'), { recursive: true })

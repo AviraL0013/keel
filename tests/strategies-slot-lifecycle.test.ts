@@ -95,7 +95,8 @@ function block(number: number, transactions: Array<{ events: EventVector[]; inpu
     receipts,
   }
 }
-function fixture(extra: EventVector[] = [maker()], builder?: number) {
+function fixture(extra: EventVector[] = [maker()], builder?: number, expiryBlock = 0n) {
+  const order = { ...descriptor, expiryBlock }
   const extension =
     builder === undefined
       ? '0x'
@@ -111,7 +112,7 @@ function fixture(extra: EventVector[] = [maker()], builder?: number) {
         {
           accountId: 642n,
           feePer100K: 0n,
-          orderDesc: descriptor,
+          orderDesc: order,
           execTriggerOrder: false,
           triggerPricePNS: 0n,
           triggerPriceCondition: 0,
@@ -126,8 +127,8 @@ function fixture(extra: EventVector[] = [maker()], builder?: number) {
     {
       events: [
         extension === '0x'
-          ? event('OrderRequest', requestValues())
-          : event('OrderRequestV2', [...requestValues(), extension]),
+          ? event('OrderRequest', requestValues(order))
+          : event('OrderRequestV2', [...requestValues(order), extension]),
         event('OrderPlaced', [75n, 100n, 0n, 0n, 100n]),
         event('OrderBatchCompleted', [0n]),
       ],
@@ -368,6 +369,13 @@ describe('gapless strategy maker slot lifetime proof', () => {
     const expired = fixture()
     expired.admission.expiryBlock = '112'
     expect(verify(expired).status).toBe('UNKNOWN')
+  })
+  it('verifies fixed native expiry from calldata and refuses maker fills past its last valid block', () => {
+    expect(verify(fixture([maker()], undefined, 112n)).status).toBe('VERIFIED')
+    expect(verify(fixture([maker()], undefined, 111n)).status).toBe('UNKNOWN')
+    const altered = fixture([maker()], undefined, 112n)
+    altered.admission.expiryBlock = '113'
+    expect(verify(altered).status).toBe('UNKNOWN')
   })
   it('is deterministic on restart/replay and refuses altered saved placement proof', () => {
     const value = fixture()

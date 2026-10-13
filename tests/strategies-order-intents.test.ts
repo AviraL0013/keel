@@ -383,7 +383,7 @@ it('keeps ambiguous and late responses from overwriting durable recovery evidenc
   }
 }, 30_000)
 
-it('leaves a creator that crashed before submission unsent and keeps production LIVE start blocked', async () => {
+it('leaves a creator that crashed before submission unsent and requires reviewed LIVE activation', async () => {
   const f = await fixture()
   try {
     const prepared = await f.service().prepare(f.user, f.strategy, f.input)
@@ -392,7 +392,7 @@ it('leaves a creator that crashed before submission unsent and keeps production 
     expect(f.submit).not.toHaveBeenCalled()
     await f.db.query("UPDATE strategies SET status='PAUSED' WHERE id=$1", [f.strategy])
     await expect(new StrategyStore(f.store.pool, 'testnet').start(f.user, f.strategy)).rejects.toThrow(
-      'STRATEGY_LIVE_WORKER_NOT_READY',
+      'STRATEGY_LIVE_REVIEW_REQUIRED',
     )
   } finally {
     await f.db.close()
@@ -566,6 +566,17 @@ it('derives cancellation identity only from an owned real POST and rejects forge
     await expect(f.service().submit(f.user, f.strategy, { ...input, targetOrderId: paper })).rejects.toThrow(
       'STRATEGY_ORDER_TARGET_INVALID',
     )
+    await f.db.query("UPDATE strategies SET status='PAUSED' WHERE id=$1", [f.strategy])
+    await f.db.query('INSERT INTO strategy_user_controls(user_id,killed) VALUES($1,true)', [f.user])
+    f.options.enabled = false
+    f.options.liveEnabled = false
+    f.options.executionDisabled = true
+    await expect(
+      f.service().submit(f.user, f.strategy, {
+        ...f.input,
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toThrow('STRATEGY_SUBMISSION_DISABLED')
     f.submit.mockImplementationOnce(async (id, order, beforeSend, verify) => {
       expect(order.oid).toBe(90075)
       await beforeSend('642:46', 120)
@@ -595,6 +606,34 @@ it('derives cancellation identity only from an owned real POST and rejects forge
     await f.db.query("UPDATE strategy_orders SET status='UNKNOWN' WHERE id=$1", [posted.id])
     expect(await f.service().submit(f.user, f.strategy, input)).toMatchObject({ id: canceled.id })
     expect(f.wire).toHaveBeenCalledTimes(2)
+    const provedCancel = {
+      ...admission,
+      requestId: '46',
+      type: 5,
+      orderId: '75',
+      sizeRaw: '0',
+      priceRaw: '0',
+      leverageHundredths: 0,
+      postOnly: false,
+      outcome: 'CANCELED',
+      block: 111,
+      txHash: `0x${'b'.repeat(64)}`,
+    }
+    const provedRecovery = {
+      forUser: async () => ({
+        accountId: 642,
+        strategyOrderEvidence: async (intent: { requestId: string }) => ({
+          snapshotReady: true,
+          snapshot: [],
+          history: [],
+          historyComplete: true,
+          operations: intent.requestId === '46' ? [provedCancel] : [],
+        }),
+      }),
+    } as unknown as RuntimeVenue
+    await new StrategyOrderRecovery(f.store.pool, provedRecovery, 'testnet').recover()
+    expect((await f.row(canceled.id)).status).toBe('CANCELED')
+    expect((await f.row(posted.id)).status).toBe('CANCELED')
   } finally {
     await f.db.close()
   }
@@ -614,6 +653,52 @@ it('refuses a cancellation target with an API ID but no verified placement bridg
       }),
     ).rejects.toThrow('STRATEGY_ORDER_TARGET_INVALID')
     expect(f.wire).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('requires explicit zero negative-PnL collateralization for automation and persists honest provenance', async () => {
+  const f = await fixture()
+  try {
+    await expect(f.service().submit(f.user, f.strategy, { ...f.input, origin: 'AUTOMATION' })).rejects.toThrow(
+      'STRATEGY_ORDER_INVALID',
+    )
+    const input = { ...f.input, order: { ...f.input.order, mnp: 0, tif: 120 }, origin: 'AUTOMATION' as const }
+    const sent = await f.service().submit(f.user, f.strategy, input)
+    expect(sent).toMatchObject({ execution_origin: 'AUTOMATION', wire_order: { mnp: 0 } })
+    expect(f.submit.mock.calls[0][1]).toMatchObject({ mnp: 0 })
+    await expect(f.service().submit(f.user, f.strategy, { ...input, origin: 'INTERNAL' })).rejects.toThrow(
+      'STRATEGY_IDEMPOTENCY_CONFLICT',
+    )
+    expect(f.wire).toHaveBeenCalledOnce()
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
+it('admits capital while QUEUED and refuses a definite dispatch failure before allocating a request', async () => {
+  const f = await fixture()
+  try {
+    const admission = vi.fn(async (intent: StrategyOrderRecord) => {
+      expect(intent).toMatchObject({ status: 'QUEUED', request_id: null })
+      throw new Error('STRATEGY_ALLOCATION_INSUFFICIENT')
+    })
+    const service = new StrategyOrders(
+      f.store,
+      {
+        forUser: async () => ({ accountId: 642, connectionId: f.connection, submitStrategy: f.submit }),
+      } as unknown as RuntimeVenue,
+      'testnet',
+      f.options,
+      f.verify,
+      admission,
+    )
+    const result = await service.submit(f.user, f.strategy, f.input)
+    expect(result).toMatchObject({ status: 'FAILED', request_id: null, error: 'STRATEGY_ALLOCATION_INSUFFICIENT' })
+    expect(admission).toHaveBeenCalledOnce()
+    expect(f.submit).not.toHaveBeenCalled()
+    expect(f.wire).not.toHaveBeenCalled()
   } finally {
     await f.db.close()
   }

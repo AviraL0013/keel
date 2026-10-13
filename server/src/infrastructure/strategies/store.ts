@@ -1,5 +1,8 @@
 import type { Pool, PoolClient } from 'pg'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import Decimal from 'decimal.js'
+import { lockAccountCapital } from '../capital/admission.js'
+import type { LiveStrategyRiskState } from '../../../../packages/strategies/src/live.js'
 import {
   initialState,
   strategyEquity,
@@ -35,18 +38,102 @@ export type StrategyRecord = {
   status: 'PAUSED' | 'RUNNING' | 'HALTED' | 'STOPPED'
   version: string
   live_confirmed_at: string | null
+  live_max_run_ms?: string | null
+  live_expires_at?: string | null
+  live_cleanup_pending?: boolean
+  live_consent_hash?: string | null
+  live_state?: LiveStrategyRiskState | null
   created_at: string
   updated_at: string
+}
+
+export type StrategyLiveReadiness = {
+  ready: boolean
+  reasons: string[]
+  snapshot?: Record<string, unknown>
+}
+export type StrategyLiveApproval = { configHash: string; maxRunMs: number }
+/** Server-owned admission. Client balances and client liveConfirmed never authorize orders. */
+export type StrategyLiveController = {
+  readonly enabled: boolean
+  prepare?(userId: string, row: StrategyRecord): Promise<unknown>
+  review(userId: string, row: StrategyRecord, maxRunMs: number): Promise<StrategyLiveReadiness>
+  admit(
+    userId: string,
+    row: StrategyRecord,
+    transaction: PoolClient,
+    approval: StrategyLiveApproval,
+    prepared?: unknown,
+  ): Promise<void>
+}
+type LiveConsent = {
+  id: string
+  strategy_id: string
+  user_id: string
+  environment: string
+  connection_id: string
+  account_id: string
+  config_hash: string
+  strategy_version: string
+  max_run_ms: string
+  expires_at: string
+  confirmed_at: string | null
+  idempotency_key: string | null
+}
+const liveUuid = (value: unknown): value is string =>
+  typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+const canonical = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, canonical(item)]),
+    )
+  return value
+}
+export function strategyLiveConsentHash(row: StrategyRecord, maxRunMs: number): string {
+  const { liveConfirmed: _clientAttestation, ...config } = row.config
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        canonical({
+          strategyId: row.id,
+          userId: row.user_id,
+          environment: row.environment,
+          connectionId: row.connection_id,
+          accountId: String(row.account_id),
+          marketId: row.market_id,
+          capital: String(row.capital),
+          config,
+          maxRunMs,
+        }),
+      ),
+    )
+    .digest('hex')
 }
 
 export class StrategyStore {
   constructor(
     private readonly pool: Pool,
     private readonly environment: 'testnet' | 'mainnet',
+    private readonly liveController?: StrategyLiveController,
+    private readonly now: () => number = Date.now,
   ) {}
 
+  get liveEnabled(): boolean {
+    return this.liveController?.enabled === true
+  }
+
+  private validatedConfig(input: StrategyConfig): StrategyConfig {
+    if (input.mode !== 'LIVE') return validateStrategyConfig(input)
+    if (!this.liveEnabled) throw new Error('STRATEGIES_LIVE_DISABLED')
+    // Draft validation is distinct from the expiring, server-reviewed consent.
+    return { ...validateStrategyConfig({ ...input, liveConfirmed: true }, true), liveConfirmed: false }
+  }
+
   async create(userId: string, connectionId: string, input: StrategyConfig): Promise<StrategyRecord> {
-    const config = validateStrategyConfig(input)
+    const config = this.validatedConfig(input)
     const binding = await this.pool.query(
       `SELECT 1 FROM perpl_connections c JOIN perpl_accounts a ON a.connection_id=c.id
        JOIN perpl_account_owners o ON o.environment=c.environment AND o.account_id=a.account_id
@@ -136,7 +223,16 @@ export class StrategyStore {
       await client.query(
         `UPDATE strategies SET status='HALTED',
         state=jsonb_set(jsonb_set(state,'{openOrders}','[]'::jsonb),'{status}','"HALTED"'::jsonb),
+        live_cleanup_pending=CASE WHEN mode='LIVE' THEN true ELSE live_cleanup_pending END,
         version=version+1,updated_at=now() WHERE user_id=$1 AND status='RUNNING'`,
+        [userId],
+      )
+      // Previously paused LIVE orders also need cancellation when the user kills automation.
+      await client.query(
+        `UPDATE strategies SET live_cleanup_pending=true,updated_at=now()
+        WHERE user_id=$1 AND mode='LIVE' AND status IN ('PAUSED','HALTED','STOPPED')
+          AND EXISTS(SELECT 1 FROM strategy_orders o WHERE o.strategy_id=strategies.id AND o.simulated=false
+            AND o.status IN ('QUEUED','SUBMITTING','UNKNOWN','OPEN','PARTIAL'))`,
         [userId],
       )
       await client.query(
@@ -165,8 +261,9 @@ export class StrategyStore {
       const changed = await client.query(
         `UPDATE strategies SET status='PAUSED',
         state=jsonb_set(jsonb_set(state,'{openOrders}','[]'::jsonb),'{status}','"PAUSED"'::jsonb),
+        live_cleanup_pending=CASE WHEN mode='LIVE' THEN true ELSE live_cleanup_pending END,
         version=version+1,updated_at=now()
-        WHERE user_id=$1 AND mode='PAPER' AND status='RUNNING' RETURNING id`,
+        WHERE user_id=$1 AND mode IN ('PAPER','LIVE') AND status='RUNNING' RETURNING id`,
         [userId],
       )
       await client.query(
@@ -193,7 +290,7 @@ export class StrategyStore {
   }
 
   async configure(userId: string, id: string, input: StrategyConfig): Promise<StrategyRecord> {
-    const config = validateStrategyConfig(input)
+    const config = this.validatedConfig(input)
     const row = await this.get(userId, id)
     if (!row) throw new Error('STRATEGY_NOT_FOUND')
     if (
@@ -226,7 +323,7 @@ export class StrategyStore {
     if (await this.killed(userId)) throw new Error('STRATEGY_KILL_SWITCH')
     const row = await this.get(userId, id)
     if (!row) throw new Error('STRATEGY_NOT_FOUND')
-    if (row.mode === 'LIVE') throw new Error('STRATEGY_LIVE_WORKER_NOT_READY')
+    if (row.mode === 'LIVE') throw new Error('STRATEGY_LIVE_REVIEW_REQUIRED')
     if (row.mode === 'BACKTEST') throw new Error('STRATEGY_BACKTEST_RUN_REQUIRED')
     if (row.status !== 'PAUSED') throw new Error('STRATEGY_NOT_PAUSED')
     const result = await this.pool.query<StrategyRecord>(
@@ -237,6 +334,140 @@ export class StrategyStore {
     )
     if (!result.rows[0]) throw new Error('STRATEGY_NOT_PAUSED')
     return result.rows[0]
+  }
+
+  async livePreview(userId: string, id: string, maxRunMs: number) {
+    if (!this.liveEnabled) throw new Error('STRATEGIES_LIVE_DISABLED')
+    if (!Number.isSafeInteger(maxRunMs) || maxRunMs < 60_000 || maxRunMs > 86_400_000)
+      throw new Error('STRATEGY_RUN_DURATION_INVALID')
+    const row = await this.get(userId, id)
+    if (!row || row.environment !== this.environment) throw new Error('STRATEGY_NOT_FOUND')
+    if (row.mode !== 'LIVE' || !['PAUSED', 'HALTED'].includes(row.status)) throw new Error('STRATEGY_LIVE_NOT_IDLE')
+    if (row.live_cleanup_pending) throw new Error('STRATEGY_CLEANUP_PENDING')
+    if (await this.killed(userId)) throw new Error('STRATEGY_KILL_SWITCH')
+    const readiness = await this.liveController!.review(userId, row, maxRunMs)
+    const configHash = strategyLiveConsentHash(row, maxRunMs)
+    const expiresAt = new Date(this.now() + 15_000).toISOString()
+    const summary = {
+      strategyId: row.id,
+      environment: row.environment,
+      accountId: String(row.account_id),
+      connectionId: row.connection_id,
+      marketId: row.market_id,
+      kind: row.kind,
+      capital: row.capital,
+      maxRunMs,
+      config: row.config,
+      configHash,
+      expiresAt,
+      ...readiness,
+    }
+    if (!readiness.ready) return { ...summary, previewId: null }
+    const previewId = randomUUID()
+    await this.pool.query(
+      `INSERT INTO strategy_live_consents(id,strategy_id,user_id,environment,connection_id,
+      account_id,config_hash,strategy_version,max_run_ms,expires_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        previewId,
+        row.id,
+        userId,
+        row.environment,
+        row.connection_id,
+        row.account_id,
+        configHash,
+        row.version,
+        maxRunMs,
+        expiresAt,
+      ],
+    )
+    return { ...summary, previewId }
+  }
+
+  async confirmLive(
+    userId: string,
+    id: string,
+    input: {
+      previewId: string
+      idempotencyKey: string
+      acknowledgeRealOrders: boolean
+    },
+  ): Promise<StrategyRecord> {
+    if (!this.liveEnabled) throw new Error('STRATEGIES_LIVE_DISABLED')
+    if (!input || !liveUuid(input.previewId) || !liveUuid(input.idempotencyKey) || input.acknowledgeRealOrders !== true)
+      throw new Error('STRATEGY_LIVE_CONFIRMATION_INVALID')
+    const initial = await this.get(userId, id)
+    if (!initial || initial.mode !== 'LIVE') throw new Error('STRATEGY_NOT_FOUND')
+    const prepared = await this.liveController!.prepare?.(userId, initial)
+    // The user lock serializes kill, Telegram controls and confirmation. The account
+    // lock is shared with Books and opening trades; admission uses this transaction.
+    return this.controls(userId, undefined, async (client) => {
+      const found = (
+        await client.query<StrategyRecord>('SELECT * FROM strategies WHERE id=$1 AND user_id=$2 AND environment=$3', [
+          id,
+          userId,
+          this.environment,
+        ])
+      ).rows[0]
+      if (!found || found.mode !== 'LIVE') throw new Error('STRATEGY_NOT_FOUND')
+      await lockAccountCapital(client, userId, found.connection_id, Number(found.account_id), this.environment)
+      const row = (
+        await client.query<StrategyRecord>(
+          'SELECT * FROM strategies WHERE id=$1 AND user_id=$2 AND environment=$3 FOR UPDATE',
+          [id, userId, this.environment],
+        )
+      ).rows[0]!
+      const consent = (
+        await client.query<LiveConsent>(
+          'SELECT * FROM strategy_live_consents WHERE id=$1 AND strategy_id=$2 AND user_id=$3 FOR UPDATE',
+          [input.previewId, id, userId],
+        )
+      ).rows[0]
+      if (!consent) throw new Error('STRATEGY_LIVE_PREVIEW_NOT_FOUND')
+      if (consent.confirmed_at) {
+        if (consent.idempotency_key !== input.idempotencyKey) throw new Error('STRATEGY_LIVE_PREVIEW_CONSUMED')
+        return row // A retry never rearms a strategy that has since stopped.
+      }
+      if (!this.liveEnabled) throw new Error('STRATEGIES_LIVE_DISABLED')
+      if (new Date(consent.expires_at).getTime() <= this.now()) throw new Error('STRATEGY_LIVE_PREVIEW_EXPIRED')
+      if (await this.killed(userId, client)) throw new Error('STRATEGY_KILL_SWITCH')
+      if (!['PAUSED', 'HALTED'].includes(row.status) || row.live_cleanup_pending)
+        throw new Error('STRATEGY_LIVE_NOT_IDLE')
+      const maxRunMs = Number(consent.max_run_ms)
+      const configHash = strategyLiveConsentHash(row, maxRunMs)
+      if (
+        consent.environment !== row.environment ||
+        consent.connection_id !== row.connection_id ||
+        String(consent.account_id) !== String(row.account_id) ||
+        String(consent.strategy_version) !== String(row.version) ||
+        consent.config_hash !== configHash
+      )
+        throw new Error('STRATEGY_LIVE_PREVIEW_SUPERSEDED')
+      await this.liveController!.admit(userId, row, client, { configHash, maxRunMs }, prepared)
+      // Admission can await RPC. Expiry, worker disable and kill must still gate commit.
+      if (!this.liveEnabled) throw new Error('STRATEGIES_LIVE_DISABLED')
+      if (new Date(consent.expires_at).getTime() <= this.now()) throw new Error('STRATEGY_LIVE_PREVIEW_EXPIRED')
+      const confirmedAt = new Date(this.now()).toISOString()
+      const changed = (
+        await client.query<StrategyRecord>(
+          `UPDATE strategies SET status='RUNNING',
+        config=jsonb_set(config,'{liveConfirmed}','true'::jsonb),state=jsonb_set(state,'{status}','"READY"'::jsonb),
+        live_confirmed_at=$3,live_max_run_ms=$4,live_expires_at=$5,live_consent_hash=$6,
+        live_cleanup_pending=false,version=version+1,updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *`,
+          [id, userId, confirmedAt, maxRunMs, new Date(this.now() + maxRunMs).toISOString(), configHash],
+        )
+      ).rows[0]!
+      await client.query(`UPDATE strategy_live_consents SET confirmed_at=$2,idempotency_key=$3 WHERE id=$1`, [
+        consent.id,
+        confirmedAt,
+        input.idempotencyKey,
+      ])
+      await client.query(
+        `INSERT INTO strategy_risk_events(strategy_id,code,detail) VALUES($1,'LIVE_CONSENT_CONFIRMED',$2)`,
+        [id, JSON.stringify({ previewId: consent.id, configHash, maxRunMs, expiresAt: changed.live_expires_at })],
+      )
+      return changed
+    })
   }
 
   async pause(userId: string, id: string): Promise<StrategyRecord> {
@@ -253,6 +484,7 @@ export class StrategyStore {
       await client.query('BEGIN')
       const result = await client.query<StrategyRecord>(
         `UPDATE strategies SET status=$3,state=jsonb_set(jsonb_set(state,'{openOrders}','[]'::jsonb),'{status}','"PAUSED"'::jsonb),
+         live_cleanup_pending=CASE WHEN mode='LIVE' THEN true ELSE live_cleanup_pending END,
          version=version+1,updated_at=now()
          WHERE id=$1 AND user_id=$2 AND status IN ('PAUSED','RUNNING','HALTED') RETURNING *`,
         [id, userId, status],
@@ -410,6 +642,29 @@ export class StrategyStore {
     if (!(await this.get(userId, id))) throw new Error('STRATEGY_NOT_FOUND')
     return (await this.pool.query('SELECT * FROM strategy_orders WHERE strategy_id=$1 ORDER BY created_at DESC', [id]))
       .rows
+  }
+  async liveObservation(userId: string, id: string) {
+    const row = await this.get(userId, id)
+    if (!row) throw new Error('STRATEGY_NOT_FOUND')
+    if (row.mode !== 'LIVE') return null
+    const point = (
+      await this.pool.query<{ equity: string; inventory: string; observed_at: string }>(
+        `SELECT equity::text,inventory::text,observed_at FROM strategy_equity_points
+       WHERE strategy_id=$1 ORDER BY observed_at DESC LIMIT 1`,
+        [id],
+      )
+    ).rows[0]
+    if (!point) return null
+    const Exact = Decimal.clone({ precision: 160 })
+    return {
+      source: 'Exchange account views',
+      accountEquity: point.equity,
+      inventory: point.inventory,
+      accountEquityChange: row.live_state
+        ? new Exact(point.equity).minus(row.live_state.baselineEquity).toFixed()
+        : null,
+      observedAt: new Date(point.observed_at).toISOString(),
+    }
   }
   async verifiedAccounting(userId: string, id: string) {
     if (!(await this.get(userId, id))) throw new Error('STRATEGY_NOT_FOUND')

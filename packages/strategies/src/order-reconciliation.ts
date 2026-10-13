@@ -145,7 +145,7 @@ export function reconcileStrategyIntent(
       item.postOnly !== (order.fl === 1) ||
       item.fillOrKill !== false ||
       item.immediateOrCancel !== false ||
-      item.expiryBlock !== '0' ||
+      item.expiryBlock !== String(order.tif ?? 0) ||
       item.amountRaw !== '0' ||
       item.maxNegPnlCollatBps !== '0' ||
       item.feePer100K !== '0' ||
