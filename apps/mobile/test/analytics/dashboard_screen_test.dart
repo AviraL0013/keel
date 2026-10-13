@@ -19,6 +19,40 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'dashboard_fixture.dart';
 
+class _ActivityDashboard extends RecordedDashboard {
+  @override
+  Future<Object?> get(String path) {
+    if (!path.endsWith('/activity')) return super.get(path);
+    final to = DateTime.utc(2026, 10, 11);
+    return Future.value({
+      'asOf': to.toIso8601String(),
+      'block': 112463776,
+      'source': 'monad_exchange',
+      'stale': false,
+      'coverage': {
+        'from': to.subtract(const Duration(days: 30)).toIso8601String(),
+        'through': to.toIso8601String(),
+        'completeHistory': false,
+        'label': 'Last 30 completed UTC days'
+      },
+      'data': {
+        'address': RecordedDashboard.wallet,
+        'scope': 'currently_linked_accounts',
+        'activeDays': 1,
+        'verifiedDays': 30,
+        'unavailableReason': null,
+        'points': [
+          for (var i = 30; i > 0; i--)
+            {
+              'time': to.subtract(Duration(days: i)).toIso8601String(),
+              'value': i == 1 ? '1' : '0'
+            }
+        ]
+      }
+    });
+  }
+}
+
 Future<void> mountDashboard(
     WidgetTester tester, double width, Widget child, RecordedDashboard recorded,
     {MemoryAnalyticsLocalStore? store, double height = 1000}) async {
@@ -322,6 +356,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Trade history unavailable from the source.'),
         findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await disposeDashboard(tester);
+  });
+
+  testWidgets(
+      'wallet performance shows verified current-account activity at phone width',
+      (tester) async {
+    await mountDashboard(
+        tester,
+        360,
+        DashboardWalletProfile(address: RecordedDashboard.wallet),
+        _ActivityDashboard());
+    await tester.drag(find.byType(ListView).first, const Offset(0, -1600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('wallet_tab_2')));
+    await tester.pumpAndSettle();
+    expect(find.text('Active days (30d)'), findsOneWidget);
+    expect(find.text('Current account activity'), findsOneWidget);
+    expect(find.textContaining('Currently linked accounts'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await disposeDashboard(tester);
   });

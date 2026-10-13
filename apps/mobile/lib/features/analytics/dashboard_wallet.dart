@@ -56,6 +56,51 @@ final dashboardPerformanceProvider =
   });
 });
 
+class DashboardWalletActivity {
+  const DashboardWalletActivity(this.address, this.activeDays,
+      this.verifiedDays, this.points, this.unavailableReason);
+  final String address;
+  final int? activeDays;
+  final int verifiedDays;
+  final List<V1TimePoint> points;
+  final String? unavailableReason;
+  factory DashboardWalletActivity.fromJson(Object? raw) {
+    final json = AnalyticsParse.object(raw);
+    final scope = AnalyticsParse.string(json, 'scope');
+    if (scope != 'currently_linked_accounts') {
+      throw const FormatException('Unsupported wallet activity scope');
+    }
+    final verified = V1.integer(json, 'verifiedDays');
+    final active =
+        json['activeDays'] == null ? null : V1.integer(json, 'activeDays');
+    final points = V1.list(json, 'points', V1TimePoint.fromJson);
+    if (verified < 0 ||
+        verified > 30 ||
+        (active != null && (active < 0 || active > 30)) ||
+        (points.isNotEmpty && points.length != 30)) {
+      throw const FormatException('Invalid wallet activity coverage');
+    }
+    return DashboardWalletActivity(
+        V1.address(json, 'address'),
+        active,
+        verified,
+        points,
+        AnalyticsParse.optionalString(json, 'unavailableReason'));
+  }
+}
+
+final dashboardWalletActivityProvider =
+    FutureProvider.family<V1Envelope<DashboardWalletActivity>, String>(
+        (ref, address) {
+  return ref.watch(dashboardApiProvider).request(
+      '${_walletPath(address)}/activity', DashboardWalletActivity.fromJson,
+      ttl: const Duration(minutes: 1), validate: (value) {
+    if (value.address.toLowerCase() != address.toLowerCase()) {
+      throw const FormatException('Mismatched wallet activity');
+    }
+  });
+});
+
 String shortWallet(String address) =>
     '${address.substring(0, 8)}…${address.substring(address.length - 6)}';
 String performanceReason(V1WalletPerformance? performance) =>
@@ -145,6 +190,9 @@ class _DashboardWalletProfileState
   Widget build(BuildContext context) {
     final profile = ref.watch(dashboardWalletProvider(widget.address));
     final performance = ref.watch(dashboardPerformanceProvider(widget.address));
+    final activity = tab == 2
+        ? ref.watch(dashboardWalletActivityProvider(widget.address))
+        : null;
     final wallet = profile.asData?.value;
     final history = performance.asData?.value;
     final data = wallet?.data;
@@ -171,6 +219,7 @@ class _DashboardWalletProfileState
             onPressed: () {
               ref.invalidate(dashboardWalletProvider(widget.address));
               ref.invalidate(dashboardPerformanceProvider(widget.address));
+              ref.invalidate(dashboardWalletActivityProvider(widget.address));
             },
             icon: const Icon(Icons.refresh)),
       ]),
@@ -356,7 +405,45 @@ class _DashboardWalletProfileState
                       ]),
                   ])),
             if (tab == 1) DashboardWalletTrades(address: widget.address),
-            if (tab == 2)
+            if (tab == 2) ...[
+              DashboardGrid(columns: 4, children: [
+                DashboardKpi(
+                    label: 'Active days (30d)',
+                    value: activity?.asData?.value.data.activeDays?.toString(),
+                    money: false,
+                    loading: activity?.isLoading ?? false,
+                    coverage:
+                        'Currently linked accounts · ${activity?.asData?.value.data.verifiedDays ?? 0}/30 verified days',
+                    reason: 'A complete 30-day event window is required.'),
+              ]),
+              const SizedBox(height: 16),
+              DashboardChartCard(
+                  title: 'Current account activity',
+                  description:
+                      'Accounts linked to this address now with observed settlement activity each UTC day. Historical ownership is not inferred.',
+                  series: [
+                    DashboardSeries(
+                        'Active accounts',
+                        activity?.asData?.value.data.points
+                                .map((point) => point.toView())
+                                .toList() ??
+                            [])
+                  ],
+                  money: false,
+                  loading: activity?.isLoading ?? false,
+                  unavailableReason: activity?.hasError ?? false
+                      ? 'Account activity could not be loaded.'
+                      : 'Complete 30-day account activity is not available.',
+                  source: activity?.asData?.value.source == null
+                      ? null
+                      : analyticsSource(activity!.asData!.value.source),
+                  asOf: activity?.asData?.value.asOf,
+                  coverage: 'Last 30 completed UTC days',
+                  retry: activity?.hasError ?? false
+                      ? () => ref.invalidate(
+                          dashboardWalletActivityProvider(widget.address))
+                      : null),
+              const SizedBox(height: 16),
               DashboardCard(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -400,6 +487,7 @@ class _DashboardWalletProfileState
                       ])
                     ],
                   ])),
+            ],
           ]),
         ))
       ]),
