@@ -30,6 +30,11 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
       [new Date(to - day)],
     )
     await db.store.pool.query(
+      `INSERT INTO analytics_rollup_bucket(from_block,to_block,grain,bucket_start,market_id,long_opens,short_opens)
+       VALUES(54773010,54773110,'day',$1,1,3,1)`,
+      [new Date(to - day)],
+    )
+    await db.store.pool.query(
       `INSERT INTO analytics_rollup_coverage(from_block,to_block,from_time,through_time,end_hash,log_count)
        VALUES(54773110,54773120,$1,$2,$3,1)`,
       [new Date(to - day + 1_000), new Date(hourEnd), `0x${'b'.repeat(64)}`],
@@ -61,6 +66,14 @@ it('serves complete 30-day rollup fees, users and flow buckets without claiming 
     expect(summary.statusCode).toBe(200)
     expect(summary.json().data.fees.value).toBe('0.123456')
     expect(summary.json().data.activeUsers.value).toBe('1')
+    const markets = await app.inject('/analytics/v1/markets')
+    expect(markets.json().source).toBe('derived')
+    expect(markets.json().data.items.find((market: { id: number }) => market.id === 1).openingLongSharePct30d).toBe(
+      '75.00',
+    )
+    const btc = await app.inject('/analytics/v1/markets/1')
+    expect(btc.json().data.openingLongSharePct30d).toBe('75.00')
+    expect(btc.json().data.longSharePct).toBeNull()
     expect(summary.json().coverage).toMatchObject({ label: 'Last 30 days', completeHistory: false })
     expect(summary.json().data.revenue.history).toMatchObject({
       source: 'monad_exchange',

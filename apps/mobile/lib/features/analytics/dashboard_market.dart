@@ -327,6 +327,14 @@ class _MarketContent extends ConsumerWidget {
             coverage: 'Current snapshot',
             reason: 'Verified long and short exposure is required.'),
       ]),
+      const SizedBox(height: 16),
+      DashboardKpi(
+          label: '30D long openings',
+          value: market?.openingLongSharePct30d,
+          percent: true,
+          money: false,
+          coverage: 'Verified position openings · last 30 completed UTC days',
+          reason: 'No verified 30-day rollup or no position openings.'),
       if (snapshot != null)
         Padding(
             padding: const EdgeInsets.only(top: 18),

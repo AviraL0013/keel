@@ -191,6 +191,7 @@ class V1Market {
       this.longOpenInterest,
       this.shortOpenInterest,
       this.longSharePct,
+      this.openingLongSharePct30d,
       this.fundingRate,
       this.markPrice);
   final int id;
@@ -200,6 +201,7 @@ class V1Market {
       longOpenInterest,
       shortOpenInterest,
       longSharePct,
+      openingLongSharePct30d,
       fundingRate,
       markPrice;
   factory V1Market.fromJson(Object? raw) {
@@ -212,6 +214,7 @@ class V1Market {
         AnalyticsParse.optionalDecimal(j, 'longOpenInterest'),
         AnalyticsParse.optionalDecimal(j, 'shortOpenInterest'),
         AnalyticsParse.optionalDecimal(j, 'longSharePct'),
+        AnalyticsParse.optionalDecimal(j, 'openingLongSharePct30d'),
         AnalyticsParse.optionalDecimal(j, 'fundingRate'),
         AnalyticsParse.optionalDecimal(j, 'markPrice'));
   }

@@ -8,6 +8,17 @@ Object fixture(String name) =>
     jsonDecode(File('test/fixtures/analytics/_$name.json').readAsStringSync());
 
 void main() {
+  test('keeps verified opening direction separate from current exposure', () {
+    final raw =
+        jsonDecode(jsonEncode(fixture('markets_id'))) as Map<String, dynamic>;
+    final market = raw['data'] as Map<String, dynamic>;
+    market['openingLongSharePct30d'] = '75.00';
+    market['longSharePct'] = null;
+    final parsed = V1Envelope.fromJson(raw, V1Market.fromJson);
+    expect(parsed.data.openingLongSharePct30d, '75.00');
+    expect(parsed.data.longSharePct, isNull);
+  });
+
   test('retains Perpl daily-candle provenance on the all-window volume', () {
     final raw = jsonDecode(jsonEncode(fixture('protocol_summary')))
         as Map<String, dynamic>;

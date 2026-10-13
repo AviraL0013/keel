@@ -692,17 +692,20 @@ export function registerAnalyticsRoutes(
         const ctx = await publicData.context()
         const meta = await dbMeta(pool, ctx.block)
         const result = await cache.get(`markets:${meta.revision}`, 15_000, async () => {
+          const openingRollup = await windowRollup('30d')
+          const openingByMarket = new Map(openingRollup?.markets.map((market) => [market.marketId, market]) ?? [])
           const skew =
             pool && meta.completeHistory
               ? await marketSkew(pool, meta.block!, ctx.value.markets)
               : new Map<number, { long: bigint; short: bigint }>()
           return wrap(
             {
-              items: ctx.value.markets.map((market) =>
-                withSkew(marketSummary(market), market, skew, meta.completeHistory),
-              ),
+              items: ctx.value.markets.map((market) => ({
+                ...withSkew(marketSummary(market), market, skew, meta.completeHistory),
+                openingLongSharePct30d: openingByMarket.get(market.id)?.openingLongSharePct ?? null,
+              })),
             },
-            meta.completeHistory ? 'derived' : 'perpl_api',
+            meta.completeHistory || openingRollup ? 'derived' : 'perpl_api',
             ctx.asOf,
             ctx.block,
             ctx.stale || !meta.completeHistory,
@@ -717,6 +720,9 @@ export function registerAnalyticsRoutes(
         const market = ctx.value.markets.find((item) => item.id === id)
         if (!market) throw fail('MARKET_NOT_FOUND', 404)
         const meta = await dbMeta(pool, ctx.block)
+        const openingRollup = await windowRollup('30d')
+        const openingLongSharePct30d =
+          openingRollup?.markets.find((item) => item.marketId === id)?.openingLongSharePct ?? null
         const skew =
           pool && meta.completeHistory
             ? await marketSkew(pool, meta.block!, ctx.value.markets)
@@ -724,8 +730,12 @@ export function registerAnalyticsRoutes(
         await assertHistoryUnchanged(pool, ctx.block, meta)
         reply.header('Cache-Control', 'public, max-age=15')
         return wrap(
-          { ...marketDetail(market), ...withSkew(marketSummary(market), market, skew, meta.completeHistory) },
-          meta.completeHistory ? 'derived' : 'perpl_api',
+          {
+            ...marketDetail(market),
+            ...withSkew(marketSummary(market), market, skew, meta.completeHistory),
+            openingLongSharePct30d,
+          },
+          meta.completeHistory || openingRollup ? 'derived' : 'perpl_api',
           ctx.asOf,
           ctx.block,
           ctx.stale || !meta.completeHistory,
