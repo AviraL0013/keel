@@ -12,6 +12,7 @@ import { PerplEnrollmentClient, type EnrollmentPayloadRequest, type EnrolledKey 
 import { validateEnrollmentPayload } from './enrollment-payload.js'
 import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
+import { createPerplWalletDenialReporter } from './wallet-denial-diagnostics.js'
 
 export type EnrollmentConfig = {
   chainId: number
@@ -122,6 +123,9 @@ export class PerplEnrollmentService {
       `https://${this.config.environment === 'mainnet' ? 'app' : 'testnet'}.perpl.xyz/api`,
       signer,
       this.walletFetcher,
+      undefined,
+      undefined,
+      createPerplWalletDenialReporter('account-state'),
     ).wallet()) as { addr?: string; at: { b?: number }; as: Array<{ id: number; fw?: boolean; fr?: boolean }> }
     if (wallet.addr?.toLowerCase() !== walletAddress.toLowerCase() || !Number.isSafeInteger(wallet.at.b))
       throw new InfrastructureError('PERPL_WALLET_SNAPSHOT_INVALID')

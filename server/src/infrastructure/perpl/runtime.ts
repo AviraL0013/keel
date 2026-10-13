@@ -14,6 +14,7 @@ import { PerplHistory } from '../../../../packages/perpl/src/history.js'
 import { reconcileOpening } from '../../../../packages/perpl/src/opening-reconciliation.js'
 import { strategyHistoryLowerBound } from '../../../../packages/strategies/src/order-reconciliation.js'
 import { Ed25519PerplSigner } from '../../../../packages/perpl/src/signer.js'
+import { createPerplWalletDenialReporter } from './wallet-denial-diagnostics.js'
 import { PerplTradingClient } from '../../../../packages/perpl/src/trading.js'
 import type { WirePosition } from '../../../../packages/perpl/src/decoder.js'
 import { PerplRequestIdAllocator } from './request-id-allocator.js'
@@ -220,7 +221,14 @@ export function createPerplRuntime(
     (line) => console.info(line),
     (accountId, lfr, _actionId, rejectedRq) => requestIds.allocate(accountId, lfr, rejectedRq),
   )
-  const history = new PerplHistory(network.restUrl, signer, fetch, network.rpcUrl, network.exchangeAddress)
+  const history = new PerplHistory(
+    network.restUrl,
+    signer,
+    fetch,
+    network.rpcUrl,
+    network.exchangeAddress,
+    createPerplWalletDenialReporter('runtime-history'),
+  )
   const chain = new ChainAdapter(environment, {
     rpcUrl: env.MONAD_RPC_URL ?? network.rpcUrl,
     chainId: Number(env.MONAD_CHAIN_ID ?? network.chainId),

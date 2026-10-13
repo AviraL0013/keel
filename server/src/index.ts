@@ -15,6 +15,7 @@ import { configuredKeyCustody } from './infrastructure/perpl/configured-key-cust
 import { discoverPerplAccount } from './infrastructure/perpl/account-discovery.js'
 import { PerplHistory } from '../../packages/perpl/src/history.js'
 import { Ed25519PerplSigner } from '../../packages/perpl/src/signer.js'
+import { createPerplWalletDenialReporter } from './infrastructure/perpl/wallet-denial-diagnostics.js'
 import { createPerplEnrollmentService, type PerplEnrollmentService } from './infrastructure/perpl/enrollment-service.js'
 import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.js'
 import { registerRoutes } from './interfaces/http/register.js'
@@ -144,7 +145,14 @@ export function createServer(store?: Store, services: ServerServices = {}) {
               64,
               async (credentials) => {
                 const signer = new Ed25519PerplSigner(credentials.apiKey, credentials.privateKey, config.perplChainId)
-                const history = new PerplHistory(config.perplRestUrl, signer)
+                const history = new PerplHistory(
+                  config.perplRestUrl,
+                  signer,
+                  fetch,
+                  undefined,
+                  undefined,
+                  createPerplWalletDenialReporter('account-discovery'),
+                )
                 return discoverPerplAccount(await history.wallet(), credentials.walletAddress)
               },
             )
