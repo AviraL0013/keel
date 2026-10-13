@@ -1102,7 +1102,21 @@ export function registerAnalyticsRoutes(
           const page = pageVerifiedWalletTrades([...maker, ...taker], limit, request.query.cursor)
           await assertHistoryUnchanged(pool, ctx.block, meta)
           reply.header('Cache-Control', 'public, max-age=15')
-          return wrap(page, 'monad_exchange', meta.asOf, meta.block, true, coverage(meta))
+          return wrap(
+            {
+              ...page,
+              unavailableReason: meta.completeHistory
+                ? null
+                : meta.block === null
+                  ? 'NO_INDEXED_HISTORY'
+                  : 'INCOMPLETE_HISTORY',
+            },
+            'monad_exchange',
+            meta.asOf,
+            meta.block,
+            true,
+            coverage(meta),
+          )
         },
       )
 
@@ -1135,7 +1149,22 @@ export function registerAnalyticsRoutes(
           )
           await assertHistoryUnchanged(pool, ctx.block, meta)
           reply.header('Cache-Control', 'public, max-age=15')
-          return wrap(result, 'derived', meta.asOf, meta.block, true, coverage(meta))
+          return wrap(
+            {
+              ...result,
+              unavailableReason:
+                result.realizedPnl !== null
+                  ? null
+                  : meta.block === null
+                    ? 'NO_INDEXED_HISTORY'
+                    : 'PERFORMANCE_RECONCILIATION_UNAVAILABLE',
+            },
+            'derived',
+            meta.asOf,
+            meta.block,
+            true,
+            coverage(meta),
+          )
         },
       )
     },

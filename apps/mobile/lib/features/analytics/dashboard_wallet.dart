@@ -60,6 +60,7 @@ String shortWallet(String address) =>
     '${address.substring(0, 8)}…${address.substring(address.length - 6)}';
 String performanceReason(V1WalletPerformance? performance) =>
     switch (performance?.unavailableReason) {
+      'NO_INDEXED_HISTORY' => 'Historical trade coverage is not available yet.',
       'ACCOUNT_ENUMERATION_UNVERIFIED' =>
         'Ownership of all accounts in this period is not yet verified.',
       'STARTING_EQUITY_UNAVAILABLE' =>
@@ -511,7 +512,17 @@ class _DashboardWalletTradesState extends ConsumerState<DashboardWalletTrades> {
                 const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
       if (loading && items.isEmpty) const DashboardSkeleton(),
       if (!loading && error == null && items.isEmpty)
-        const DashboardUnavailable('No observed trades.'),
+        DashboardUnavailable(
+            response?.data.unavailableReason == 'NO_INDEXED_HISTORY'
+                ? 'Historical trades are not indexed yet.'
+                : response?.data.unavailableReason == 'INCOMPLETE_HISTORY'
+                    ? 'Trade history is incomplete for this wallet.'
+                    : 'No observed trades.'),
+      if (!loading &&
+          items.isNotEmpty &&
+          response?.data.unavailableReason != null)
+        const Text('Observed trades only; complete history is unavailable.',
+            style: TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
       for (final trade in items)
         Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
