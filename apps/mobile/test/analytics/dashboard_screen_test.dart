@@ -150,6 +150,10 @@ void main() {
             RecordedDashboard(state: state));
         expect(find.text('Wallet profile'), findsOneWidget);
         expect(find.text('Margin used'), findsOneWidget);
+        if (state == DashboardTestState.loaded) {
+          expect(find.text('Open exposure'), findsOneWidget);
+          expect(find.text('Notional'), findsWidgets);
+        }
         for (var i = 0; i < 4 && state != DashboardTestState.loading; i++) {
           await tester.drag(find.byType(ListView).first, const Offset(0, -600));
           await tester.pump(const Duration(milliseconds: 200));

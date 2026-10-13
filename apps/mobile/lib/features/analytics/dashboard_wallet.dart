@@ -34,6 +34,28 @@ class DashboardWalletData extends V1WalletProfile {
   }
 }
 
+class DashboardWalletExposure {
+  const DashboardWalletExposure(this.gross, this.long, this.short);
+  final String gross, long, short;
+
+  static DashboardWalletExposure? fromProfile(V1WalletProfile? profile) {
+    if (profile?.margin.equity == null) return null;
+    final positions = profile!.positions;
+    if (positions.any((position) =>
+        position.notional == null ||
+        AnalyticsDecimal.parse(position.notional!).units.isNegative)) {
+      return null;
+    }
+    String total(Iterable<V1Position> selected) =>
+        AnalyticsDecimal.sum(selected.map((position) => position.notional)) ??
+        '0';
+    return DashboardWalletExposure(
+        total(positions),
+        total(positions.where((position) => position.side == 'long')),
+        total(positions.where((position) => position.side == 'short')));
+  }
+}
+
 final dashboardWalletProvider =
     FutureProvider.family<V1Envelope<DashboardWalletData>, String>(
         (ref, address) {
@@ -196,6 +218,7 @@ class _DashboardWalletProfileState
     final wallet = profile.asData?.value;
     final history = performance.asData?.value;
     final data = wallet?.data;
+    final exposure = DashboardWalletExposure.fromProfile(data);
     final perf = history?.data;
     final proven = perf != null && perf.unavailableReason == null;
     final perfReason = performance.hasError
@@ -384,6 +407,59 @@ class _DashboardWalletProfileState
             ]),
             const SizedBox(height: 16),
             if (tab == 0)
+              Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: DashboardCard(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        const Text('Open exposure',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 6),
+                        const Text(
+                            'Marked notional across current open positions.',
+                            style: TextStyle(
+                                fontSize: 12, color: AnalyticsPalette.muted)),
+                        const SizedBox(height: 20),
+                        LayoutBuilder(builder: (context, constraints) {
+                          final columns = constraints.maxWidth < 500 ? 2 : 3;
+                          final width =
+                              (constraints.maxWidth - (columns - 1) * 16) /
+                                  columns;
+                          return Wrap(spacing: 16, runSpacing: 16, children: [
+                            for (final item in [
+                              ('Gross', exposure?.gross),
+                              ('Long', exposure?.long),
+                              ('Short', exposure?.short)
+                            ])
+                              SizedBox(
+                                  width: width,
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(item.$1,
+                                            style: const TextStyle(
+                                                fontSize: 12,
+                                                color: AnalyticsPalette.muted)),
+                                        const SizedBox(height: 6),
+                                        Tooltip(
+                                            message: item.$2 == null
+                                                ? 'Complete position marks are required.'
+                                                : '\$${item.$2}',
+                                            child: Text(
+                                                AnalyticsNumbers.compact(
+                                                    item.$2),
+                                                style: const TextStyle(
+                                                    fontSize: 22,
+                                                    fontWeight:
+                                                        FontWeight.w600)))
+                                      ]))
+                          ]);
+                        })
+                      ]))),
+            if (tab == 0)
               DashboardCard(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -516,6 +592,7 @@ class _Position extends StatelessWidget {
           ('Size', position.size),
           ('Entry', position.entryPrice),
           ('Mark', position.markPrice),
+          ('Notional', position.notional),
           ('Collateral', position.collateral),
           ('Unrealized PnL', position.unrealizedPnl),
           ('Liquidation price', position.liquidationPrice)
