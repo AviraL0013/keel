@@ -228,9 +228,8 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   })
   app.addHook('onClose', async () => {
     enrollment?.stopCleanup()
-    await snapshotRetention?.stop()
-    await analyticsRollups?.stop()
-    await analyticsSnapshots?.stop()
+    // Release trading authority and persist its handover before an ancillary
+    // collector's cooldown or database drain can consume the shutdown deadline.
     try {
       await runtime?.stop()
     } finally {
@@ -238,12 +237,18 @@ export function createServer(store?: Store, services: ServerServices = {}) {
         await reliability?.stop()
       } finally {
         try {
-          await telegram?.stop()
+          await snapshotRetention?.stop()
+          await analyticsRollups?.stop()
+          await analyticsSnapshots?.stop()
         } finally {
           try {
-            if (persistence instanceof PostgresStore) await persistence.pool.end()
+            await telegram?.stop()
           } finally {
-            custody?.close?.()
+            try {
+              if (persistence instanceof PostgresStore) await persistence.pool.end()
+            } finally {
+              custody?.close?.()
+            }
           }
         }
       }
