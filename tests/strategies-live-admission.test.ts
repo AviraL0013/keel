@@ -196,6 +196,47 @@ it('prepares venue authority before acquiring a finite pool transaction and reus
   }
 }, 30000)
 
+it('uses the clock after awaited market observations and never halts a successor after losing the lease', async () => {
+  const f = await fixture()
+  try {
+    await f.approve()
+    f.snapshotHook(async () => {
+      f.clock.value += 100
+      f.data.snapshot.observedAt = f.clock.value
+      for (const key of ['marketObservedAt', 'headObservedAt', 'balanceObservedAt'] as const)
+        f.data.snapshot.market[key] = f.clock.value
+      return undefined
+    })
+    const worker = new LiveStrategyWorker(
+      f.store.pool,
+      f.strategies,
+      f.venues,
+      'testnet',
+      f.options,
+      () => f.clock.value,
+    )
+    await worker.tick()
+    expect(f.wire).toHaveLength(2)
+    expect((await f.strategies.get(f.user, f.draft.id))!.status).toBe('RUNNING')
+    f.snapshotHook(async () => {
+      f.options.leaseOwned = () => false
+      throw Error('CONNECTION_CLOSED_DURING_HANDOVER')
+    })
+    await worker.tick()
+    expect((await f.strategies.get(f.user, f.draft.id))!.status).toBe('RUNNING')
+    expect(
+      (
+        await f.db.query(
+          "SELECT * FROM strategy_risk_events WHERE strategy_id=$1 AND code='CONNECTION_CLOSED_DURING_HANDOVER'",
+          [f.draft.id],
+        )
+      ).rows,
+    ).toEqual([])
+  } finally {
+    await f.db.close()
+  }
+}, 30000)
+
 it.each(['mutation', 'lease', 'disabled'] as const)(
   'blocks %s immediately before dispatch without a fake write',
   async (kind) => {

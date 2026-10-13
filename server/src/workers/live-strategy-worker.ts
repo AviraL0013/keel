@@ -94,7 +94,7 @@ export class LiveStrategyWorker {
   }
 
   private async run(row: StrategyRecord): Promise<void> {
-    const now = this.now()
+    let now = this.now()
     const disabled = !this.options.enabled() || this.options.executionDisabled()
     const expired = !row.live_expires_at || new Date(row.live_expires_at).getTime() <= now
     const killed = await this.store.killed(row.user_id)
@@ -175,6 +175,8 @@ export class LiveStrategyWorker {
       throw Error('STRATEGY_FOREIGN_ACCOUNT_REQUEST')
     if (snapshot.positions.some((position) => position.rq === undefined || !ownedRequests.has(String(position.rq))))
       throw Error('STRATEGY_FOREIGN_ACCOUNT_POSITION')
+    now = this.now()
+    if (!this.options.leaseOwned()) return
     const plan = planLiveStrategy(row.config, snapshot, row.live_state, now)
     if (plan.risk.length) {
       await this.halt(row, plan.risk, plan)
@@ -377,6 +379,7 @@ export class LiveStrategyWorker {
   }
 
   private async halt(row: StrategyRecord, codes: string[], plan?: ReturnType<typeof planLiveStrategy>) {
+    if (!this.options.leaseOwned()) return
     if (!this.options.leaseOwned()) return
     const changed = await this.pool.query(
       `UPDATE strategies SET status='HALTED',live_cleanup_pending=true,

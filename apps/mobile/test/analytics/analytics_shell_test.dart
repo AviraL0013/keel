@@ -42,7 +42,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           find.text(
-              'Paper strategies use live Perpl data. Orders and fills are simulated.'),
+              'Paper strategies simulate orders. Live strategies place real Perpl orders after a reviewed start.'),
           findsOneWidget);
       await tester.tap(find.text('Analytics').last);
       await tester.pumpAndSettle();
