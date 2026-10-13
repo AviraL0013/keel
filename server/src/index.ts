@@ -18,7 +18,7 @@ import { Ed25519PerplSigner } from '../../packages/perpl/src/signer.js'
 import { createPerplEnrollmentService, type PerplEnrollmentService } from './infrastructure/perpl/enrollment-service.js'
 import { DeterministicTestRuntime } from './infrastructure/replay/test-runtime.js'
 import { registerRoutes } from './interfaces/http/register.js'
-import { installShutdownHandlers } from './shutdown.js'
+import { installShutdownHandlers, shutdownServer } from './shutdown.js'
 import { createTelegramNotifier } from './infrastructure/telegram/notifier.js'
 import { TelegramLinks } from './infrastructure/telegram/links.js'
 import { StrategyTelegramCommands, telegramCommandSender } from './infrastructure/strategies/telegram-commands.js'
@@ -26,6 +26,10 @@ import { createPublicCapital } from './infrastructure/capital/snapshot.js'
 import { SnapshotRetention, snapshotRetentionConfig } from './infrastructure/database/snapshot-retention.js'
 import { startAnalyticsRollups } from './workers/analytics-rollups.js'
 import { startAnalyticsSnapshots } from './workers/analytics-snapshots.js'
+import { ReliabilityRecorder, tradingFlagStates } from './infrastructure/reliability/recorder.js'
+import { ReliabilityStore } from './infrastructure/reliability/store.js'
+import { ReliabilityAlerts } from './infrastructure/reliability/alerts.js'
+import { runReliabilityChaosSuite } from '../../scripts/reliability/chaos.js'
 
 export type ServerServices = {
   venue?: RuntimeVenue
@@ -36,6 +40,7 @@ export type ServerServices = {
     kind: 'DEFEND' | 'REDUCE',
   ) => Promise<{ actionId: string; status: string }>
   enrollment?: PerplEnrollmentService
+  reliabilityRestart?: () => Promise<void>
 }
 
 export function createServer(store?: Store, services: ServerServices = {}) {
@@ -115,6 +120,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       ? new DeterministicTestRuntime(persistence)
       : undefined
   let venue = services.venue ?? testRuntime?.venue
+  let reliability: ReliabilityRecorder | undefined
   if (!venue && persistence instanceof PostgresStore) {
     try {
       venue =
@@ -158,8 +164,41 @@ export function createServer(store?: Store, services: ServerServices = {}) {
           Date.now,
           config.safeModeResumeTicks,
           config.environment === 'mainnet' ? 'mainnet' : config.environment === 'testnet' ? 'testnet' : undefined,
+          {
+            lifecycle: (kind) => reliability?.lifecycle(kind),
+            beforeBookSend: async (actionId) => {
+              await reliability?.beforeBookSend(actionId)
+            },
+          },
         )
       : undefined
+  if (
+    persistence instanceof PostgresStore &&
+    config.environment === 'mainnet' &&
+    process.env.NODE_ENV === 'production'
+  ) {
+    reliability = new ReliabilityRecorder({
+      store: new ReliabilityStore(persistence.pool),
+      health: () => runtime?.health() ?? { running: false, lastTickAgeMs: null, lockOwned: false, venueReady: false },
+      flags: () => tradingFlagStates(process.env),
+      pause: async () => {
+        runtime?.pauseForReliability()
+        // Revocation precedes draining. Do not wait for the current Book tick
+        // from inside its admission callback; that would deadlock shutdown.
+        await venue?.close().catch(() => {})
+        setTimeout(() => {
+          void runtime?.stop().catch(() => {})
+        }, 100)
+      },
+      restart:
+        services.reliabilityRestart ??
+        (async () => {
+          throw Error('RELIABILITY_RESTART_UNAVAILABLE')
+        }),
+      chaos: runReliabilityChaosSuite,
+      alerts: new ReliabilityAlerts(persistence.pool, process.env),
+    })
+  }
   const enrollment =
     services.enrollment ??
     (persistence instanceof PostgresStore
@@ -178,12 +217,14 @@ export function createServer(store?: Store, services: ServerServices = {}) {
   app.addHook('onReady', async () => {
     // Verify KMS before any worker or private venue starts. Failure aborts startup.
     await custody?.assertReady?.()
+    await reliability?.start()
     enrollment?.startCleanup()
     await runtime?.start()
     telegram?.start()
     snapshotRetention?.start()
     analyticsRollups = startAnalyticsRollups(process.env, config.environment)
     analyticsSnapshots = startAnalyticsSnapshots(process.env, config.environment)
+    await reliability?.pollOnce()
   })
   app.addHook('onClose', async () => {
     enrollment?.stopCleanup()
@@ -194,12 +235,16 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       await runtime?.stop()
     } finally {
       try {
-        await telegram?.stop()
+        await reliability?.stop()
       } finally {
         try {
-          if (persistence instanceof PostgresStore) await persistence.pool.end()
+          await telegram?.stop()
         } finally {
-          custody?.close?.()
+          try {
+            if (persistence instanceof PostgresStore) await persistence.pool.end()
+          } finally {
+            custody?.close?.()
+          }
         }
       }
     }
@@ -221,6 +266,8 @@ export function createServer(store?: Store, services: ServerServices = {}) {
       enrollment,
       telegramLinks,
       publicCapital: createPublicCapital(persistence instanceof PostgresStore ? persistence : undefined, process.env),
+      reliabilityReport: reliability?.report.bind(reliability),
+      reliabilityIncidents: reliability?.incidentPage.bind(reliability),
     })
   })
   return app
@@ -228,7 +275,19 @@ export function createServer(store?: Store, services: ServerServices = {}) {
 
 export async function startServer() {
   const config = loadConfig(process.env)
-  const app = createServer()
+  let restarting = false
+  const app = createServer(undefined, {
+    reliabilityRestart: async () => {
+      if (restarting) return
+      restarting = true
+      try {
+        await shutdownServer(app, 30_000, () => process.exit(1))
+      } finally {
+        // The existing Railway ON_FAILURE policy restarts only nonzero exits.
+        process.exit(1)
+      }
+    },
+  })
   await app.listen({ port: config.port, host: '0.0.0.0' })
   installShutdownHandlers(app)
   logger.info({ port: config.port, environment: config.environment }, 'EYELER API listening')

@@ -6,6 +6,7 @@ COPY tsconfig.json tsconfig.build.json ./
 COPY server ./server
 COPY packages ./packages
 COPY scripts/migrate.ts ./scripts/migrate.ts
+COPY scripts/reliability ./scripts/reliability
 RUN npm run build
 
 FROM node:22-slim

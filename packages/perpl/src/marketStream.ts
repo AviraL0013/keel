@@ -1,6 +1,8 @@
 import WS from 'ws'
+import { randomUUID } from 'node:crypto'
 import { applyMarketMessage, type MarketStreamState, type L2Level } from './marketDecoder.js'
 import { defaultFreshnessThresholds } from '../../domain/src/index.js'
+import { emitPerplReliability } from './reliability-events.js'
 
 type Subscription = { stream: string; sid?: number }
 type Frame = {
@@ -24,6 +26,9 @@ export class PerplMarketStream {
   private connectedAt = 0
   private nextResyncAt = 0
   private stopped = false
+  private readonly reliabilityStreamId = randomUUID()
+  private reliabilityDisconnected = false
+  private reliabilitySocketReady = false
 
   constructor(private readonly wsUrl: string) {}
 
@@ -48,6 +53,7 @@ export class PerplMarketStream {
     if (this.socket?.readyState === WS.OPEN && stalled && now >= this.nextResyncAt) {
       this.nextResyncAt = now + 30_000 // Bound recovery attempts independently of the safety threshold.
       const socket = this.socket
+      this.recordReliabilityDisconnect()
       this.socket = undefined
       this.invalidate()
       socket.terminate()
@@ -81,6 +87,7 @@ export class PerplMarketStream {
 
   close() {
     this.stopped = true
+    this.reliabilityDisconnected = false
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.socket?.close()
     this.socket = undefined
@@ -93,6 +100,30 @@ export class PerplMarketStream {
     for (const item of this.subscriptions.values()) item.sid = undefined
   }
 
+  private recordReliabilityDisconnect() {
+    this.reliabilityDisconnected = true
+    emitPerplReliability('websocket_disconnect', 'market', this.reliabilityStreamId)
+  }
+
+  private recordReliabilityReady() {
+    if (this.reliabilitySocketReady || this.stopped || !this.states.size) return
+    for (const item of this.subscriptions.values()) {
+      if (item.sid === undefined) return
+      const market = item.stream.match(/^order-book@(\d+)$/)
+      if (market) {
+        const state = this.states.get(Number(market[1]))
+        if (!state?.market || !state.book) return
+      }
+    }
+    this.reliabilitySocketReady = true
+    emitPerplReliability(
+      this.reliabilityDisconnected ? 'websocket_reconnect' : 'websocket_ready',
+      'market',
+      this.reliabilityStreamId,
+    )
+    this.reliabilityDisconnected = false
+  }
+
   private async connect() {
     if (this.connecting) return this.connecting
     if (this.reconnectTimer) {
@@ -102,6 +133,7 @@ export class PerplMarketStream {
     this.connecting = new Promise<void>((resolve, reject) => {
       const socket = new WS(`${this.wsUrl}/ws/v1/market-data`, { handshakeTimeout: 5000 })
       this.socket = socket
+      this.reliabilitySocketReady = false
       socket.on('open', () => {
         if (this.socket !== socket) return
         this.connectedAt = Date.now()
@@ -115,6 +147,7 @@ export class PerplMarketStream {
       socket.on('error', () => undefined)
       socket.on('close', () => {
         if (this.socket !== socket) return
+        if (!this.stopped) this.recordReliabilityDisconnect()
         this.socket = undefined
         this.connecting = undefined
         this.invalidate()
@@ -155,6 +188,7 @@ export class PerplMarketStream {
           if (subscription) subscription.sid = item.sid
         }
       }
+      this.recordReliabilityReady()
       return
     }
     if (frame.mt === 9) {
@@ -163,6 +197,7 @@ export class PerplMarketStream {
         const prior = this.states.get(marketId) ?? { fundingRate: Number.NaN, candleCloses: [] }
         this.states.set(marketId, applyMarketMessage(prior, { mt: 9, d: market }))
       }
+      this.recordReliabilityReady()
       return
     }
     if (frame.mt === 15 || frame.mt === 16) {
@@ -172,6 +207,7 @@ export class PerplMarketStream {
       const marketId = Number(match[1])
       const prior = this.states.get(marketId) ?? { fundingRate: Number.NaN, candleCloses: [] }
       this.states.set(marketId, applyMarketMessage(prior, frame))
+      this.recordReliabilityReady()
       return
     }
     if (frame.mt === 11 || frame.mt === 12) {
