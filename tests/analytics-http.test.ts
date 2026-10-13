@@ -106,6 +106,17 @@ describe('Analytics v1 public HTTP routes', () => {
     expect(response.json().data.margin.usedUnavailableReason).toContain('not verified')
   })
 
+  it('labels missing wallet history without claiming zero trades or verified performance', async () => {
+    const trades = await app.inject(`/analytics/v1/wallets/${address}/trades`)
+    const performance = await app.inject(`/analytics/v1/wallets/${address}/performance`)
+    expect(trades.statusCode).toBe(200)
+    expect(performance.statusCode).toBe(200)
+    expect(trades.json().data.items).toEqual([])
+    expect(trades.json().data.unavailableReason).toBe('NO_INDEXED_HISTORY')
+    expect(performance.json().data.realizedPnl).toBeNull()
+    expect(performance.json().data.unavailableReason).toBe('NO_INDEXED_HISTORY')
+  })
+
   it('caches context and marks uncovered flow history stale', async () => {
     const before = fetchCount
     const first = await app.inject('/analytics/v1/markets')

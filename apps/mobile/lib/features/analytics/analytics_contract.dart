@@ -464,13 +464,16 @@ class V1Trade {
 }
 
 class V1TradePage {
-  const V1TradePage(this.items, this.nextCursor);
+  const V1TradePage(this.items, this.nextCursor, this.unavailableReason);
   final List<V1Trade> items;
   final String? nextCursor;
+  final String? unavailableReason;
   factory V1TradePage.fromJson(Object? raw) {
     final j = AnalyticsParse.object(raw);
-    return V1TradePage(V1.list(j, 'items', V1Trade.fromJson),
-        AnalyticsParse.optionalString(j, 'nextCursor'));
+    return V1TradePage(
+        V1.list(j, 'items', V1Trade.fromJson),
+        AnalyticsParse.optionalString(j, 'nextCursor'),
+        AnalyticsParse.optionalString(j, 'unavailableReason'));
   }
 }
 
