@@ -731,6 +731,17 @@ export function registerAnalyticsRoutes(
           ctx.stale || !meta.completeHistory,
         )
       })
+      routes.get<{ Params: { id: string } }>('/markets/:id/book', routeConfig, async (request, reply) => {
+        const id = numberParam(request.params.id, 0, 1, 2_147_483_647)
+        const ctx = await publicData.context()
+        const market = ctx.value.markets.find((item) => item.id === id)
+        if (!market) throw fail('MARKET_NOT_FOUND', 404)
+        reply.header('Cache-Control', 'public, max-age=5')
+        return cache.get(`book:${id}`, 5_000, async () => {
+          const book = await publicData.book(market)
+          return wrap(book.value, 'perpl_api', book.at, book.block, book.stale)
+        })
+      })
       routes.get<{ Params: { id: string }; Querystring: { interval?: string; from?: string; to?: string } }>(
         '/markets/:id/prices',
         routeConfig,

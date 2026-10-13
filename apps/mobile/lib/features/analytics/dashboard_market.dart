@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -54,6 +56,50 @@ final _marketFunding =
   });
 });
 
+class _BookLevel {
+  const _BookLevel(this.price, this.size, this.orders);
+  final String price, size;
+  final int orders;
+  factory _BookLevel.fromJson(Object? raw) {
+    final value = AnalyticsParse.object(raw);
+    return _BookLevel(AnalyticsParse.decimal(value, 'price'),
+        AnalyticsParse.decimal(value, 'size'), V1.integer(value, 'orders'));
+  }
+}
+
+class _MarketBook {
+  const _MarketBook(this.marketId, this.bids, this.asks, this.spreadBps);
+  final int marketId;
+  final List<_BookLevel> bids, asks;
+  final String? spreadBps;
+  factory _MarketBook.fromJson(Object? raw) {
+    final value = AnalyticsParse.object(raw);
+    final bids = V1.list(value, 'bids', _BookLevel.fromJson);
+    final asks = V1.list(value, 'asks', _BookLevel.fromJson);
+    if (bids.length > 5 ||
+        asks.length > 5 ||
+        [...bids, ...asks].any((level) =>
+            level.orders <= 0 ||
+            AnalyticsDecimal.parse(level.price).units <= BigInt.zero ||
+            AnalyticsDecimal.parse(level.size).units <= BigInt.zero)) {
+      throw const FormatException('Invalid order book');
+    }
+    return _MarketBook(V1.integer(value, 'marketId'), bids, asks,
+        AnalyticsParse.optionalDecimal(value, 'spreadBps'));
+  }
+}
+
+final _marketBook =
+    FutureProvider.family<V1Envelope<_MarketBook>, int>((ref, id) {
+  return ref.watch(dashboardApiProvider).request(
+      '/markets/$id/book', _MarketBook.fromJson,
+      ttl: const Duration(seconds: 5), validate: (value) {
+    if (value.marketId != id) {
+      throw const FormatException('Mismatched order book');
+    }
+  });
+});
+
 class DashboardMarketScreen extends ConsumerStatefulWidget {
   const DashboardMarketScreen({super.key, required this.symbol});
   final String symbol;
@@ -64,6 +110,28 @@ class DashboardMarketScreen extends ConsumerStatefulWidget {
 
 class _DashboardMarketScreenState extends ConsumerState<DashboardMarketScreen> {
   DashboardRange range = DashboardRange.month;
+  Timer? _bookTimer;
+  @override
+  void initState() {
+    super.initState();
+    _bookTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      final market = ref
+          .read(dashboardMarketsProvider)
+          .asData
+          ?.value
+          .data
+          .where((item) => item.symbol == widget.symbol)
+          .firstOrNull;
+      if (market != null) ref.invalidate(_marketBook(market.id));
+    });
+  }
+
+  @override
+  void dispose() {
+    _bookTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final markets = ref.watch(dashboardMarketsProvider);
@@ -123,6 +191,7 @@ class _MarketContent extends ConsumerWidget {
     final detail = ref.watch(_marketDetail(id));
     final prices = ref.watch(_marketPrices((id, range)));
     final funding = ref.watch(_marketFunding((id, range)));
+    final book = ref.watch(_marketBook(id));
     final snapshot = detail.asData?.value;
     final price = prices.asData?.value;
     final rate = funding.asData?.value;
@@ -204,6 +273,41 @@ class _MarketContent extends ConsumerWidget {
                 : null),
       ]),
       const SizedBox(height: 24),
+      DashboardCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Expanded(
+                child: Text('Order book',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w600))),
+            if (book.asData?.value.data.spreadBps case final spread?)
+              Text('Spread $spread bps',
+                  style: const TextStyle(
+                      color: AnalyticsPalette.muted, fontSize: 12)),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+              book.asData == null
+                  ? 'Perpl public order book'
+                  : 'Perpl API · ${utcExact(book.asData!.value.asOf)}${book.asData!.value.stale ? ' · Data delayed' : ''}',
+              style:
+                  const TextStyle(color: AnalyticsPalette.muted, fontSize: 11)),
+          const SizedBox(height: 16),
+          if (book.isLoading && book.asData == null)
+            const DashboardSkeleton(height: 110)
+          else if (book.asData == null)
+            DashboardUnavailable('Perpl order book is temporarily unavailable.',
+                retry: () => ref.invalidate(_marketBook(id)))
+          else
+            DashboardGrid(children: [
+              _BookSide(
+                  'Bids', book.asData!.value.data.bids, AnalyticsPalette.up),
+              _BookSide(
+                  'Asks', book.asData!.value.data.asks, AnalyticsPalette.down),
+            ]),
+        ]),
+      ),
+      const SizedBox(height: 24),
       DashboardGrid(columns: 3, children: [
         DashboardKpi(
             label: 'Long open interest',
@@ -232,4 +336,47 @@ class _MarketContent extends ConsumerWidget {
                     fontSize: 11, color: AnalyticsPalette.muted))),
     ]);
   }
+}
+
+class _BookSide extends StatelessWidget {
+  const _BookSide(this.label, this.levels, this.color);
+  final String label;
+  final List<_BookLevel> levels;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          if (levels.isEmpty)
+            const Text('No resting levels',
+                style: TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
+          for (final level in levels)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                Expanded(
+                    child: Text(level.price,
+                        style: TextStyle(color: color, fontFeatures: const [
+                          FontFeature.tabularFigures()
+                        ]))),
+                Expanded(
+                    child: Text(level.size,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                            fontFeatures: [FontFeature.tabularFigures()]))),
+                SizedBox(
+                    width: 42,
+                    child: Text('${level.orders}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(color: AnalyticsPalette.muted))),
+              ]),
+            ),
+          const SizedBox(height: 3),
+          const Text('Price · Size · Orders',
+              style: TextStyle(color: AnalyticsPalette.muted, fontSize: 10)),
+        ],
+      );
 }

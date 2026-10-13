@@ -276,6 +276,20 @@ void main() {
     expect(find.byType(DashboardMarketScreen), findsOneWidget);
     expect(find.text('Price'), findsOneWidget);
     expect(find.text('Funding history'), findsOneWidget);
+    expect(find.text('Order book'), findsOneWidget);
+    expect(find.text('Perpl order book is temporarily unavailable.'),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await disposeDashboard(tester);
+  });
+
+  testWidgets('market depth has an honest unavailable state at phone width',
+      (tester) async {
+    await mountDashboard(tester, 360,
+        const DashboardMarketScreen(symbol: 'BTC'), RecordedDashboard());
+    expect(find.text('Order book'), findsOneWidget);
+    expect(find.text('Perpl order book is temporarily unavailable.'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
     await disposeDashboard(tester);
   });

@@ -3,6 +3,7 @@ import { notionalMicros, type MarketPrecision } from '../../../../packages/analy
 import type {
   Envelope,
   MarketDetail,
+  MarketBook,
   MarketFunding,
   MarketPrices,
   MarketSummary,
@@ -184,6 +185,62 @@ export class PerplPublicAnalytics {
           block: item.at.b ?? null,
           rate: scaledText(BigInt(item.rate), 6),
         })),
+    }
+  }
+  async book(market: PublicMarket): Promise<{ value: MarketBook; at: string; block: number; stale: boolean }> {
+    const raw = await this.read<{
+      mt: number
+      sn: number
+      at: { b: number; t: number }
+      bid: Array<{ p: number; s: number; o: number }>
+      ask: Array<{ p: number; s: number; o: number }>
+    }>(`/v1/market-data/${market.id}/book?levels=5`)
+    if (
+      raw?.mt !== 15 ||
+      !Number.isSafeInteger(raw.sn) ||
+      !Number.isSafeInteger(raw.at?.b) ||
+      raw.sn !== raw.at.b ||
+      !Number.isSafeInteger(raw.at.t) ||
+      raw.at.t > Date.now() + 30_000 ||
+      raw.at.t < Date.now() - 3_600_000 ||
+      !Array.isArray(raw.bid) ||
+      !Array.isArray(raw.ask) ||
+      raw.bid.length > 5 ||
+      raw.ask.length > 5
+    )
+      throw Error('PERPL_BOOK_INVALID')
+    const valid = (levels: typeof raw.bid, descending: boolean) =>
+      levels.every(
+        (level, index) =>
+          Number.isSafeInteger(level.p) &&
+          level.p > 0 &&
+          Number.isSafeInteger(level.s) &&
+          level.s > 0 &&
+          Number.isSafeInteger(level.o) &&
+          level.o > 0 &&
+          (index === 0 || (descending ? levels[index - 1].p > level.p : levels[index - 1].p < level.p)),
+      )
+    if (
+      !valid(raw.bid, true) ||
+      !valid(raw.ask, false) ||
+      (raw.bid.length && raw.ask.length && raw.bid[0].p >= raw.ask[0].p)
+    )
+      throw Error('PERPL_BOOK_INVALID')
+    const levels = (values: typeof raw.bid) =>
+      values.map((level) => ({
+        price: scaledText(BigInt(level.p), market.config.price_decimals),
+        size: scaledText(BigInt(level.s), market.config.size_decimals),
+        orders: level.o,
+      }))
+    const bid = raw.bid[0]?.p
+    const ask = raw.ask[0]?.p
+    const spreadBps =
+      bid && ask ? scaledText((200_000_000n * BigInt(ask - bid) + BigInt(ask + bid) / 2n) / BigInt(ask + bid), 4) : null
+    return {
+      value: { marketId: market.id, bids: levels(raw.bid), asks: levels(raw.ask), spreadBps },
+      at: new Date(raw.at.t).toISOString(),
+      block: raw.sn,
+      stale: Date.now() - raw.at.t > 15_000,
     }
   }
   async volumeCandles(market: PublicMarket, interval: '1h' | '1d', from: number, to: number) {
