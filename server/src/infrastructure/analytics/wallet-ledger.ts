@@ -55,7 +55,7 @@ export function walletLedgerRows(items: WalletLedgerInput[]): WalletLedgerRow[] 
       !/^\d+$/.test(rawMarket)
     )
       throw new Error('WALLET_LEDGER_EVENT_INVALID')
-    const marketId = Number(rawMarket)
+    const marketId = position?.marketId ?? liquidation?.marketId ?? Number(rawMarket)
     if (BigInt(rawAccount) <= 0n || !Number.isSafeInteger(marketId) || marketId <= 0)
       throw new Error('WALLET_LEDGER_EVENT_INVALID')
     let priceRaw: string | null = null

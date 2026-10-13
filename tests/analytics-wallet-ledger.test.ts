@@ -26,7 +26,7 @@ describe('compact wallet ledger', () => {
       protocolFeeMicros: 1n,
     }
     const rows = walletLedgerRows([
-      { event: event(3, 'PositionOpenedV2', { accountId: '7', perpId: '1', lotLNS: '10' }), derived: open, at },
+      { event: event(3, 'PositionOpenedV2', { accountId: '7', perpId: '70', lotLNS: '10' }), derived: open, at },
       {
         event: event(4, 'MakerOrderFilledV2', {}),
         derived: {
@@ -71,6 +71,7 @@ describe('compact wallet ledger', () => {
       ['unsupported', false, null, null],
     ])
     expect(rows[0].feeMicros).toBe('40')
+    expect(rows[0].marketId).toBe(1)
     expect(rows[1].feeMicros).toBe('20')
   })
 
