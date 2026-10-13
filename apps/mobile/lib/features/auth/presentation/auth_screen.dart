@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/backend_status.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/eyeler_widgets.dart';
+import '../../../shared/widgets/android_app_download.dart';
 import '../data/auth_repository.dart';
 import '../domain/auth_state.dart';
 import '../../../core/errors/eyeler_exception.dart';
@@ -72,6 +74,7 @@ class AuthScreen extends ConsumerWidget {
                           icon: const Icon(Icons.analytics_outlined),
                           label: const Text('Browse public analytics'),
                         ),
+                        if (kIsWeb) const AndroidAppDownload(),
                         Text(
                             'EYELER watches position, reserve, market depth, and execution evidence behind every bounded action.',
                             style: EyelerTypography.body.copyWith(

@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../shared/widgets/android_app_download.dart';
 
 import 'analytics_contract.dart';
 import 'analytics_models.dart';
@@ -271,6 +273,11 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                                               if (!phone) ...[
                                                 const SizedBox(width: 16),
                                                 _openAppButton()
+                                              ],
+                                              if (kIsWeb) ...[
+                                                const SizedBox(width: 8),
+                                                const AndroidAppDownload(
+                                                    compact: true),
                                               ],
                                             ]),
                                             const SizedBox(height: 10),
