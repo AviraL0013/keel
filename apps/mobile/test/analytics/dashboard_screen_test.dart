@@ -86,9 +86,14 @@ void main() {
           }
           if (state == DashboardTestState.empty) {
             expect(find.textContaining('—'), findsWidgets);
+            if (section == 0) {
+              expect(find.text('Trader count is not verified.'), findsWidgets);
+            }
           }
           if (state == DashboardTestState.stale) {
-            expect(find.textContaining('Stale / partial'), findsWidgets);
+            expect(find.textContaining('Data may be delayed or incomplete'),
+                findsWidgets);
+            expect(find.textContaining('Stale / partial'), findsNothing);
           }
           // Build lower sections as well, checking overflow and lazy requests.
           if (state != DashboardTestState.loading) {

@@ -227,7 +227,7 @@ class _MarketContent extends ConsumerWidget {
         Padding(
             padding: const EdgeInsets.only(top: 18),
             child: Text(
-                '${analyticsSource(snapshot.source)} · ${utcExact(snapshot.asOf)}${snapshot.stale ? ' · Stale / partial' : ''}',
+                '${analyticsSource(snapshot.source)} · ${utcExact(snapshot.asOf)}${snapshot.stale ? ' · $dashboardDataNotice' : ''}',
                 style: const TextStyle(
                     fontSize: 11, color: AnalyticsPalette.muted))),
     ]);
