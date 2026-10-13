@@ -73,11 +73,3 @@ Automatic actions require an active, explicitly armed Book, fresh telemetry, suf
 Request identity and the exact execution deadline are persisted before socket submission. Interrupted new attempts with no durable reference can be fenced and their Book paused; referenced, ambiguous and legacy attempts cannot be reclaimed just because they are old. Per-user mode binds each Book and credential to its owner/account; operator mode retains its single-wallet restriction.
 
 `/health` only proves the HTTP process is alive. `/ready` also checks the database, venue, monitor ownership, latest completed tick and execution readiness; it reports when the emergency stop is on. Before deploying, follow the [deployment guide](docs/deployment/deploy.md) and the relevant [mainnet rollout plan](docs/deployment/mainnet-bounty.md). Run reports separate manual, automatic and historically unattributed attempts, and execution deadlines from confirmed blocks. They do not independently verify stored receipts or establish net profit; see the [report procedure](docs/product/perpl-submission.md#export-and-check-evidence).
-
-## Known limits and demo
-
-Use one backend instance under the current monitor-lease design. Allowlisted mainnet demo credential custody is explicitly separate from the AWS KMS-backed public profile; it is not a full public-launch approval. Android is the demonstrated native target; an iOS release is not proved.
-
-GRID and market maker remain PAPER-only. Their LIVE controller, financial settlement and owned-order cancellation lifecycle are not mounted, even if a LIVE flag is set. Paper start/resume is refused when its worker is disabled. Recorded simulations show sensitivity to assumptions and losing configurations, not reliable profitability. Exact Book net realized P&L and historical automated receipt evidence remain separate submission gates. Sandbox and fake-venue outcomes are always simulations.
-
-The final submission needs a working candidate link, an up-to-two-minute video and independently checked real automated activity. These artifacts must be supplied from an authorized run, not generated from tests or substituted with a manual trade. Historical [demo](docs/demo.md), [audit](docs/audit/pre-deploy-audit.md) and [delivery ledger](docs/product/perpl-product-delivery.md) entries should be read with their stated commit and limitations.
