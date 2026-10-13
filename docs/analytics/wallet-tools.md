@@ -34,4 +34,5 @@ stops when the tab or wallet page is removed.
 
 Both tools reject stale snapshots, missing marks, incomplete position
 enumeration, invalid position values, mismatched wallets, and missing source
-blocks. No backend or trading endpoints are called by these components.
+blocks. The tools use existing read-only analytics providers and never submit
+orders or call private trading endpoints.
