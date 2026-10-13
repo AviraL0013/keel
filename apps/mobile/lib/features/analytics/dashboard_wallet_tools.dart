@@ -100,12 +100,8 @@ class _DashboardWalletToolsState extends ConsumerState<DashboardWalletTools>
   void _start() {
     generation++;
     timer?.cancel();
-    setState(() => watch.start(lastSnapshot));
-    if (watch.baseline == null) {
-      unawaited(_poll());
-    } else {
-      _schedule();
-    }
+    setState(() => watch.start(null));
+    unawaited(_poll());
   }
 
   void _pause() {

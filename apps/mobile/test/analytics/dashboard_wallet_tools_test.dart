@@ -109,6 +109,63 @@ void main() {
     });
   }
 
+  testWidgets('watch starts with a refreshed baseline after five idle minutes',
+      (tester) async {
+    final address = RecordedDashboard.wallet;
+    final base = await RecordedDashboard().get('/analytics/v1/wallets/$address')
+        as Map<String, dynamic>;
+    final firstBlock = base['block'] as int;
+    var now = RecordedDashboard.now;
+    var calls = 0;
+    final api = DashboardApi((path) async {
+      if (path.endsWith('/activity')) {
+        throw StateError('No activity fixture');
+      }
+      calls++;
+      final response = jsonDecode(jsonEncode(base)) as Map<String, dynamic>;
+      response['asOf'] = now.toIso8601String();
+      response['block'] = firstBlock + calls - 1;
+      final position = (response['data']['positions'] as List).first as Map;
+      if (calls >= 3) {
+        for (final field in ['size', 'notional']) {
+          final value = AnalyticsDecimal.parse(position[field] as String);
+          position[field] =
+              AnalyticsDecimal(value.units * BigInt.two, value.scale)
+                  .toString();
+        }
+      }
+      response['data']['positions'] = calls == 1 ? [] : [position];
+      return response;
+    }, now: () => now);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [dashboardApiProvider.overrideWithValue(api)],
+      child: MaterialApp(
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: DashboardWalletTools(address: address)))),
+    ));
+    await tester.pumpAndSettle();
+    now = now.add(const Duration(minutes: 5));
+    await tester.pump(const Duration(minutes: 5));
+    expect(calls, 1);
+
+    await tester.ensureVisible(find.text('Start live watch'));
+    await tester.tap(find.text('Start live watch'));
+    await tester.pumpAndSettle();
+    expect(calls, 2);
+    expect(find.text('Since verified block ${firstBlock + 1}'), findsOneWidget);
+    expect(find.text('Newly observed position'), findsNothing);
+
+    now = now.add(const Duration(seconds: 31));
+    await tester.pump(const Duration(seconds: 31));
+    await tester.pumpAndSettle();
+    expect(calls, 3);
+    expect(find.text('Observed size increased'), findsOneWidget);
+    expect(find.text('Newly observed position'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('pause and resume during in-flight refresh restarts polling',
       (tester) async {
     final address = RecordedDashboard.wallet;
