@@ -74,6 +74,14 @@ it('authenticates paper strategy controls and keeps live creation disabled', asy
     const created = await app.inject({ method: 'POST', url: '/strategies', headers: owner, payload })
     expect(created.statusCode).toBe(200)
     const id = created.json().id as string
+    expect((await app.inject({ method: 'GET', url: `/strategies/${id}/pnl`, headers: owner })).json()).toMatchObject({
+      mode: 'PAPER',
+      simulated: true,
+      mark: null,
+      equity: 1000,
+      pnl: 0,
+      inventory: 0,
+    })
     for (const operation of ['start', 'resume']) {
       const disabled = await disabledApp.inject({
         method: 'POST',

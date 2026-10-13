@@ -151,7 +151,14 @@ export function registerStrategyRoutes(context: Context): void {
         reason: 'LIVE_PERFORMANCE_UNAVAILABLE',
       }
     const mark = row.state.lastMark
-    const equity = mark === undefined ? null : strategyEquity(row.state, mark)
+    // An empty paper portfolio has a known opening balance before its first market sample.
+    // An open inventory still needs a mark; never invent a value for it.
+    const equity =
+      mark === undefined
+        ? row.state.inventory === 0
+          ? row.state.capital + row.state.cashFlow - row.state.feesPaid - row.state.fundingPaid
+          : null
+        : strategyEquity(row.state, mark)
     return {
       mode: row.mode,
       simulated: true,
