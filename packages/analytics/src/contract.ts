@@ -102,6 +102,17 @@ export interface MarketPrices {
   to: string
   points: TimePoint[] // completed candle closes at candle open timestamps; missing/in-progress values are null
 }
+export interface MarketBookLevel {
+  price: DecimalText
+  size: DecimalText
+  orders: number
+}
+export interface MarketBook {
+  marketId: number
+  bids: MarketBookLevel[]
+  asks: MarketBookLevel[]
+  spreadBps: DecimalText | null
+}
 
 export interface Liquidation {
   id: string // block:transactionHash:logIndex
@@ -195,6 +206,7 @@ export interface AnalyticsResponses {
   'GET /markets/:id': Envelope<MarketDetail>
   'GET /markets/:id/funding': Envelope<MarketFunding>
   'GET /markets/:id/prices': Envelope<MarketPrices>
+  'GET /markets/:id/book': Envelope<MarketBook>
   'GET /liquidations': Envelope<LiquidationPage>
   'GET /search': Envelope<WalletSearch>
   'GET /wallets/:address': Envelope<WalletProfile>
