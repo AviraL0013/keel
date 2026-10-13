@@ -77,6 +77,7 @@ export interface MarketSummary {
   longOpenInterest: Money | null
   shortOpenInterest: Money | null
   longSharePct: DecimalText | null
+  openingLongSharePct30d?: DecimalText | null // share of verified position-opening events, not current OI
   fundingRate: DecimalText | null // signed fraction per funding interval
   markPrice: DecimalText | null
 }
