@@ -221,6 +221,7 @@ class _DashboardWalletProfileState
     final exposure = DashboardWalletExposure.fromProfile(data);
     final perf = history?.data;
     final proven = perf != null && perf.unavailableReason == null;
+    final indexedGross = perf?.grossRealizedPnlScope != null;
     final perfReason = performance.hasError
         ? 'Performance endpoint unavailable. Current positions remain visible.'
         : performanceReason(perf);
@@ -321,15 +322,23 @@ class _DashboardWalletProfileState
                           : AnalyticsPalette.up,
                   reason: 'Verified position marks are required.'),
               DashboardKpi(
-                  label: 'Realized PnL (30d)',
-                  value: proven && isThirtyDayPerformance(history)
-                      ? perf.realizedPnl
-                      : null,
+                  label: indexedGross
+                      ? 'Gross realized PnL (30d)'
+                      : 'Realized PnL (30d)',
+                  value: indexedGross
+                      ? perf!.grossRealizedPnl
+                      : proven && isThirtyDayPerformance(history)
+                          ? perf.realizedPnl
+                          : null,
                   loading: performance.isLoading,
-                  coverage: 'Last 30 days',
-                  reason: proven && !isThirtyDayPerformance(history)
-                      ? '30-day performance is not verified.'
-                      : briefPerfReason),
+                  coverage: indexedGross
+                      ? 'Creation-linked accounts · before fees'
+                      : 'Last 30 days',
+                  reason: indexedGross
+                      ? 'Complete event coverage and block-level ownership proof are required.'
+                      : proven && !isThirtyDayPerformance(history)
+                          ? '30-day performance is not verified.'
+                          : briefPerfReason),
             ]),
             const SizedBox(height: 16),
             DashboardGrid(columns: 4, children: [

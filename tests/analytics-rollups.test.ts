@@ -178,6 +178,7 @@ describe('last 30 days rollups', () => {
           },
           buckets: [],
           actors: [],
+          walletEvents: [],
         }
       },
       readOwners: async () => new Map(),
@@ -190,6 +191,7 @@ describe('last 30 days rollups', () => {
       },
       ownerCursor: async () => 54_773_010,
       applyOwners: async () => {},
+      nextWalletBackfillRange: async () => null,
     } as unknown as RollupRepository
     const worker = new AnalyticsRollupWorker(source, repo, () => at.getTime())
     expect(await worker.step()).toBe('indexed')

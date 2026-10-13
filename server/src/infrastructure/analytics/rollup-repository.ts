@@ -1,6 +1,7 @@
 import type pg from 'pg'
 import type { RollupActor, RollupBucket, RollupGrain } from '../../../../packages/analytics/src/rollups.js'
 import { completeRange } from '../../../../packages/analytics/src/rollups.js'
+import type { WalletLedgerRow } from './wallet-ledger.js'
 
 export interface RollupCoverage {
   fromBlock: bigint
@@ -28,8 +29,13 @@ export class RollupRepository {
     }))
   }
 
-  /** Replace an exact block range atomically. No event-level columns are written. */
-  async saveRange(range: RollupCoverage, buckets: RollupBucket[], actors: RollupActor[]): Promise<void> {
+  /** Replace an exact block range atomically. Wallet ledger is optional for older callers. */
+  async saveRange(
+    range: RollupCoverage,
+    buckets: RollupBucket[],
+    actors: RollupActor[],
+    walletEvents?: WalletLedgerRow[],
+  ): Promise<void> {
     if (
       range.fromBlock >= range.toBlock ||
       range.logCount < 0 ||
@@ -114,12 +120,104 @@ export class RollupRepository {
          WHERE r.from_block=$1 AND r.to_block=$2 AND r.account_id=o.account_id AND r.owner_address IS NULL`,
         [range.fromBlock.toString(), range.toBlock.toString()],
       )
+      if (walletEvents) {
+        await this.insertWalletEvents(client, range, walletEvents)
+        await client.query(
+          'UPDATE analytics_rollup_coverage SET wallet_indexed_at=now() WHERE from_block=$1 AND to_block=$2',
+          [range.fromBlock.toString(), range.toBlock.toString()],
+        )
+      }
       await client.query('COMMIT')
     } catch (error) {
       await client.query('ROLLBACK')
       throw error
     } finally {
       client.release()
+    }
+  }
+
+  async nextWalletBackfillRange(): Promise<RollupCoverage | null> {
+    const result = await this.pool.query(
+      `SELECT from_block,to_block,from_time,through_time,end_hash,log_count FROM analytics_rollup_coverage
+       WHERE wallet_indexed_at IS NULL ORDER BY from_block DESC LIMIT 1`,
+    )
+    const row = result.rows[0]
+    return row
+      ? {
+          fromBlock: BigInt(String(row.from_block)),
+          toBlock: BigInt(String(row.to_block)),
+          fromTime: new Date(String(row.from_time)),
+          throughTime: new Date(String(row.through_time)),
+          endHash: String(row.end_hash),
+          logCount: Number(row.log_count),
+        }
+      : null
+  }
+
+  async saveWalletRange(range: RollupCoverage, walletEvents: WalletLedgerRow[]): Promise<void> {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query(
+        `SELECT end_hash FROM analytics_rollup_coverage WHERE from_block=$1 AND to_block=$2 FOR UPDATE`,
+        [range.fromBlock.toString(), range.toBlock.toString()],
+      )
+      if (result.rows[0]?.end_hash?.toLowerCase() !== range.endHash.toLowerCase())
+        throw new Error('WALLET_LEDGER_RANGE_CHANGED')
+      await client.query('DELETE FROM analytics_wallet_event WHERE from_block=$1 AND to_block=$2', [
+        range.fromBlock.toString(),
+        range.toBlock.toString(),
+      ])
+      await this.insertWalletEvents(client, range, walletEvents)
+      await client.query(
+        'UPDATE analytics_rollup_coverage SET wallet_indexed_at=now() WHERE from_block=$1 AND to_block=$2',
+        [range.fromBlock.toString(), range.toBlock.toString()],
+      )
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  private async insertWalletEvents(
+    client: pg.PoolClient,
+    range: RollupCoverage,
+    events: WalletLedgerRow[],
+  ): Promise<void> {
+    for (let start = 0; start < events.length; start += 500) {
+      const rows = events.slice(start, start + 500).map((event) => ({
+        block_number: event.blockNumber,
+        block_hash: event.blockHash,
+        transaction_hash: event.transactionHash,
+        transaction_index: event.transactionIndex,
+        log_index: event.logIndex,
+        occurred_at: event.occurredAt,
+        account_id: event.accountId,
+        market_id: event.marketId,
+        side: event.side,
+        action: event.action,
+        price_raw: event.priceRaw,
+        size_raw: event.sizeRaw,
+        fee_micros: event.feeMicros,
+        realized_pnl_micros: event.realizedPnlMicros,
+        fill_verified: event.fillVerified,
+      }))
+      await client.query(
+        `INSERT INTO analytics_wallet_event
+         (from_block,to_block,block_number,block_hash,transaction_hash,transaction_index,log_index,
+          occurred_at,account_id,market_id,side,action,price_raw,size_raw,fee_micros,realized_pnl_micros,fill_verified)
+         SELECT $1,$2,x.block_number,x.block_hash,x.transaction_hash,x.transaction_index,x.log_index,
+          x.occurred_at,x.account_id,x.market_id,x.side,x.action,x.price_raw,x.size_raw,x.fee_micros,
+          x.realized_pnl_micros,x.fill_verified
+         FROM jsonb_to_recordset($3::jsonb) AS x(block_number bigint,block_hash text,transaction_hash text,
+          transaction_index integer,log_index integer,occurred_at timestamptz,account_id numeric,
+          market_id integer,side text,action text,price_raw numeric,size_raw numeric,fee_micros numeric,
+          realized_pnl_micros numeric,fill_verified boolean)`,
+        [range.fromBlock.toString(), range.toBlock.toString(), JSON.stringify(rows)],
+      )
     }
   }
 

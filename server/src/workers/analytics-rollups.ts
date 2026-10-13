@@ -29,6 +29,7 @@ export class AnalyticsRollupWorker {
     readonly source: HyperSyncRollupSource,
     readonly repo: RollupRepository,
     readonly now: () => number = Date.now,
+    readonly walletLedgerEnabled = false,
   ) {}
 
   async step(signal?: AbortSignal): Promise<'indexed' | 'caught-up' | 'rewound'> {
@@ -60,14 +61,34 @@ export class AnalyticsRollupWorker {
     // Tail on every poll; initial backfill keeps descending below its fixed ceiling.
     const tail = newestGap(coverage, this.backfillCeiling, BigInt(safeHead) + 1n, maxChunk)
     if (tail) {
-      const range = await this.source.readRange(Number(tail.fromBlock), Number(tail.toBlock), signal)
-      await this.repo.saveRange(range.coverage, range.buckets, range.actors)
+      const range = await this.source.readRange(
+        Number(tail.fromBlock),
+        Number(tail.toBlock),
+        signal,
+        this.walletLedgerEnabled,
+      )
+      await this.repo.saveRange(
+        range.coverage,
+        range.buckets,
+        range.actors,
+        this.walletLedgerEnabled ? range.walletEvents : undefined,
+      )
       indexed = true
     }
     const backfill = newestGap(coverage, this.windowStart.block, this.backfillCeiling, maxChunk)
     if (backfill) {
-      const range = await this.source.readRange(Number(backfill.fromBlock), Number(backfill.toBlock), signal)
-      await this.repo.saveRange(range.coverage, range.buckets, range.actors)
+      const range = await this.source.readRange(
+        Number(backfill.fromBlock),
+        Number(backfill.toBlock),
+        signal,
+        this.walletLedgerEnabled,
+      )
+      await this.repo.saveRange(
+        range.coverage,
+        range.buckets,
+        range.actors,
+        this.walletLedgerEnabled ? range.walletEvents : undefined,
+      )
       indexed = true
     }
     if (now - this.lastOwnerScan >= 60_000) {
@@ -83,6 +104,21 @@ export class AnalyticsRollupWorker {
         if (!signal?.aborted)
           console.error(`Analytics rollup owners: ${error instanceof Error ? error.message : 'UNKNOWN'}`)
       }
+    }
+    // Expand old aggregate-only ranges newest first. Range hash check prevents
+    // attaching wallet events to a different canonical history after a reorg.
+    const missingWallet = this.walletLedgerEnabled ? await this.repo.nextWalletBackfillRange() : null
+    if (missingWallet) {
+      const range = await this.source.readRange(
+        Number(missingWallet.fromBlock),
+        Number(missingWallet.toBlock),
+        signal,
+        true,
+      )
+      if (range.coverage.endHash.toLowerCase() !== missingWallet.endHash.toLowerCase())
+        throw new Error('WALLET_LEDGER_RANGE_CHANGED')
+      await this.repo.saveWalletRange(range.coverage, range.walletEvents)
+      indexed = true
     }
     return indexed ? 'indexed' : 'caught-up'
   }
@@ -134,6 +170,8 @@ export function startAnalyticsRollups(
             await new AnalyticsRollupWorker(
               new HyperSyncRollupSource(env.EYELER_HYPERSYNC_TOKEN!),
               new RollupRepository(pool),
+              Date.now,
+              env.EYELER_ANALYTICS_WALLET_LEDGER_ENABLED === 'true',
             ).run(stop.signal)
           }
         } finally {
