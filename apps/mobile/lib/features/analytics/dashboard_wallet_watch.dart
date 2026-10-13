@@ -280,7 +280,7 @@ class LiveWalletWatchPanel extends StatelessWidget {
                 fontSize: 17,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
-        const Text('Verified changes since watch started',
+        const Text('Verified changes between watched snapshots',
             style: TextStyle(color: AnalyticsPalette.muted, fontSize: 12)),
         const SizedBox(height: 12),
         LayoutBuilder(builder: (context, constraints) {
