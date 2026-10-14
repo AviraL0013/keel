@@ -18,7 +18,7 @@ These mutable snapshots cover current listings; delisted markets and fill-side s
 
 ## Protocol observations, October 12-13
 
-The October 12 audit used the direct mainnet Railway API, not old testnet `api.eyeler.xyz`. Window: September 12 00:00 through October 12 00:00 UTC. The aggregate-only [response fixture](fixtures/mainnet-2026-10-12.json) preserves that observation.
+The October 12 audit used the direct mainnet Railway API, not old testnet `api.eyeler.xyz`. Window: September 12 00:00 through October 12 00:00 UTC. The original aggregate-only source export remains in Git history.
 
 - Fees: 30/30 daily values, 114,796.887249 AUSD; revenue: 30/30, 66,009.561647 AUSD. Both matched rollup summaries, without independent receipt reconciliation.
 - Volume: 30/30 candle values, initially stale and later observed fresh; mutable current-listing snapshot.
@@ -32,7 +32,7 @@ An authorized owner scan covered 117 contiguous slices from `54773010` through `
 
 On **October 13**, a later read returned **30/30 verified active-user daily values**. This differs from the October 12 fixture's 2/30 result. It does not independently prove every historical owner or account transfer.
 
-Signed-out captures at [360 px](fixtures/dashboard-signed-out-360-2026-10-12.png) and [1280 px](fixtures/dashboard-signed-out-1280-2026-10-12.png) prove a deployed overview rendered October 12. They show earlier partial users and old flow aggregation, not corrected flows or every tab/interaction.
+Archived signed-out captures at 360 px and 1280 px prove a deployed overview rendered October 12. They show earlier partial users and old flow aggregation, not corrected flows or every tab/interaction.
 
 ## HyperSync capacity and wallet limits
 
