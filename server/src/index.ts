@@ -227,7 +227,7 @@ export function createServer(store?: Store, services: ServerServices = {}) {
     await custody?.assertReady?.()
     await reliability?.start()
     enrollment?.startCleanup()
-    await runtime?.start()
+    if (!reliability?.automationPaused) await runtime?.start()
     telegram?.start()
     snapshotRetention?.start()
     analyticsRollups = startAnalyticsRollups(process.env, config.environment)
