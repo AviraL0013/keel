@@ -103,23 +103,14 @@ export class RollupRepository {
         }))
         await client.query(
           `INSERT INTO analytics_rollup_actor(from_block,to_block,grain,bucket_start,account_id,owner_address)
-           SELECT $1,$2,x.grain,x.bucket_start,x.account_id,x.owner_address
+           SELECT $1,$2,x.grain,x.bucket_start,x.account_id,coalesce(x.owner_address,a.address,o.owner_address)
            FROM jsonb_to_recordset($3::jsonb) AS x(grain text,bucket_start timestamptz,
-             account_id numeric,owner_address text)`,
+             account_id numeric,owner_address text)
+           LEFT JOIN analytics_accounts a ON a.account_id=x.account_id
+           LEFT JOIN analytics_rollup_owner o ON o.account_id=x.account_id`,
           [range.fromBlock.toString(), range.toBlock.toString(), JSON.stringify(rows)],
         )
       }
-      // Existing account index can resolve older owners without retaining raw fills.
-      await client.query(
-        `UPDATE analytics_rollup_actor r SET owner_address=a.address FROM analytics_accounts a
-         WHERE r.from_block=$1 AND r.to_block=$2 AND r.account_id=a.account_id AND r.owner_address IS NULL`,
-        [range.fromBlock.toString(), range.toBlock.toString()],
-      )
-      await client.query(
-        `UPDATE analytics_rollup_actor r SET owner_address=o.owner_address FROM analytics_rollup_owner o
-         WHERE r.from_block=$1 AND r.to_block=$2 AND r.account_id=o.account_id AND r.owner_address IS NULL`,
-        [range.fromBlock.toString(), range.toBlock.toString()],
-      )
       if (walletEvents) {
         await this.insertWalletEvents(client, range, walletEvents)
         await client.query(

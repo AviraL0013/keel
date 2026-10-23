@@ -74,10 +74,16 @@ export class ReliabilityRecorder {
     this.processId = options.processId ?? randomUUID()
     this.now = options.now ?? Date.now
   }
+  get automationPaused() {
+    return this.authorityRevoked
+  }
   async start() {
     if (this.active) return
     const run = await this.options.store.ensureRun(this.now(), this.options.flags())
-    if (!run || this.now() >= new Date(run.ends_at).getTime()) return
+    if (!run) return
+    // Campaign expiry ends observation, not a persisted safety pause.
+    if (run.automation_paused) await this.revokeAuthority()
+    if (this.now() >= new Date(run.ends_at).getTime()) return
     this.active = true
     if (!this.flagsMatch(run.trading_states)) await this.failClosed('configuration', 'configuration_changed')
     this.unsubscribe = subscribePerplReliability((event) => {
@@ -103,7 +109,6 @@ export class ReliabilityRecorder {
       }
     }, 1000)
     this.watchdog.unref()
-    if (run.automation_paused) await this.revokeAuthority()
   }
   lifecycle(kind: 'lock_acquired' | 'lock_released' | 'lock_lost' | 'worker_started' | 'worker_stopped') {
     if (this.active) this.enqueue({ kind, at: this.now() })

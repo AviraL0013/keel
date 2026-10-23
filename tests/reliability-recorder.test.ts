@@ -71,6 +71,44 @@ describe('seven-day recorder scheduling and fail-closed behavior', () => {
     expect(f.restart).not.toHaveBeenCalled()
     await f.recorder.stop()
   })
+  it.each(['PAUSED', 'COMPLETED'])('keeps an expired %s run paused without extending observation', async (status) => {
+    const f = fixture()
+    f.run.status = status
+    f.run.automation_paused = true
+    f.advance(8 * 86400000)
+    try {
+      await f.recorder.start()
+      await f.recorder.pollOnce()
+      expect(f.pause).toHaveBeenCalledTimes(1)
+      expect(f.recorder.automationPaused).toBe(true)
+      expect(f.store.sample).not.toHaveBeenCalled()
+      expect(f.store.event).not.toHaveBeenCalled()
+      expect(f.store.claimRestart).not.toHaveBeenCalled()
+      expect(f.store.claimChaos).not.toHaveBeenCalled()
+      await expect(f.recorder.beforeBookSend('00000000-0000-4000-8000-000000000003')).rejects.toThrow(
+        'RELIABILITY_SUBMISSION_BLOCKED',
+      )
+      expect(f.store.recordBookSend).not.toHaveBeenCalled()
+      expect(f.run.started_at.toISOString()).toBe('2026-10-14T00:00:00.000Z')
+      expect(f.run.ends_at.toISOString()).toBe('2026-10-21T00:00:00.000Z')
+    } finally {
+      await f.recorder.stop()
+    }
+  })
+  it('does not create a pause when an unpaused campaign has ended', async () => {
+    const f = fixture()
+    f.run.status = 'COMPLETED'
+    f.advance(8 * 86400000)
+    try {
+      await f.recorder.start()
+      await f.recorder.pollOnce()
+      expect(f.recorder.automationPaused).toBe(false)
+      expect(f.pause).not.toHaveBeenCalled()
+      expect(f.store.sample).not.toHaveBeenCalled()
+    } finally {
+      await f.recorder.stop()
+    }
+  })
   it('fences changed flags before startup can grant worker authority', async () => {
     const f = fixture()
     f.run.trading_states = { ...f.run.trading_states, EYELER_EXECUTION_DISABLED: true }
